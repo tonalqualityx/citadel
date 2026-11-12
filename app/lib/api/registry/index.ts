@@ -160,9 +160,12 @@ export const apiEnums = {
   designPinStatuses: ['pending', 'sent', 'resolved', 'followup', 'discarded'],
   designChangeDecisions: ['pending', 'accepted', 'denied'],
   designEventRoles: ['designer', 'assistant', 'tool', 'system'],
-  designEventKinds: ['text', 'apply', 'thought', 'action', 'result', 'screenshot', 'gate', 'cost', 'plan', 'status', 'followup', 'client_files', 'change', 'publish'],
-  designCommandVerbs: ['stop', 'publish', 'rollback', 'restore', 'close', 'resume', 'refresh_client_files'],
+  designEventKinds: ['text', 'apply', 'thought', 'action', 'result', 'screenshot', 'gate', 'cost', 'plan', 'status', 'followup', 'client_files', 'change', 'publish', 'edit', 'track_stage', 'art_direction', 'brief', 'lib_index'],
+  designCommandVerbs: ['stop', 'publish', 'rollback', 'restore', 'close', 'resume', 'refresh_client_files', 'share_drive_folder', 'unshare_drive_folder', 'adopt_branch', 'finish_gates'],
   designCommandStatuses: ['pending', 'claimed', 'done', 'failed'],
+  designTrackStages: ['research', 'art_direction', 'home_build', 'refine', 'rest_build', 'review', 'done', 'cancelled'],
+  designJobKinds: ['provision', 'research', 'capture', 'process_upload', 'brief', 'wireframe', 'home_build', 'rest_build', 'module', 'bulk_import', 'launch_readiness', 'client_brief_email', 'client_review_email', 'fact_fix'],
+  designJobStatuses: ['queued', 'claimed', 'running', 'done', 'failed', 'cancelled'],
 };
 
 /**

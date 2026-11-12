@@ -46,6 +46,38 @@ describe('PATCH /api/design/admin/sites/:id (site type)', () => {
   });
 });
 
+describe('PATCH /api/design/admin/sites/:id (design_path)', () => {
+  it('sets portal and reports it in the response', async () => {
+    siteUpdate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: SITE_ID, design_portal_enabled: true, designer_publish: true, design_auto_timer: true, design_path: null, ...data }));
+    const res = await call({ design_path: 'portal' });
+    expect(res.status).toBe(200);
+    expect(siteUpdate.mock.calls[0][0].data).toEqual({ design_path: 'portal' });
+    expect(siteUpdate.mock.calls[0][0].select.design_path).toBe(true);
+    expect((await res.json()).site.design_path).toBe('portal');
+  });
+  it('sets back to null', async () => {
+    siteUpdate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: SITE_ID, design_portal_enabled: true, designer_publish: true, design_auto_timer: true, design_path: 'portal', ...data }));
+    const res = await call({ design_path: null });
+    expect(res.status).toBe(200);
+    expect(siteUpdate.mock.calls[0][0].data).toEqual({ design_path: null });
+    expect((await res.json()).site.design_path).toBeNull();
+  });
+  it('any other value is 400 and writes nothing', async () => {
+    for (const v of ['designer', 'zero_design', 'other', '', 1, true]) expect((await call({ design_path: v })).status, String(v)).toBe(400);
+    expect(siteUpdate).not.toHaveBeenCalled();
+  });
+  it('a designer, pm and an API-key admin are still refused', async () => {
+    for (const role of ['designer', 'pm'] as const) { signIn(auth, userFind, role); expect((await call({ design_path: 'portal' })).status).toBe(403); }
+    signIn(auth, userFind, 'admin', { via: 'api_key' });
+    expect((await call({ design_path: 'portal' })).status).toBe(403);
+    expect(siteUpdate).not.toHaveBeenCalled();
+  });
+  it('the three flags still write alone, without design_path', async () => {
+    expect((await call({ designer_publish: false })).status).toBe(200);
+    expect(siteUpdate.mock.calls[0][0].data).toEqual({ designer_publish: false });
+  });
+});
+
 describe('PATCH /api/design/admin/sites/:id', () => {
   it('writes the three columns as plain booleans and reports the effective designer publish and main role', async () => {
     const res = await call({ design_portal_enabled: true, designer_publish: false, design_auto_timer: false });

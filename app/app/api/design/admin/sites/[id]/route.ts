@@ -7,13 +7,20 @@ import { designerMayPublish, mainRoleFor } from '@/lib/design/publish-policy';
 import { authActor, body, guardMutation, requireAdmin, requireSessionVia, type IdParams } from '@/lib/design/route-kit';
 
 const siteSchema = z
-  .object({ design_portal_enabled: z.boolean(), designer_publish: z.boolean(), design_auto_timer: z.boolean() })
+  .object({
+    design_portal_enabled: z.boolean(),
+    designer_publish: z.boolean(),
+    design_auto_timer: z.boolean(),
+    // Only 'portal' or null (not set) is settable here; designer and zero_design are not.
+    design_path: z.literal('portal').nullable(),
+  })
   .partial()
   .strict()
   .refine((v) => Object.keys(v).length > 0, { message: 'Nothing to change' });
 
-// PATCH /api/design/admin/sites/:id (design 7.2): the ONLY writer of design_portal_enabled, designer_publish
-// and design_auto_timer (kept out of PATCH /api/sites/:id). Admin, signed-in session.
+// PATCH /api/design/admin/sites/:id (design 7.2): the ONLY writer of design_portal_enabled, designer_publish,
+// design_auto_timer and design_path (kept out of PATCH /api/sites/:id). design_path accepts 'portal' or null only.
+// Admin, signed-in session only: no API-key path.
 export async function PATCH(request: NextRequest, { params }: IdParams) {
   try {
     const blocked = guardMutation(request);
@@ -36,7 +43,7 @@ export async function PATCH(request: NextRequest, { params }: IdParams) {
     const site = await prisma.site.update({
       where: { id },
       data,
-      select: { id: true, design_portal_enabled: true, designer_publish: true, design_auto_timer: true },
+      select: { id: true, design_portal_enabled: true, designer_publish: true, design_auto_timer: true, design_path: true },
     });
     const [settings, state] = await Promise.all([
       prisma.designPortalSettings.findUnique({ where: { id: 1 }, select: { designer_publish_mode: true } }),
@@ -49,6 +56,7 @@ export async function PATCH(request: NextRequest, { params }: IdParams) {
         design_portal_enabled: site.design_portal_enabled,
         designer_publish: site.designer_publish,
         design_auto_timer: site.design_auto_timer,
+        design_path: site.design_path,
         effective_designer_publish: designerMayPublish(site, { designer_publish_mode: settings?.designer_publish_mode ?? 'per_site' }, mainRole),
         main_role: mainRole,
       },

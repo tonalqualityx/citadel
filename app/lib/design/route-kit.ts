@@ -77,6 +77,11 @@ export function guardMutation(request: NextRequest): NextResponse | null {
   return rejectCrossSiteRequest(request);
 }
 
+/** The same guard for a multipart upload (track uploads, SPEC 3.3): multipart/form-data instead of JSON, same origin rules. */
+export function guardUpload(request: NextRequest): NextResponse | null {
+  return rejectCrossSiteRequest(request, 'multipart/form-data');
+}
+
 /**
  * Admin routes need a signed-in session, never an API key (7.2). A route that admits an operator key passes the
  * kind it opted in with; only an actor authActor admitted for exactly that kind passes.

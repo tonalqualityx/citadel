@@ -55,6 +55,7 @@ export interface AdminSite {
   design_portal_enabled: boolean;
   designer_publish: boolean;
   design_auto_timer: boolean;
+  design_path: 'designer' | 'zero_design' | 'portal' | null;
   effective_designer_publish: boolean;
   main_role: 'client_preview' | 'production';
 }
@@ -104,6 +105,15 @@ export function useAdminPublishes() {
 
 export function useAdminSites() {
   return useQuery({ queryKey: adminKeys.sites(), queryFn: () => apiClient.get<{ sites: AdminSite[] }>('/design/admin/sites') });
+}
+
+export function useUpdateSiteDesignPath() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { siteId: string; value: 'portal' | null }) => apiClient.patch(`/design/admin/sites/${v.siteId}`, { design_path: v.value }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: adminKeys.sites() }),
+    onError: (e) => showToast.apiError(e, 'Could not change the site'),
+  });
 }
 
 export function useUpdateSiteToggle() {

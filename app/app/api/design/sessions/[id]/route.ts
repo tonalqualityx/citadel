@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db/prisma';
 import { handleApiError } from '@/lib/api/errors';
 import { loadSessionFor } from '@/lib/design/access';
 import { latestLibIndex, projectChange, projectPin, projectSession, projectSessionTask, workerLive, workerView } from '@/lib/design/projections';
+import { loadSessionTrackView } from '@/lib/design/track-session';
 import { onPresence } from '@/lib/design/presence';
 import { authActor, type IdParams } from '@/lib/design/route-kit';
 
@@ -28,7 +29,7 @@ export async function GET(_request: NextRequest, { params }: IdParams) {
     if (!actor.operator) await onPresence(session, true, actor);
 
     return NextResponse.json({
-      session: projectSession(session),
+      session: projectSession({ ...session, track: await loadSessionTrackView(session) }),
       task: task ? projectSessionTask(task) : null,
       site: { name: site?.name ?? '' },
       pins: pins.map((p) => projectPin(p, libIndex)),

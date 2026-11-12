@@ -197,7 +197,7 @@ describe('lane bast-chat: the list', () => {
   });
 
   it('is always enforced and minted for the Bast user', () => {
-    expect(ALWAYS_ENFORCED_LANES).toEqual(['design-worker', 'bast-chat']);
+    expect(ALWAYS_ENFORCED_LANES).toEqual(['design-worker', 'bast-chat', 'design-track', 'design-notes']); // designer portal v2 adds its two born-enforced lanes
     expect(LANE_IDENTITY['bast-chat']).toBe('bast');
   });
 
@@ -220,9 +220,9 @@ describe('lane bast-chat: no other lane gained anything', () => {
   it('every other lane route list is byte for byte the one on main before this build', () => {
     // Fingerprint of "<lane> <METHOD> <pattern>" lines for every lane but bast-chat, taken from origin/main 7a5f1ef (work stage A and work stage B each add one porter line).
     const rows = LANES.filter((l) => l !== 'bast-chat').flatMap((l) => LANE_ROUTES[l].map((r) => `${l} ${r.method} ${r.pattern}`));
-    expect(rows).toHaveLength(174); // 155 on main plus porter POST /api/work/backfill-links (work stage A) and POST /api/work/apply-decisions (work stage B), ten lines of work stage D (porter 3, bast 3, courier 1, oracle 3: the state read, the attach and the evidence routes), and six oracle lines of work stage E (the work index, the session links, evidence, close-task and track routes, and the stale-asks clear), and oracle POST /api/oracle/clocks (work stage F)
+    expect(rows).toHaveLength(194); // 174 before designer portal v2, plus its 20: design-track 14, design-notes 3 and three design-worker lines (session context GET, art-direction PATCH, track-assets GET). Without those 20 the fingerprint is still 78ffa238...c25f48. Before that: 155 on main plus porter POST /api/work/backfill-links (work stage A) and POST /api/work/apply-decisions (work stage B), ten lines of work stage D (porter 3, bast 3, courier 1, oracle 3: the state read, the attach and the evidence routes), and six oracle lines of work stage E (the work index, the session links, evidence, close-task and track routes, and the stale-asks clear), and oracle POST /api/oracle/clocks (work stage F)
     expect(createHash('sha256').update(rows.join('\n')).digest('hex')).toBe(
-      '78ffa238f22a6f92468cda9092ad60a9ab0ac97772054a2ba86059aae8c25f48', // main's 20f12653... plus the two porter lines of work stages A and B, the ten of work stage D and the six oracle lines of work stage E and the one oracle line of work stage F
+      '93f784924b5584f883410ca351218688d114656cf59863fc38f308740c9d8625', // 78ffa238... plus the 20 designer portal v2 lines; 78ffa238 was main's 20f12653... plus the two porter lines of work stages A and B, the ten of work stage D and the six oracle lines of work stage E and the one oracle line of work stage F
     );
   });
 

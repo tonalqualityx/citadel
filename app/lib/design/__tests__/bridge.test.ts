@@ -456,3 +456,78 @@ describe('useDesignBridge', () => {
     expect(result.drafts).toHaveLength(0);
   });
 });
+
+describe('createBridge: dp:preview-token (outbound only)', () => {
+  const tok = (name: unknown, value: unknown) => ({ type: 'dp:preview-token', name, value });
+
+  it('posts a valid token to the frame window with the exact preview origin', () => {
+    const { frame, bridge } = setup();
+    const spy = vi.spyOn(frame.contentWindow!, 'postMessage').mockImplementation(() => undefined);
+    expect(bridge.send(tok('--maxw', '1280px'))).toBe(true);
+    expect(bridge.send(tok('--gutter-phone', '0px'))).toBe(true);
+    expect(bridge.send(tok('container-method', 'padding_cap'))).toBe(true);
+    expect(bridge.send(tok('--maxw', null))).toBe(true);
+    expect(spy.mock.calls).toEqual([
+      [{ type: 'dp:preview-token', name: '--maxw', value: '1280px' }, ORIGIN],
+      [{ type: 'dp:preview-token', name: '--gutter-phone', value: '0px' }, ORIGIN],
+      [{ type: 'dp:preview-token', name: 'container-method', value: 'padding_cap' }, ORIGIN],
+      [{ type: 'dp:preview-token', name: '--maxw', value: null }, ORIGIN],
+    ]);
+    bridge.detach();
+  });
+
+  it('refuses every bad name and value and posts nothing', () => {
+    const { frame, bridge } = setup();
+    const spy = vi.spyOn(frame.contentWindow!, 'postMessage').mockImplementation(() => undefined);
+    const bad: unknown[] = [
+      tok('--color-ink', '1200px'),
+      tok('--font-body', 'Arial'),
+      tok('--maxw', '100%'),
+      tok('--maxw', '1200px; background:url(x)'),
+      tok('--maxw', 'calc(1px)'),
+      tok('--maxw', 'var(--x)'),
+      tok('--maxw', '1200px !important'),
+      tok('--maxw', '99999px'),
+      tok('--maxw', '319px'),
+      tok('--maxw', '2401px'),
+      tok('--maxw', 1200),
+      tok('--maxw', { a: 1 }),
+      tok('--gutter-tablet', '201px'),
+      tok('container-method', 'px'),
+      tok('container-method', 'padding_cap; x'),
+      tok(7, '1200px'),
+      tok({ a: 1 }, '1200px'),
+      { ...tok('--maxw', '1200px'), extra: 1 },
+      { type: 'dp:preview-token', name: '--maxw' },
+      { type: 'dp:preview-token', value: '1200px' },
+    ];
+    for (const m of bad) expect(bridge.send(m)).toBe(false);
+    expect(spy).not.toHaveBeenCalled();
+    bridge.detach();
+  });
+
+  it('adds no inbound type: a dp:preview-token coming from the frame is an unknown type', () => {
+    const { fromFrame, bridge, totalCalls } = setup();
+    fromFrame({ type: 'dp:preview-token', name: '--maxw', value: '1200px' });
+    expect(totalCalls()).toBe(0);
+    expect(bridge.stats().unknownType).toBe(1);
+    bridge.detach();
+  });
+});
+
+describe('useDesignBridge: preview tokens and frame epoch', () => {
+  it('sends a token through the bridge and bumps frameEpoch on dp:ready and dp:navigate', () => {
+    const frame = makeFrame();
+    const iframeRef = { current: frame };
+    const spy = vi.spyOn(frame.contentWindow!, 'postMessage').mockImplementation(() => undefined);
+    const { result } = renderHook(() => useDesignBridge({ iframeRef, previewUrl: PREVIEW }));
+    expect(result.current.frameEpoch).toBe(0);
+    expect(result.current.sendPreviewToken('--maxw', '1440px')).toBe(true);
+    expect(result.current.sendPreviewToken('--maxw', 'nope')).toBe(false);
+    expect(spy.mock.calls).toEqual([[{ type: 'dp:preview-token', name: '--maxw', value: '1440px' }, ORIGIN]]);
+    act(() => post({ type: 'dp:ready', path: '/about/', sha: 'abc', viewport: { w: 390, h: 844 } }, ORIGIN, frame.contentWindow));
+    expect(result.current.frameEpoch).toBe(1);
+    act(() => post({ type: 'dp:navigate', path: '/contact/' }, ORIGIN, frame.contentWindow));
+    expect(result.current.frameEpoch).toBe(2);
+  });
+});

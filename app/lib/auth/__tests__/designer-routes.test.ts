@@ -3,7 +3,7 @@ import { DESIGNER_ROUTES, designerMayCall, designerMayCallRoute } from '../desig
 
 // Designer Portal (design D1): the designer session allowlist, deny by default.
 const concrete = (pattern: string) =>
-  pattern.replace(':assetId', 'asset-9').replace(/:id/g, '3f2b8c1e-0000-4000-8000-000000000001');
+  pattern.replace(':assetId', 'asset-9').replace(':refId', 'ref-9').replace(':markupId', 'markup-9').replace(/:id/g, '3f2b8c1e-0000-4000-8000-000000000001');
 
 describe('DESIGNER_ROUTES', () => {
   it('is exactly the D1 list (plus the confirm ruling)', () => {
@@ -31,8 +31,23 @@ describe('DESIGNER_ROUTES', () => {
       'POST /api/design/publishes/:id/rollback',
       'GET /api/design/sessions/:id/assets/:assetId',
       'POST /api/design/sessions/:id/client-files/refresh',
+      'POST /api/design/sessions/:id/home-ready',
+      'GET /api/design/sessions/:id/brief',
+      'POST /api/design/sessions/:id/brief/reactions',
+      'GET /api/design/sessions/:id/references',
+      'POST /api/design/sessions/:id/references',
+      'PATCH /api/design/sessions/:id/references/:refId',
+      'POST /api/design/sessions/:id/markups',
+      'PATCH /api/design/sessions/:id/markups/:markupId',
+      'POST /api/design/sessions/:id/uploads',
+      'GET /api/design/sessions/:id/track-assets/:assetId',
+      'GET /api/design/sessions/:id/art-direction',
+      'PATCH /api/design/sessions/:id/art-direction',
+      'POST /api/design/sessions/:id/art-direction/sign',
+      'POST /api/design/sessions/:id/art-direction/revise',
+      'POST /api/design/sessions/:id/preview-link',
     ]);
-    expect(DESIGNER_ROUTES).toHaveLength(23);
+    expect(DESIGNER_ROUTES).toHaveLength(38);
   });
 
   it.each(DESIGNER_ROUTES.map((r) => [r.method, concrete(r.pattern)]))('allows %s %s', (method, path) => {

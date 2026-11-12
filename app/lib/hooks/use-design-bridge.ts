@@ -43,6 +43,10 @@ export interface UseDesignBridgeResult {
   clearDrafts: () => void;
   highlight: (selector: string) => boolean;
   scroll: (selector: string) => boolean;
+  /** Post one container preview token (null removes the override). False when refused or the frame is not there. */
+  sendPreviewToken: (name: string, value: string | null) => boolean;
+  /** Counts up on every `dp:ready` and `dp:navigate`, so a caller can re-post state to a fresh page. */
+  frameEpoch: number;
 }
 
 let draftSeq = 0;
@@ -59,6 +63,7 @@ export function useDesignBridge(options: UseDesignBridgeOptions): UseDesignBridg
     path: null,
   });
   const [drafts, setDrafts] = React.useState<BridgeDraft[]>([]);
+  const [epoch, setEpoch] = React.useState(0);
 
   const selectMode = select.url === url && select.on;
   const bridgeRef = React.useRef<Bridge | null>(null);
@@ -81,10 +86,12 @@ export function useDesignBridge(options: UseDesignBridgeOptions): UseDesignBridg
       },
       onNavigate: (nav) => {
         setFrame((prev) => ({ url, ready: prev.url === url && prev.ready, path: nav.path }));
+        setEpoch((n) => n + 1);
         callbacks.current.onNavigate?.(nav);
       },
       onReady: (info) => {
         setFrame({ url, ready: true, path: info.path });
+        setEpoch((n) => n + 1);
         // Every page load starts the overlay with select mode off; restore what the designer has on.
         if (selectRef.current) bridge.send({ type: 'dp:select', on: true });
         callbacks.current.onReady?.(info);
@@ -125,6 +132,11 @@ export function useDesignBridge(options: UseDesignBridgeOptions): UseDesignBridg
     [],
   );
 
+  const sendPreviewToken = React.useCallback(
+    (name: string, value: string | null) => bridgeRef.current?.send({ type: 'dp:preview-token', name, value }) ?? false,
+    [],
+  );
+
   const current = frame.url === url;
   return {
     selectMode,
@@ -137,5 +149,7 @@ export function useDesignBridge(options: UseDesignBridgeOptions): UseDesignBridg
     clearDrafts,
     highlight,
     scroll,
+    sendPreviewToken,
+    frameEpoch: epoch,
   };
 }

@@ -31,6 +31,7 @@ import * as command from '../commands/[id]/route';
 import * as publish from '../publishes/[id]/route';
 import { NOT_WORKERS, WORKER as WORKER_BASE, ctx, req } from './harness';
 import { DESIGN_WORKER_SERVICE_EMAIL } from '@/lib/design/helpers';
+import { seedWorld, teardownWorlds, type TrackWorld } from '@/lib/design/__tests__/track-world';
 
 let WORKER = WORKER_BASE;
 
@@ -51,6 +52,7 @@ describe.skipIf(!SCRATCH)('worker routes (real database)', () => {
   let tid: string;
   let svcCreated = false;
   const origSettings = { owner: null as string | null, enabled: true };
+  const trackWorlds: TrackWorld[] = [];
   const set = (id: string) => ctx({ id });
 
   beforeAll(async () => {
@@ -73,6 +75,7 @@ describe.skipIf(!SCRATCH)('worker routes (real database)', () => {
     await prisma.projectTeamAssignment.deleteMany({ where: { project_id: { in: others.map((o) => o.id) } } });
     await prisma.task.deleteMany({ where: { project_id: { in: others.map((o) => o.id) } } });
     await prisma.project.deleteMany({ where: { id: { in: others.map((o) => o.id) } } });
+    await teardownWorlds(f, trackWorlds);
     await teardownDesign(f);
     if (svcCreated) await prisma.user.deleteMany({ where: { email: DESIGN_WORKER_SERVICE_EMAIL } }).catch(() => {});
     await prisma.$disconnect();
@@ -370,6 +373,7 @@ describe.skipIf(!SCRATCH)('worker routes (real database)', () => {
       expect(body.settings).toHaveProperty('idle_close_minutes');
       expect(body.settings).toHaveProperty('max_live_sessions');
       for (const s of body.new_sessions) expect(s).toHaveProperty('drive_folder_id');
+      for (const s of body.new_sessions) expect(s).toHaveProperty('track'); // v2: null for an untracked session
 
       await prisma.designPortalSettings.update({ where: { id: 1 }, data: { enabled: false } });
       const off = await (await inbox.GET(req('GET', `${P}/inbox`))).json();
@@ -386,7 +390,8 @@ describe.skipIf(!SCRATCH)('worker routes (real database)', () => {
       await prisma.project.update({ where: { id: f.projectId }, data: { drive_folder_id: 'pf' } });
       const s = await look();
       expect(s.drive_folder_id).toBe('pf');
-      expect(s).toMatchObject({ id: sid, task_id: tid, site_id: f.siteId, branch: expect.stringMatching(/^design\//) });
+      expect(s).toMatchObject({ id: sid, task_id: tid, site_id: f.siteId, branch: expect.stringMatching(/^design\//), track: null });
+      expect(s).toHaveProperty('preview_url'); // an untracked session keeps its own (null until it has one)
       await prisma.project.update({ where: { id: f.projectId }, data: { drive_folder_id: null } });
       await prisma.client.update({ where: { id: f.clientId }, data: { drive_folder_id: null } });
       await prisma.designSession.update({ where: { id: sid }, data: { status: 'awaiting_input' } });
@@ -457,6 +462,72 @@ describe.skipIf(!SCRATCH)('worker routes (real database)', () => {
       const res = await session.PATCH(req('PATCH', `${P}/sessions/${sid}`, { status: 'closed' }), set(sid));
       expect(res.status).toBe(200);
       expect((await res.json()).session.status).toBe('abandoned');
+    });
+  });
+
+  describe('v2: sessions on a design track', () => {
+    let w: TrackWorld;
+    let trackId: string;
+    let tsid: string;
+    let slug: string;
+    beforeAll(async () => {
+      w = await seedWorld(f, 'wk');
+      trackWorlds.push(w);
+      slug = 'mnbvcxzlkjhgfdsa';
+      const track = await prisma.designTrack.create({
+        data: { site_id: w.siteId, project_id: w.projectId, slug, stage: 'refine', branch: `design/t-${slug}`, preview_alias: `design-t-${slug}`, preview_url: `https://design-t-${slug}.proj.pages.dev` },
+      });
+      trackId = track.id;
+      tsid = (await createOrGetSession(f.designer, w.t.art)).session.id;
+    });
+
+    it('inbox new_sessions carry track {id, slug, branch, preview_alias, stage, busy}; the branch still starts design/', async () => {
+      const look = async () => (await (await inbox.GET(req('GET', `${P}/inbox?max=200`))).json()).new_sessions.find((x: { id: string }) => x.id === tsid);
+      const item = await look();
+      expect(item.track).toEqual({ id: trackId, slug, branch: `design/t-${slug}`, preview_alias: `design-t-${slug}`, stage: 'refine', busy: false });
+      expect(item).toMatchObject({ task_id: w.t.refine, branch: `design/t-${slug}`, preview_alias: `design-t-${slug}` });
+      expect(item.branch).toMatch(/^design\//);
+      // SPEC 2.4: a new session on a track that has a preview is told the track's preview_url (so setup is skipped)
+      expect(item.preview_url).toBe(`https://design-t-${slug}.proj.pages.dev`);
+      await prisma.designTrack.update({ where: { id: trackId }, data: { preview_url: `https://design-t-${slug}.proj2.pages.dev` } });
+      expect((await look()).preview_url).toBe(`https://design-t-${slug}.proj2.pages.dev`);
+      await prisma.designTrack.update({ where: { id: trackId }, data: { preview_url: `https://design-t-${slug}.proj.pages.dev` } });
+      const job = await prisma.designJob.create({ data: { track_id: trackId, kind: 'rest_build', status: 'running', payload: {} } });
+      await prisma.designTrack.update({ where: { id: trackId }, data: { busy_job_id: job.id, stage: 'rest_build' } });
+      expect((await look()).track).toMatchObject({ stage: 'rest_build', busy: true });
+      await prisma.designTrack.update({ where: { id: trackId }, data: { busy_job_id: null, stage: 'refine' } });
+      await prisma.designJob.delete({ where: { id: job.id } });
+    });
+
+    it('the worker session views carry track (object for a tracked session, null for an untracked one)', async () => {
+      const one = await (await session.GET(req('GET', `${P}/sessions/${tsid}`), set(tsid))).json();
+      expect(one.session.track).toMatchObject({ id: trackId, slug, stage: 'refine', busy: false });
+      expect((await (await session.GET(req('GET', `${P}/sessions/${sid}`), set(sid))).json()).session.track).toBeNull();
+      const list = (await (await sessions.GET(req('GET', `${P}/sessions?status=pending`))).json()).sessions as Array<{ id: string; track: unknown }>;
+      expect(list.find((x) => x.id === tsid)?.track).toMatchObject({ slug });
+      expect(list.find((x) => x.id === sid)?.track ?? null).toBeNull();
+    });
+
+    it('own-alias check unchanged: the track alias is accepted as the preview host, another session\'s alias is not', async () => {
+      const patch = (body: object) => session.PATCH(req('PATCH', `${P}/sessions/${tsid}`, body), set(tsid));
+      expect((await patch({ preview_url: `https://design-t-${slug}.proj.pages.dev/` })).status).toBe(200);
+      expect((await patch({ preview_url: 'https://design-aaaaaaaa.proj.pages.dev/' })).status).toBe(400);
+      expect((await patch({ preview_url: 'https://design-t-aaaaaaaaaaaaaaaa.proj.pages.dev/' })).status).toBe(400);
+    });
+
+    it('open_changes holds only denied changes, newest 50', async () => {
+      const mk = (i: number, decision: 'pending' | 'accepted' | 'denied') => prisma.designChange.create({
+        data: { session_id: tsid, commit_sha: `c${String(i).padStart(6, '0')}`, summary: `change ${i}`, decision, created_at: new Date(Date.now() - (100 - i) * 1000) },
+      });
+      await mk(1, 'pending');
+      await mk(2, 'accepted');
+      for (let i = 3; i < 58; i++) await mk(i, 'denied'); // 55 denied
+      const open = (await (await session.GET(req('GET', `${P}/sessions/${tsid}`), set(tsid))).json()).open_changes as Array<{ summary: string; decision: string }>;
+      expect(open).toHaveLength(50);
+      expect(open.every((c) => c.decision === 'denied')).toBe(true);
+      expect(open[0].summary).toBe('change 57'); // newest first
+      expect(open[49].summary).toBe('change 8');
+      expect(Object.keys(open[0]).sort()).toEqual(['commit_sha', 'data_libs', 'decision', 'designer_note', 'files', 'id', 'is_restore', 'pages', 'parent_sha', 'pin_ids', 'summary']);
     });
   });
 });

@@ -6,6 +6,7 @@ import { ApiError, handleApiError } from '@/lib/api/errors';
 import { idParam, num, requireWorker, workerBody, workerSessionView } from '@/lib/design/worker-kit';
 import { resolveDriveFolder } from '@/lib/design/worker-inbox';
 import { assetsBelongToSession } from '@/lib/design/assets';
+import { loadWorkerTracks } from '@/lib/design/track-session';
 import { terminalStatusFor, transition, transitionSession } from '@/lib/design/sessions';
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -21,13 +22,14 @@ export async function GET(_request: NextRequest, { params }: Ctx) {
         site: { select: { id: true, name: true } },
         designer: { select: { name: true } },
         pins: { where: { status: 'sent' }, orderBy: { created_at: 'asc' } },
-        changes: { where: { decision: { not: 'accepted' } }, orderBy: { created_at: 'asc' } },
+        // v2 (SPEC 3): only denied changes, newest 50; the daemon does not read the field, the shape stays.
+        changes: { where: { decision: 'denied' }, orderBy: { created_at: 'desc' }, take: 50 },
       },
     });
     if (!s) throw new ApiError('Session not found', 404, 'not_found');
     const { task, site, designer, pins, changes, ...row } = s;
     return NextResponse.json({
-      session: workerSessionView({ ...row, cost_usd: row.cost_usd, budget_usd: row.budget_usd }),
+      session: workerSessionView({ ...row, cost_usd: row.cost_usd, budget_usd: row.budget_usd, track: (await loadWorkerTracks([row])).get(row.track_id ?? '') ?? null }),
       task,
       site,
       drive_folder_id: await resolveDriveFolder(s, prisma),
@@ -132,7 +134,7 @@ export async function PATCH(request: NextRequest, { params }: Ctx) {
     }
     if (movesStatus) await transitionSession(id, to!, 'worker');
     const fresh = await prisma.designSession.findUniqueOrThrow({ where: { id } });
-    return NextResponse.json({ session: workerSessionView(fresh) });
+    return NextResponse.json({ session: workerSessionView({ ...fresh, track: (await loadWorkerTracks([fresh])).get(fresh.track_id ?? '') ?? null }) });
   } catch (error) {
     return handleApiError(error);
   }

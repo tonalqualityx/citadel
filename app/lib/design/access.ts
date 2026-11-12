@@ -29,6 +29,7 @@ import type { DesignSession, Prisma, PrismaClient } from '@prisma/client';
 import { prisma as defaultDb } from '@/lib/db/prisma';
 import { ApiError } from '@/lib/api/errors';
 import { designClaimHolder, isUuid, type DesignActor } from './helpers';
+import { RUNNER_TAG, STAGE_TAG_PREFIX } from './track-session';
 
 export const DESIGN_CLOSED_TASK_STATUSES = ['done', 'abandoned'] as const;
 export const DESIGN_VISIBLE_PROJECT_STATUSES = ['ready', 'in_progress', 'review'] as const;
@@ -68,6 +69,8 @@ export interface DrawerTask {
   } | null;
   claim_holder: string | null;
   lease_until: Date | null;
+  /** v2: tags carry `design-stage:*` (stage tasks) and `design-runner` (Bot tasks, never listed). Not forbidden, not shown. */
+  tags?: string[];
 }
 
 export type DrawerExclusion =
@@ -168,6 +171,7 @@ export const DRAWER_TASK_SELECT = {
   project: { select: { id: true, name: true, status: true, is_deleted: true, site_id: true, site: { select: DRAWER_SITE_SELECT } } },
   claim_holder: true,
   lease_until: true,
+  tags: true,
 } satisfies Prisma.TaskSelect;
 
 const ENABLED_SITE_WHERE = { is_deleted: false, design_portal_enabled: true, site_type: DESIGN_SITE_TYPE } satisfies Prisma.SiteWhereInput;
@@ -181,6 +185,8 @@ export function drawerTaskWhere(
   return {
     is_deleted: false,
     status: { notIn: [...DESIGN_CLOSED_TASK_STATUSES] },
+    // v2 (SPEC 2.3): Bast-run (Bot) tasks never reach a designer.
+    NOT: { tags: { has: RUNNER_TAG } },
     project_id: projectIds ? { in: projectIds } : projectId ? projectId : { not: null },
     project: { is_deleted: false, status: { in: [...DESIGN_VISIBLE_PROJECT_STATUSES] } },
     OR: [{ site: ENABLED_SITE_WHERE }, { site_id: null, project: { site: ENABLED_SITE_WHERE } }],
@@ -199,14 +205,16 @@ export interface DrawerSessionRow {
 
 export interface DrawerData {
   rows: DrawerRow[];
-  /** The latest session per listed task (any status, so a closed one still shows its chip). */
+  /** The latest session per listed task (any status, so a closed one still shows its chip). A design-stage task shows the latest session of its track. */
   sessionsByTask: Map<string, DrawerSessionRow>;
+  /** v2: the stage of the project's latest track, for each listed `design-stage:*` task (absent for every other task). */
+  trackStageByTask: Map<string, string>;
   /** finished_at of each session's last publish, by publish id (for the "published <date>" chip). */
   publishedAt: Map<string, Date | null>;
   worker: { last_heartbeat_at: Date | null; paused: boolean };
 }
 
-type DrawerDb = Pick<PrismaClient, 'projectTeamAssignment' | 'task' | 'designWorkerState' | 'designSession' | 'designPublish'>;
+type DrawerDb = Pick<PrismaClient, 'projectTeamAssignment' | 'task' | 'designWorkerState' | 'designSession' | 'designPublish' | 'designTrack'>;
 
 export async function loadDrawer(
   actor: DesignActor,
@@ -216,7 +224,7 @@ export async function loadDrawer(
   if (!canReadDrawer(actor.role)) throw new ApiError('Forbidden', 403, 'forbidden');
   const projectId = opts.projectId && isUuid(opts.projectId) ? opts.projectId : null;
   if (opts.projectId && !projectId) {
-    return { rows: [], sessionsByTask: new Map(), publishedAt: new Map(), worker: { last_heartbeat_at: null, paused: false } };
+    return { rows: [], sessionsByTask: new Map(), trackStageByTask: new Map(), publishedAt: new Map(), worker: { last_heartbeat_at: null, paused: false } };
   }
 
   const assigned =
@@ -243,6 +251,7 @@ export async function loadDrawer(
   });
 
   const sessionsByTask = new Map<string, DrawerSessionRow>();
+  const trackStageByTask = new Map<string, string>();
   const publishedAt = new Map<string, Date | null>();
   if (rows.length > 0) {
     const sessions = await db.designSession.findMany({
@@ -251,6 +260,37 @@ export async function loadDrawer(
       orderBy: { created_at: 'desc' },
     });
     for (const s of sessions) if (!sessionsByTask.has(s.task_id)) sessionsByTask.set(s.task_id, s);
+
+    // v2 (SPEC 2.3): a stage task carries its track's stage and the track's latest session (one session moves between
+    // the stage tasks, so the chip must show on all of them). Skipped entirely when no listed task is a stage task.
+    const stageRows = rows.filter((r) => (r.task.tags ?? []).some((t) => t.startsWith(STAGE_TAG_PREFIX)));
+    if (stageRows.length > 0) {
+      const projectIds = [...new Set(stageRows.map((r) => r.task.project_id).filter((x): x is string => !!x))];
+      const tracks = await db.designTrack.findMany({
+        where: { project_id: { in: projectIds } },
+        select: { id: true, project_id: true, stage: true },
+        orderBy: { created_at: 'desc' },
+      });
+      const latestByProject = new Map<string, { id: string; stage: string }>();
+      for (const t of tracks) if (!latestByProject.has(t.project_id)) latestByProject.set(t.project_id, t);
+      const trackIds = [...latestByProject.values()].map((t) => t.id);
+      const trackSessions = trackIds.length
+        ? await db.designSession.findMany({
+            where: { track_id: { in: trackIds } },
+            select: { id: true, task_id: true, track_id: true, designer_id: true, status: true, publish_requested_at: true, last_publish_id: true, created_at: true },
+            orderBy: { created_at: 'desc' },
+          })
+        : [];
+      const latestSessionByTrack = new Map<string, DrawerSessionRow>();
+      for (const s of trackSessions) if (s.track_id && !latestSessionByTrack.has(s.track_id)) latestSessionByTrack.set(s.track_id, s);
+      for (const r of stageRows) {
+        const t = r.task.project_id ? latestByProject.get(r.task.project_id) : undefined;
+        if (!t) continue;
+        trackStageByTask.set(r.task.id, t.stage);
+        const s = latestSessionByTrack.get(t.id);
+        if (s) sessionsByTask.set(r.task.id, s);
+      }
+    }
     const publishIds = [...sessionsByTask.values()].map((s) => s.last_publish_id).filter((id): id is string => !!id);
     if (publishIds.length > 0) {
       const pubs = await db.designPublish.findMany({ where: { id: { in: publishIds }, status: 'published' }, select: { id: true, finished_at: true } });
@@ -258,7 +298,7 @@ export async function loadDrawer(
     }
   }
 
-  return { rows, sessionsByTask, publishedAt, worker: { last_heartbeat_at: state?.last_heartbeat_at ?? null, paused: state?.paused ?? false } };
+  return { rows, sessionsByTask, trackStageByTask, publishedAt, worker: { last_heartbeat_at: state?.last_heartbeat_at ?? null, paused: state?.paused ?? false } };
 }
 
 // ---------------------------------------------------------------------------------------------------------

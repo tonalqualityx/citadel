@@ -181,10 +181,15 @@ export interface PendingMessage {
   author_id: string | null;
 }
 
-/** Undelivered designer events of sessions that can take a turn, oldest first (the inbox's `messages`). */
+/** Undelivered designer events of sessions that can take a turn and whose track is not busy, oldest first (the inbox's `messages`). */
 export async function pendingDesignerEvents(max = 50, db: Pick<PrismaClient, 'designEvent'> = defaultDb): Promise<PendingMessage[]> {
   const rows = await db.designEvent.findMany({
-    where: { role: 'designer', delivered_at: null, session: { status: { in: [...DELIVERABLE_STATUSES] } } },
+    where: {
+      role: 'designer',
+      delivered_at: null,
+      // Held, not lost: a designer event of a session whose track is busy (a build is running) is delivered once the track is free (SPEC 2.2, 3.4).
+      session: { status: { in: [...DELIVERABLE_STATUSES] }, OR: [{ track_id: null }, { track: { busy_job_id: null } }] },
+    },
     orderBy: [{ created_at: 'asc' }, { seq: 'asc' }],
     take: Math.min(200, Math.max(1, Math.trunc(max) || 50)),
     select: { session_id: true, seq: true, kind: true, payload: true, author_id: true },

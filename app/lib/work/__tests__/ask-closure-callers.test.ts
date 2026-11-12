@@ -27,6 +27,7 @@ const REQUIRED = [
   'lib/services/charter-generator.ts', // a new period abandons the last period's tasks
   'app/api/tasks/route.ts', // POST /api/tasks may create a task already done or abandoned
   'lib/work/attach-store.ts', // Work stage D: Undo of "Just a task" abandons the task the answer made (after un-stamping its asks)
+  'lib/design/track-core.ts', // Designer portal v2: completeStageTask marks a design stage task done
 ];
 
 /** Files that match the scan but carry no email link, with the reason. Empty on purpose. */

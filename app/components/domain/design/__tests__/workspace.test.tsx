@@ -9,9 +9,15 @@ vi.mock('@/lib/hooks/use-design-bridge', () => ({
   useDesignBridge: () => ({ selectMode: false, setSelectMode, path: null }),
 }));
 
+const emailLink = vi.fn();
+vi.mock('@/lib/hooks/use-design-preview-link', () => ({
+  useEmailPreviewLink: () => ({ mutate: emailLink, isPending: false, isSuccess: false, isError: false, error: null }),
+  previewLinkErrorText: () => '',
+}));
+
 import { PreviewPane, PREVIEW_SANDBOX } from '../PreviewPane';
 import { TimerPill, formatElapsed } from '../TimerPill';
-import { Workspace, previewState } from '../Workspace';
+import { Workspace, previewState, WORKSPACE_TABS, TRACKED_WORKSPACE_TABS, workspaceTabsFor } from '../Workspace';
 import { resolvePreviewUrl } from '@/lib/design/preview-path';
 import type { DesignFeedResponse, DesignSessionResponse } from '@/lib/hooks/use-design';
 
@@ -128,17 +134,61 @@ describe('Workspace header', () => {
     expect(previewState({ preview_url: PREVIEW, preview_sha: null, head_sha: 'b' })).toBe('building');
   });
 
-  it('renders title, site, chip, preview text with link, disabled publish and tabs', () => {
+  it('renders title, site, chip, preview text with the links control, disabled publish and tabs', () => {
     render(<Workspace data={base()} feed={undefined} />);
     expect(screen.getByText('Hero copy')).toBeTruthy();
     expect(screen.getByText('vcdp.org')).toBeTruthy();
     expect(screen.getByTestId('status-chip').textContent).toBe('Working');
     const state = screen.getByTestId('preview-state');
     expect(state.textContent).toContain('Preview up to date');
-    expect(within(state).getByRole('link').getAttribute('href')).toBe(PREVIEW);
+    // The plain "Open preview" link is gone: the links live in the Preview links control (SPEC 4.10).
+    expect(within(state).queryByRole('link')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Preview links' }));
+    expect(screen.getByRole('link', { name: /Open the site/ }).getAttribute('href')).toBe(`${PREVIEW}/`);
+    expect(screen.getByRole('link', { name: /Open the site/ }).getAttribute('rel')).toBe('noopener noreferrer');
     expect((screen.getByRole('button', { name: 'Publish to live...' }) as HTMLButtonElement).disabled).toBe(true);
     for (const t of ['Chat', 'Tasks', 'Changes', 'Versions', 'Client files']) expect(screen.getByRole('tab', { name: t })).toBeTruthy();
     expect(screen.getByText(/coming in W6\.4/)).toBeTruthy();
+  });
+
+  it('untracked (v1) sessions keep exactly the v1 tab list, in order', () => {
+    expect(WORKSPACE_TABS.map((t) => t.label)).toEqual(['Chat', 'Tasks', 'Changes', 'Versions', 'Client files']);
+    render(<Workspace data={base()} feed={undefined} />);
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Chat', 'Tasks', 'Changes', 'Versions', 'Client files']);
+    expect(workspaceTabsFor(null)).toBe(WORKSPACE_TABS);
+    expect(workspaceTabsFor(undefined)).toBe(WORKSPACE_TABS);
+  });
+
+  it('a tracked session shows Brief, Board, Direction, Chat, Tasks, Changes, Versions, Client files, then Pages from review', () => {
+    const track = (stage: string) => ({ id: 'trk', stage, busy: false, busy_line: null, preview_alias: 'design-t-abcdefghijklmnop', preview_url: null, finish: null });
+    const labels = ['Brief', 'Board', 'Direction', 'Chat', 'Tasks', 'Changes', 'Versions', 'Client files'];
+    expect(TRACKED_WORKSPACE_TABS.map((t) => t.label)).toEqual(labels);
+    for (const stage of ['art_direction', 'home_build', 'refine', 'rest_build']) {
+      const { unmount } = render(<Workspace data={base({ track: track(stage) })} feed={undefined} />);
+      expect(screen.getAllByRole('tab').map((t) => t.textContent), stage).toEqual(labels);
+      unmount();
+    }
+    for (const stage of ['review', 'done']) {
+      const { unmount } = render(<Workspace data={base({ track: track(stage) })} feed={undefined} />);
+      expect(screen.getAllByRole('tab').map((t) => t.textContent), stage).toEqual([...labels, 'Pages']);
+      unmount();
+    }
+  });
+
+  it('a tracked header shows the stage strip with the current step and the busy line', () => {
+    const track = { id: 'trk', stage: 'home_build', busy: true, busy_line: 'Building the home page', preview_alias: 'a', preview_url: null, finish: null };
+    render(<Workspace data={base({ track })} feed={undefined} />);
+    const strip = screen.getByRole('navigation', { name: 'Design stages' });
+    const current = within(strip).getAllByRole('listitem').filter((li) => li.getAttribute('aria-current') === 'step');
+    expect(current.map((li) => li.textContent)).toEqual([expect.stringContaining('Home')]);
+    expect(screen.getByTestId('stage-busy-line').textContent).toBe('Building the home page');
+    expect(within(screen.getByRole('banner')).getByTestId('stage-strip')).toBeTruthy();
+  });
+
+  it('an untracked header has no stage strip at all', () => {
+    render(<Workspace data={base()} feed={undefined} />);
+    expect(screen.queryByTestId('stage-strip')).toBeNull();
+    expect(screen.queryByRole('navigation', { name: 'Design stages' })).toBeNull();
   });
 
   it('gives the preview the whole stage and floats the chat over it (no grid column)', () => {
@@ -181,6 +231,7 @@ describe('Workspace header', () => {
     const state = screen.getByTestId('preview-state');
     expect(state.textContent).toBe('Preview building...');
     expect(within(state).queryByRole('link')).toBeNull();
+    expect((screen.getByRole('button', { name: /Preview links/ }) as HTMLButtonElement).disabled).toBe(true);
   });
 });
 

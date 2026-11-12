@@ -20,6 +20,9 @@ import * as assets from '../sessions/[id]/assets/route';
 import * as events from '../sessions/[id]/events/route';
 import * as changes from '../sessions/[id]/changes/route';
 import * as scope from '../sessions/[id]/scope-flags/route';
+import * as context from '../sessions/[id]/context/route';
+import * as direction from '../sessions/[id]/art-direction/route';
+import * as trackAsset from '../sessions/[id]/track-assets/[assetId]/route';
 import * as change from '../changes/[id]/route';
 import * as pin from '../pins/[id]/route';
 import * as command from '../commands/[id]/route';
@@ -48,16 +51,19 @@ const rows: Row[] = [
   { name: 'PATCH pins/:id', h: pin.PATCH as Handler, method: 'PATCH', path: `${P}/pins/${ID}`, body: {}, c: ctx({ id: ID }) },
   { name: 'POST sessions/:id/scope-flags', h: scope.POST as Handler, method: 'POST', path: `${P}/sessions/${ID}/scope-flags`, body: { title: 't' }, c: ctx({ id: ID }) },
   { name: 'PATCH commands/:id', h: command.PATCH as Handler, method: 'PATCH', path: `${P}/commands/${ID}`, body: { action: 'claim' }, c: ctx({ id: ID }) },
+  { name: 'GET sessions/:id/context', h: context.GET as Handler, method: 'GET', path: `${P}/sessions/${ID}/context?part=brief`, c: ctx({ id: ID }) },
+  { name: 'PATCH sessions/:id/art-direction', h: direction.PATCH as Handler, method: 'PATCH', path: `${P}/sessions/${ID}/art-direction`, body: { patch: { summary: 's' } }, c: ctx({ id: ID }) },
+  { name: 'GET sessions/:id/track-assets/:assetId', h: trackAsset.GET as Handler, method: 'GET', path: `${P}/sessions/${ID}/track-assets/${ID}`, c: ctx({ id: ID, assetId: ID }) },
   { name: 'PATCH publishes/:id', h: publish.PATCH as Handler, method: 'PATCH', path: `${P}/publishes/${ID}`, body: { status: 'running' }, c: ctx({ id: ID }) },
 ];
 
 beforeEach(() => vi.clearAllMocks());
 
-describe('the 14 worker routes', () => {
+describe('the 17 worker routes', () => {
   it('are exactly the lane list', () => {
     const lane = LANE_ROUTES['design-worker'].map((r) => `${r.method} ${r.pattern.replace('/api/design/worker/', '').replace(/:(\w+)/g, ':$1')}`);
-    expect(rows).toHaveLength(14);
-    expect(lane).toHaveLength(14);
+    expect(rows).toHaveLength(17);
+    expect(lane).toHaveLength(17);
     expect(HAS_PUBLISHES, 'W2.4 lib/design/publishes.ts missing: the publishes row is a placeholder').toBe(true);
   });
 
@@ -81,6 +87,12 @@ describe('the 14 worker routes', () => {
       });
     });
   }
+
+  it('the art direction route has a PATCH and nothing else: no sign, no revise, no way to freeze a direction', () => {
+    for (const verb of ['GET', 'POST', 'PUT', 'DELETE']) expect((direction as Record<string, unknown>)[verb]).toBeUndefined();
+    expect(fs.existsSync(path.resolve(__dirname, '../sessions/[id]/art-direction/sign'))).toBe(false);
+    expect(fs.existsSync(path.resolve(__dirname, '../sessions/[id]/art-direction/revise'))).toBe(false);
+  });
 
   it('there is no route to create a publish or a command, and none to confirm one', () => {
     expect((publish as Record<string, unknown>).POST).toBeUndefined();

@@ -8,6 +8,7 @@
  */
 import { toUsd, type DesignActor } from './helpers';
 import type { DrawerData, DrawerRow, DrawerSessionRow } from './access';
+import type { SessionTrackView } from './track-session';
 import { normalizeMainRole, parsePrecheck, type ConfirmationShown, type MainRole, type PolicyCode, type Precheck } from './publish-policy';
 
 export const WORKER_ONLINE_WINDOW_MS = 30_000;
@@ -115,6 +116,8 @@ export interface DrawerTaskView {
   title: string;
   status: string;
   phase: string | null;
+  /** v2: the track's stage on a `design-stage:*` task, null on every other task. */
+  track_stage: string | null;
   session: DrawerSessionView | null;
 }
 
@@ -169,6 +172,7 @@ export function projectDrawer(data: DrawerData, actor: Pick<DesignActor, 'userId
       title: task.title,
       status: task.status,
       phase: phaseName,
+      track_stage: data.trackStageByTask?.get(task.id) ?? null,
       session: drawerSession(data.sessionsByTask.get(task.id), actor, data.publishedAt),
     });
   }
@@ -218,6 +222,8 @@ export interface SessionRowForProjection {
   created_at: Date;
   updated_at: Date;
   closed_at: Date | null;
+  /** v2: the session's track view (loadSessionTrackView); omitted or null for an untracked session. */
+  track?: SessionTrackView | null;
 }
 
 export interface PrecheckView {
@@ -269,6 +275,7 @@ export function projectSession(s: SessionRowForProjection, now: Date = new Date(
     created_at: s.created_at,
     updated_at: s.updated_at,
     closed_at: s.closed_at,
+    track: s.track ?? null,
   };
 }
 
@@ -343,12 +350,15 @@ export function projectChange(c: {
 export function projectSessionListItem(s: {
   id: string; status: string; updated_at: Date;
   task: { id: string; title: string }; site: { name: string };
+  /** v2: the track's stage, null for an untracked session. */
+  track_stage?: string | null;
   last_publish: { id: string; status: string; finished_at: Date | null } | null;
 }) {
   return {
     id: s.id,
     task: { id: s.task.id, title: s.task.title },
     site: { name: s.site.name },
+    track_stage: s.track_stage ?? null,
     status: s.status,
     last_publish: s.last_publish ? { id: s.last_publish.id, status: s.last_publish.status, finished_at: s.last_publish.finished_at } : null,
     updated_at: s.updated_at,

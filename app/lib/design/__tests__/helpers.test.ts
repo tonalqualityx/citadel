@@ -38,6 +38,11 @@ describe('isDesignWorker: email AND lane AND api key', () => {
     ['service email, two lanes on one key', { email: DESIGN_WORKER_SERVICE_EMAIL, lane: 'design-worker,bast', via: 'api_key' }, false],
     ['service email, stolen session', { email: DESIGN_WORKER_SERVICE_EMAIL, lane: 'design-worker', via: 'session', laneEnforced: true }, false],
     ['other user with the lane', { email: 'bast@becomeindelible.com', lane: 'design-worker', via: 'api_key', laneEnforced: true }, false],
+    // v2: the Bast runner key is not the worker, even enforced and even with the worker's email (SPEC 6.1a)
+    ['an enforced design-track key (the runner)', { email: 'bast@becomeindelible.com', lane: 'design-track', via: 'api_key', laneEnforced: true }, false],
+    ['an enforced design-notes key (the intake)', { email: 'bast@becomeindelible.com', lane: 'design-notes', via: 'api_key', laneEnforced: true }, false],
+    ['the worker email on an enforced design-notes key', { email: DESIGN_WORKER_SERVICE_EMAIL, lane: 'design-notes', via: 'api_key', laneEnforced: true }, false],
+    ['the worker email on an enforced design-track key', { email: DESIGN_WORKER_SERVICE_EMAIL, lane: 'design-track', via: 'api_key', laneEnforced: true }, false],
   ];
   for (const [name, over, expected] of rows) {
     it(`${name} -> ${expected}`, () => expect(isDesignWorker(auth(over))).toBe(expected));

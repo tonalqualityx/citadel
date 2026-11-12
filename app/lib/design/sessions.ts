@@ -10,13 +10,15 @@
  *  - closeSession(): picks closed vs abandoned and releases the task claim.
  * Timer logic (D10) is W2.7's and is not here.
  */
-import type { DesignSession, DesignSessionStatus, PrismaClient } from '@prisma/client';
+import type { DesignSession, DesignSessionStatus, DesignTrack, PrismaClient } from '@prisma/client';
 import { prisma as defaultDb } from '@/lib/db/prisma';
 import { ApiError } from '@/lib/api/errors';
 import { claimTask, releaseClaim } from '@/lib/tasks/claims';
 import { DRAWER_TASK_SELECT, designerOnProject, drawerDecision, DESIGN_TERMINAL_SESSION_STATUSES, type DrawerDecision, type DrawerTask } from './access';
 import { stopTimer } from './timer';
 import { designClaimHolder, isUuid, task8, type DesignActor } from './helpers';
+import { findTaskByTag, lockTrack } from './track-core';
+import { OPEN_TRACK_STAGES_EXCLUDED, isRunnerTask, isStageTask, stageTaskTagFor } from './track-session';
 
 export type SessionActor = 'worker' | 'server';
 
@@ -158,27 +160,60 @@ export interface CreateOrGetResult {
  *    caller (404; claimed by someone else is 409 task_claimed), the site served by the box (409
  *    site_not_available), and the task claim (holder `design:<task8>`); the claim is taken inside the
  *    transaction, so a lost claim rolls the session back.
+ *  - v2 (SPEC 2.3): a task tagged `design-runner` is 404. A task tagged `design-stage:*` resolves the project's
+ *    open track under `pg_advisory_xact_lock(hashtext('design-track:'||track_id))`: the track's live session is
+ *    returned to its designer whichever stage task was clicked (another designer: 409 `session_owned`); otherwise a
+ *    session is created on the track pointing at the track's CURRENT designer stage task, with the track's branch,
+ *    alias and preview URL copied on. No open track: 409 `track_not_ready`. Untracked tasks behave exactly as v1.
  */
 export async function createOrGetSession(actor: DesignActor, taskId: string, db: Db = defaultDb): Promise<CreateOrGetResult> {
   if (!isUuid(taskId)) throw new ApiError('Task not found', 404, 'not_found');
   if (actor.role !== 'designer' && actor.role !== 'admin') throw new ApiError('Forbidden', 403, 'forbidden');
   return db.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`design-session:${taskId}`}))`;
+    // v2 (SPEC 2.3): a Bast-run task (design-runner) never opens a workspace; a design-stage task opens the track's.
+    const head = await tx.task.findUnique({ where: { id: taskId }, select: { tags: true, project_id: true } });
+    if (head && isRunnerTask(head.tags)) throw new ApiError('Task not found', 404, 'not_found');
+    const tracked = head !== null && isStageTask(head.tags);
+
+    // One lock per track for a tracked open, per task for everything else (v1).
+    let track: DesignTrack | null = null;
+    let reopen = false;
+    if (tracked) {
+      const where = { project_id: head!.project_id ?? '', stage: { notIn: OPEN_TRACK_STAGES_EXCLUDED } } as const;
+      const candidate = head!.project_id ? await tx.designTrack.findFirst({ where, orderBy: { created_at: 'desc' } }) : null;
+      if (candidate) {
+        await lockTrack(tx, candidate.id);
+        track = await tx.designTrack.findFirst({ where: { ...where, id: candidate.id } });
+      }
+      if (!track && actor.role === 'admin' && head!.project_id && head!.tags.includes('design-stage:review')) {
+        // An admin may open a new session from the done review task (SPEC 2.3).
+        track = await tx.designTrack.findFirst({ where: { project_id: head!.project_id, stage: 'done' }, orderBy: { created_at: 'desc' } });
+        if (track) {
+          await lockTrack(tx, track.id);
+          reopen = true;
+        }
+      }
+    } else {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`design-session:${taskId}`}))`;
+    }
     const holder = designClaimHolder(taskId);
 
-    /** The drawer filter for this caller (null when the task does not exist). */
+    /** The drawer filter for this caller (null when the task does not exist). `reopen` shows a done task as open. */
     const decide = async (): Promise<{ task: DrawerTask; decision: DrawerDecision } | null> => {
-      const task = await tx.task.findUnique({ where: { id: taskId }, select: DRAWER_TASK_SELECT });
-      if (!task) return null;
+      const found = await tx.task.findUnique({ where: { id: taskId }, select: DRAWER_TASK_SELECT });
+      if (!found) return null;
+      const task = (reopen ? { ...found, status: 'in_progress' } : found) as unknown as DrawerTask;
       const assigned = actor.role === 'designer'
         ? (await tx.projectTeamAssignment.findMany({ where: { user_id: actor.userId }, select: { project_id: true } })).map((a) => a.project_id)
         : [];
       const state = await tx.designWorkerState.findUnique({ where: { id: 1 }, select: { configured_site_ids: true } });
-      const decision = drawerDecision(task as DrawerTask, { actor, assignedProjectIds: assigned, configuredSiteIds: state?.configured_site_ids ?? [] });
-      return { task: task as DrawerTask, decision };
+      const decision = drawerDecision(task, { actor, assignedProjectIds: assigned, configuredSiteIds: state?.configured_site_ids ?? [] });
+      return { task, decision };
     };
 
-    const live = await tx.designSession.findFirst({ where: { task_id: taskId, status: { notIn: ['closed', 'abandoned'] } } });
+    const live = tracked
+      ? track ? await tx.designSession.findFirst({ where: { track_id: track.id, status: { notIn: ['closed', 'abandoned'] } } }) : null
+      : await tx.designSession.findFirst({ where: { task_id: taskId, status: { notIn: ['closed', 'abandoned'] } } });
     if (live) {
       if (actor.role !== 'admin') {
         if (live.designer_id === actor.userId) {
@@ -189,7 +224,8 @@ export async function createOrGetSession(actor: DesignActor, taskId: string, db:
           throw new ApiError('Another designer has this task open', 409, 'session_owned');
         }
       }
-      await claimTask({ taskId, holder, ttlSeconds: CLAIM_TTL_SECONDS }, tx as unknown as Db);
+      // A tracked session may sit on a different stage task than the one clicked: renew the claim it holds.
+      await claimTask({ taskId: live.task_id, holder: designClaimHolder(live.task_id), ttlSeconds: CLAIM_TTL_SECONDS }, tx as unknown as Db);
       return { session: live, created: false };
     }
 
@@ -204,6 +240,32 @@ export async function createOrGetSession(actor: DesignActor, taskId: string, db:
       throw new ApiError('Task not found', 404, 'not_found');
     }
     if (!decision.available) throw new ApiError('This site is not available yet', 409, 'site_not_available');
+
+    if (tracked) {
+      // Visible to her, but the project has no open design track yet (or it is finished): nothing to open.
+      if (!track) throw new ApiError('The design track for this project is not ready yet', 409, 'track_not_ready');
+      const target = (await findTaskByTag(tx, track.project_id, stageTaskTagFor(track.stage)))?.id ?? taskId;
+      const claim = await claimTask({ taskId: target, holder: designClaimHolder(target), ttlSeconds: CLAIM_TTL_SECONDS }, tx as unknown as Db);
+      // A finished stage task is already done (claim reason 'closed'): the session still opens on it.
+      if (!claim.ok && claim.reason === 'taken') throw new ApiError('Someone else is working on this task', 409, 'task_claimed');
+      const session = await tx.designSession.create({
+        data: {
+          task_id: target,
+          site_id: decision.site.id,
+          project_id: task.project_id,
+          designer_id: actor.userId,
+          track_id: track.id,
+          status: 'pending',
+          branch: track.branch,
+          preview_alias: track.preview_alias,
+          preview_url: track.preview_url,
+          model: defaults.model,
+          effort: defaults.effort,
+          budget_usd: defaults.budget_usd,
+        },
+      });
+      return { session, created: true };
+    }
 
     const claim = await claimTask({ taskId, holder, ttlSeconds: CLAIM_TTL_SECONDS }, tx as unknown as Db);
     if (!claim.ok) {

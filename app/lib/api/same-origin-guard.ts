@@ -5,8 +5,8 @@ import { NextRequest, NextResponse } from 'next/server';
  * only, and Sec-Fetch-Site / Origin must be same-origin (or the configured app origin). Returns a
  * rejection response, or null when the request may proceed.
  */
-export function rejectCrossSiteRequest(request: NextRequest): NextResponse | null {
-  if (!(request.headers.get('content-type') ?? '').toLowerCase().startsWith('application/json')) {
+export function rejectCrossSiteRequest(request: NextRequest, contentType = 'application/json'): NextResponse | null {
+  if (!(request.headers.get('content-type') ?? '').toLowerCase().startsWith(contentType)) {
     return NextResponse.json({ error: 'Unsupported content type.' }, { status: 415 });
   }
   const fetchSite = request.headers.get('sec-fetch-site');

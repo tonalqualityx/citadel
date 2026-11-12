@@ -1,5 +1,6 @@
 /** Scratch-database fixture for the session engine tests: a designer on a project whose eleventy site is enabled and served. */
 import crypto from 'crypto';
+import type { DesignTrackStage } from '@prisma/client';
 import { prisma } from '@/lib/db/prisma';
 import { SCRATCH } from '@/lib/engine/__tests__/seed';
 import { designActorFrom, type DesignActor } from '../helpers';
@@ -54,9 +55,32 @@ export async function seedTask(f: DesignFixture, title = 'task'): Promise<string
   return t.id;
 }
 
+/** A design track on the fixture's site and project (v2). Stage defaults to art_direction; the slug is random lowercase base32. */
+export async function seedTrack(
+  f: DesignFixture,
+  opts: { stage?: DesignTrackStage; round?: number; slug?: string; preview_url?: string | null; head_sha?: string | null } = {},
+): Promise<{ id: string; slug: string; branch: string; preview_alias: string }> {
+  const alphabet = 'abcdefghijklmnopqrstuvwxyz234567';
+  const slug = opts.slug ?? Array.from(crypto.randomBytes(16), (b) => alphabet[b % 32]).join('');
+  const t = await prisma.designTrack.create({
+    data: {
+      site_id: f.siteId,
+      project_id: f.projectId,
+      round: opts.round ?? 1,
+      slug,
+      stage: opts.stage ?? 'art_direction',
+      branch: `design/t-${slug}`,
+      preview_alias: `design-t-${slug}`,
+      preview_url: opts.preview_url ?? null,
+      head_sha: opts.head_sha ?? null,
+    },
+  });
+  return { id: t.id, slug, branch: t.branch, preview_alias: t.preview_alias };
+}
+
 export async function teardownDesign(f: DesignFixture): Promise<void> {
   const userIds = [f.designer.userId, f.admin.userId, f.other.userId];
-  await cleanupDesign({ taskIds: f.taskIds, siteIds: [f.siteId], userIds });
+  await cleanupDesign({ taskIds: f.taskIds, siteIds: [f.siteId], userIds, clientIds: [f.clientId] });
   await prisma.task.deleteMany({ where: { id: { in: f.taskIds } } });
   await prisma.projectTeamAssignment.deleteMany({ where: { project_id: f.projectId } });
   await prisma.function.deleteMany({ where: { id: f.functionId } });

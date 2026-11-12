@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils/cn';
 import { parsePreviewInput, resolvePreviewUrl } from '@/lib/design/preview-path';
 import { computeViewportScale } from '@/lib/design/viewport-scale';
+import { WidthControl } from './WidthControl';
 import { ViewportSwitcher, viewportWidth, VIEWPORTS, type ViewportKey } from './ViewportSwitcher';
 
 /** Exactly D7: scripts and same-origin for the overlay; no forms, no top navigation, no popups. */
@@ -22,6 +23,12 @@ export interface PreviewPaneProps {
   reportedPath?: string | null;
   /** Fires when the page path or the viewport width changes: what the designer is looking at. */
   onViewChange?: (view: { path: string; width: number }) => void;
+  /** Container width preview (SPEC 4.2): `bridge.sendPreviewToken`. The Width control shows only when this is given. */
+  sendPreviewToken?: (name: string, value: string | null) => boolean;
+  /** `bridge.frameEpoch`: changes on every page load in the frame, so the picks are posted again. */
+  frameEpoch?: number;
+  /** The session whose art direction receives a saved width. Null or missing: the control previews only. */
+  directionSessionId?: string | null;
 }
 
 function isTypingTarget(t: EventTarget | null): boolean {
@@ -29,7 +36,7 @@ function isTypingTarget(t: EventTarget | null): boolean {
   return t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName);
 }
 
-export function PreviewPane({ previewUrl, status, liveText, iframeRef, selectMode, onSelectModeChange, reportedPath, onViewChange }: PreviewPaneProps) {
+export function PreviewPane({ previewUrl, status, liveText, iframeRef, selectMode, onSelectModeChange, reportedPath, onViewChange, sendPreviewToken, frameEpoch, directionSessionId }: PreviewPaneProps) {
   const [viewport, setViewport] = React.useState<ViewportKey>('fit');
   const [framePath, setFramePath] = React.useState<string>('/');
   const [barText, setBarText] = React.useState('/');
@@ -180,6 +187,7 @@ export function PreviewPane({ previewUrl, status, liveText, iframeRef, selectMod
           </span>
         )}
       </div>
+      {sendPreviewToken && <WidthControl sendToken={sendPreviewToken} frameEpoch={frameEpoch} sessionId={directionSessionId} />}
       {barError && (
         <p id="preview-url-error" role="alert" className="text-xs text-red-600">{barError}</p>
       )}

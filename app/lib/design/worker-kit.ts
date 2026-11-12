@@ -4,6 +4,7 @@ import type { ZodType } from 'zod';
 import { requireAuth, type AuthPayload } from '@/lib/auth/middleware';
 import { ApiError, AuthError } from '@/lib/api/errors';
 import { isDesignWorker, isUuid } from './helpers';
+import type { WorkerTrackView } from './track-session';
 
 export const WORKER_BODY_BYTES = 256 * 1024;
 
@@ -43,6 +44,8 @@ export function workerSessionView(s: {
   head_sha: string | null; preview_url?: string | null; preview_deploy_url?: string | null; preview_sha?: string | null;
   model?: string; effort?: string; last_publish_id?: string | null; live_action?: string | null; last_seq?: number;
   lib_index?: unknown; diff_summary?: unknown; publish_precheck?: unknown;
+  /** v2: `{id, slug, branch, preview_alias, stage, busy}` (null = untracked). Pass it whenever the session may be tracked. */
+  track?: WorkerTrackView | null;
 }) {
   return {
     id: s.id, task_id: s.task_id, site_id: s.site_id, status: s.status, sdk_session_id: s.sdk_session_id,
@@ -57,5 +60,6 @@ export function workerSessionView(s: {
     ...(s.lib_index !== undefined ? { lib_index: s.lib_index } : {}),
     ...(s.diff_summary !== undefined ? { diff_summary: s.diff_summary } : {}),
     ...(s.publish_precheck !== undefined ? { publish_precheck: s.publish_precheck } : {}),
+    ...(s.track !== undefined ? { track: s.track } : {}),
   };
 }

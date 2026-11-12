@@ -1,6 +1,6 @@
 /** Shared plumbing for the Designer Portal e2e specs: logins, the fake preview host, the select-and-pin gesture. */
 import path from 'node:path';
-import { expect, request as pwRequest, type Browser, type BrowserContext, type Page } from '@playwright/test';
+import { expect, request as pwRequest, test, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { PASSWORD, BASE_SHA } from './design-portal-fixture';
 import { startPreviewServer } from './design-preview/server';
 
@@ -8,10 +8,20 @@ export const PW_PORT = process.env.PW_PORT || '3000';
 export const BASE_URL = `http://localhost:${PW_PORT}`;
 const STATE_DIR = path.resolve(__dirname, '..', '..', '..', 'test-results');
 
-/** Real API login (no UI), saved as a storage state file. Few logins on purpose: /api/auth/login is 10 req/min. */
+/**
+ * Real API login (no UI), saved as a storage state file. Few logins on purpose: /api/auth/login is 10 req/min.
+ * Several spec files in one run share that minute, so a 429 waits for the window the server names (Retry-After)
+ * and tries again, giving the calling hook the extra time.
+ */
 export async function loginState(email: string, label: string): Promise<string> {
   const ctx = await pwRequest.newContext({ baseURL: BASE_URL });
-  const res = await ctx.post('/api/auth/login', { data: { email, password: PASSWORD } });
+  let res = await ctx.post('/api/auth/login', { data: { email, password: PASSWORD } });
+  for (let attempt = 0; res.status() === 429 && attempt < 3; attempt += 1) {
+    const waitMs = Math.min(65, Math.max(1, Number(res.headers()['retry-after']) || 60)) * 1000 + 1000;
+    test.setTimeout(test.info().timeout + waitMs);
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+    res = await ctx.post('/api/auth/login', { data: { email, password: PASSWORD } });
+  }
   if (!res.ok()) throw new Error(`login ${email} -> ${res.status()}`);
   const file = path.join(STATE_DIR, `.dpe2e-${label}.json`);
   await ctx.storageState({ path: file });

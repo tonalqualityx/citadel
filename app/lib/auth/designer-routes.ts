@@ -37,6 +37,21 @@ export const DESIGNER_ROUTES: readonly DesignerRoute[] = [
   { method: 'POST', pattern: '/api/design/publishes/:id/rollback' },
   { method: 'GET', pattern: '/api/design/sessions/:id/assets/:assetId' },
   { method: 'POST', pattern: '/api/design/sessions/:id/client-files/refresh' },
+  { method: 'POST', pattern: '/api/design/sessions/:id/home-ready' },
+  { method: 'GET', pattern: '/api/design/sessions/:id/brief' },
+  { method: 'POST', pattern: '/api/design/sessions/:id/brief/reactions' },
+  { method: 'GET', pattern: '/api/design/sessions/:id/references' },
+  { method: 'POST', pattern: '/api/design/sessions/:id/references' },
+  { method: 'PATCH', pattern: '/api/design/sessions/:id/references/:refId' },
+  { method: 'POST', pattern: '/api/design/sessions/:id/markups' },
+  { method: 'PATCH', pattern: '/api/design/sessions/:id/markups/:markupId' },
+  { method: 'POST', pattern: '/api/design/sessions/:id/uploads' },
+  { method: 'GET', pattern: '/api/design/sessions/:id/track-assets/:assetId' },
+  { method: 'GET', pattern: '/api/design/sessions/:id/art-direction' },
+  { method: 'PATCH', pattern: '/api/design/sessions/:id/art-direction' },
+  { method: 'POST', pattern: '/api/design/sessions/:id/art-direction/sign' },
+  { method: 'POST', pattern: '/api/design/sessions/:id/art-direction/revise' },
+  { method: 'POST', pattern: '/api/design/sessions/:id/preview-link' },
 ];
 
 /**

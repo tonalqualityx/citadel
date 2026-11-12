@@ -7,10 +7,11 @@ import { Button } from '@/components/ui/button';
 import { ChatDock } from './ChatDock';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useDesignBridge, type UseDesignBridgeResult } from '@/lib/hooks/use-design-bridge';
-import { previewOriginOf } from '@/lib/design/bridge';
 import type { DesignFeedResponse, DesignSessionResponse } from '@/lib/hooks/use-design';
+import { PreviewLinks } from './PreviewLinks';
 import { PreviewPane } from './PreviewPane';
 import { TimerPill } from './TimerPill';
+import { StageStrip } from './track/StageStrip';
 
 export const STATUS_LABELS: Record<string, { label: string; variant: 'default' | 'success' | 'warning' | 'error' | 'info' }> = {
   pending: { label: 'Setting up', variant: 'info' },
@@ -45,8 +46,33 @@ export const WORKSPACE_TABS: ReadonlyArray<{ id: string; label: string; task: st
   { id: 'client-files', label: 'Client files', task: 'W6.5' },
 ];
 
+/**
+ * The tab list of a session on a design track (SPEC 4, W0.4 #13): Brief, Board, Direction, Chat, Tasks, Changes, Versions,
+ * Client files, then Pages once the track reaches review. `WORKSPACE_TABS` above stays the untracked (v1) list.
+ */
+export const TRACKED_WORKSPACE_TABS: ReadonlyArray<{ id: string; label: string; task: string }> = [
+  { id: 'brief', label: 'Brief', task: 'W1.3' },
+  { id: 'board', label: 'Board', task: 'W1.3' },
+  { id: 'direction', label: 'Direction', task: 'W1.3' },
+  ...WORKSPACE_TABS,
+];
+export const TRACKED_REVIEW_TABS: ReadonlyArray<{ id: string; label: string; task: string }> = [
+  ...TRACKED_WORKSPACE_TABS,
+  { id: 'pages', label: 'Pages', task: 'W9.1' },
+];
+
+/** The tabs a session shows: the v1 list when untracked, the tracked list otherwise (Pages from review). */
+export function workspaceTabsFor(track: { stage: string } | null | undefined) {
+  if (!track) return WORKSPACE_TABS;
+  return track.stage === 'review' || track.stage === 'done' ? TRACKED_REVIEW_TABS : TRACKED_WORKSPACE_TABS;
+}
+
 /** Slots W6.4/W6.5/W6.6 fill. A slot not given renders the placeholder. */
 export interface WorkspaceSlots {
+  brief?: React.ReactNode;
+  board?: React.ReactNode;
+  direction?: React.ReactNode;
+  pages?: React.ReactNode;
   chat?: React.ReactNode;
   tasks?: React.ReactNode;
   changes?: React.ReactNode;
@@ -78,6 +104,7 @@ export function Workspace({ data, feed, slots: givenSlots = {}, useSlots = useNo
   const previewSha = feed ? feed.preview_sha : data.session.preview_sha;
   const headSha = feed ? feed.head_sha : data.session.head_sha;
 
+  const tabs = workspaceTabsFor(data.session.track);
   const bridge = useDesignBridge({ iframeRef, previewUrl });
   const [pageView, setPageView] = React.useState<{ path: string; width: number } | null>(null);
   const onViewChange = React.useCallback((v: { path: string; width: number }) => {
@@ -86,7 +113,6 @@ export function Workspace({ data, feed, slots: givenSlots = {}, useSlots = useNo
   const view = { path: pageView?.path ?? null, width: pageView?.width ?? null, previewSha: previewSha ?? null };
   const slots: WorkspaceSlots = { ...useSlots({ bridge, view }), ...givenSlots };
   const state = previewState({ preview_url: previewUrl, preview_sha: previewSha, head_sha: headSha });
-  const safeLink = previewOriginOf(previewUrl) ? previewUrl : null;
 
   return (
     <div className="flex w-full min-w-0 flex-col gap-3">
@@ -103,16 +129,10 @@ export function Workspace({ data, feed, slots: givenSlots = {}, useSlots = useNo
           {state === 'up_to_date' && 'Preview up to date'}
           {state === 'out_of_date' && 'Preview out of date'}
           {state === 'building' && 'Preview building...'}
-          {safeLink && state !== 'building' && (
-            <>
-              {' '}
-              <a href={safeLink} target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2">
-                Open preview
-              </a>
-            </>
-          )}
         </p>
         <div className="ml-auto flex items-center gap-2">
+          {/* SPEC 4.10: the links a designer opens on a phone or another machine. The control builds them from the stored preview URL. */}
+          <PreviewLinks sessionId={data.session.id} previewUrl={state === 'building' ? null : previewUrl ?? null} path={bridge.path ?? view.path} />
           <TimerPill timer={feed?.timer} />
           {slots.publishButton ?? (
             <Button type="button" variant="secondary" size="sm" disabled title="Available soon">
@@ -120,6 +140,7 @@ export function Workspace({ data, feed, slots: givenSlots = {}, useSlots = useNo
             </Button>
           )}
         </div>
+        <StageStrip track={data.session.track} />
       </header>
 
       <div data-testid="workspace-stage" className="relative h-[calc(100dvh-11rem)] min-h-[560px] min-w-0">
@@ -133,6 +154,10 @@ export function Workspace({ data, feed, slots: givenSlots = {}, useSlots = useNo
             onSelectModeChange={bridge.setSelectMode}
             reportedPath={bridge.path}
             onViewChange={onViewChange}
+            // Width preview (SPEC 4.2) is a tracked-session tool; an untracked (v1) session keeps the v1 pane.
+            sendPreviewToken={data.session.track ? bridge.sendPreviewToken : undefined}
+            frameEpoch={bridge.frameEpoch}
+            directionSessionId={data.session.track ? data.session.id : null}
           />
         </section>
         <ChatDock
@@ -143,11 +168,11 @@ export function Workspace({ data, feed, slots: givenSlots = {}, useSlots = useNo
         >
           <Tabs defaultValue="chat">
             <TabsList className="h-auto w-full flex-nowrap justify-start gap-0.5 overflow-x-auto">
-              {WORKSPACE_TABS.map((t) => (
+              {tabs.map((t) => (
                 <TabsTrigger key={t.id} value={t.id} className="px-2.5">{t.label}</TabsTrigger>
               ))}
             </TabsList>
-            {WORKSPACE_TABS.map((t) => (
+            {tabs.map((t) => (
               <TabsContent key={t.id} value={t.id}>
                 {slots[t.id as keyof WorkspaceSlots] ?? (
                   <p className="p-4 text-sm text-text-sub">{t.label}: coming in {t.task}.</p>

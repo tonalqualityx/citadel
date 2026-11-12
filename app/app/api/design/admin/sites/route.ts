@@ -16,7 +16,7 @@ export async function GET() {
       prisma.site.findMany({
         where: { is_deleted: false },
         orderBy: { name: 'asc' },
-        select: { id: true, name: true, url: true, design_portal_enabled: true, designer_publish: true, design_auto_timer: true },
+        select: { id: true, name: true, url: true, design_portal_enabled: true, designer_publish: true, design_auto_timer: true, design_path: true },
       }),
       prisma.designPortalSettings.findUnique({ where: { id: 1 }, select: { designer_publish_mode: true } }),
       prisma.designWorkerState.findUnique({ where: { id: 1 }, select: { site_main_roles: true } }),
@@ -32,6 +32,7 @@ export async function GET() {
           design_portal_enabled: s.design_portal_enabled,
           designer_publish: s.designer_publish,
           design_auto_timer: s.design_auto_timer,
+          design_path: s.design_path,
           effective_designer_publish: designerMayPublish(s, { designer_publish_mode: mode }, mainRole),
           main_role: mainRole,
         };

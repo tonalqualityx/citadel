@@ -115,6 +115,68 @@ describe('the design-worker lane is born enforced (W8.2 H3)', () => {
   });
 });
 
+describe('the design-track lane is born enforced (portal v2, SPEC 6.1a)', () => {
+  it('minting lane:design-track without scope-mode:enforce is 400 and creates nothing', async () => {
+    auth.mockResolvedValue(ADMIN);
+    findUser.mockResolvedValue({ id: BAST_ID, is_active: true, role: 'pm' });
+    const res = await post({ name: 'design track runner', user_id: BAST_ID, scopes: ['lane:design-track'] });
+    expect(res.status).toBe(400);
+    expect(createKey).not.toHaveBeenCalled();
+  });
+  it('minting it with scope-mode:enforce is 201', async () => {
+    auth.mockResolvedValue(ADMIN);
+    findUser.mockResolvedValue({ id: BAST_ID, is_active: true, role: 'pm' });
+    const res = await post({ name: 'design track runner', user_id: BAST_ID, scopes: ['lane:design-track', 'scope-mode:enforce'] });
+    expect(res.status).toBe(201);
+    expect((await res.json()).scopes).toEqual(['lane:design-track', 'scope-mode:enforce']);
+  });
+  it('PATCH cannot drop enforce from a design-track key (400, nothing updated)', async () => {
+    auth.mockResolvedValue(ADMIN);
+    findKey.mockResolvedValue({ id: 'k-t', user_id: BAST_ID, is_revoked: false, scopes: ['lane:design-track', 'scope-mode:enforce'], user: { role: 'pm' } });
+    const res = await patch('k-t', { scopes: ['lane:design-track'] });
+    expect(res.status).toBe(400);
+    expect(updateKey).not.toHaveBeenCalled();
+  });
+  it('a key cannot carry both the design-track and design-worker lanes', async () => {
+    auth.mockResolvedValue(ADMIN);
+    const res = await post({ name: 'x', scopes: ['lane:design-track', 'lane:design-worker', 'scope-mode:enforce'] });
+    expect(res.status).toBe(400);
+    expect(createKey).not.toHaveBeenCalled();
+  });
+});
+
+describe('the design-notes lane is born enforced (portal v2, SPEC 8.1)', () => {
+  it('minting lane:design-notes without scope-mode:enforce is 400 and creates nothing', async () => {
+    auth.mockResolvedValue(ADMIN);
+    findUser.mockResolvedValue({ id: BAST_ID, is_active: true, role: 'pm' });
+    const res = await post({ name: 'design notes intake', user_id: BAST_ID, scopes: ['lane:design-notes'] });
+    expect(res.status).toBe(400);
+    expect(createKey).not.toHaveBeenCalled();
+  });
+  it('minting it with scope-mode:enforce is 201', async () => {
+    auth.mockResolvedValue(ADMIN);
+    findUser.mockResolvedValue({ id: BAST_ID, is_active: true, role: 'pm' });
+    const res = await post({ name: 'design notes intake', user_id: BAST_ID, scopes: ['lane:design-notes', 'scope-mode:enforce'] });
+    expect(res.status).toBe(201);
+    expect((await res.json()).scopes).toEqual(['lane:design-notes', 'scope-mode:enforce']);
+  });
+  it('PATCH cannot drop enforce from a design-notes key (400, nothing updated)', async () => {
+    auth.mockResolvedValue(ADMIN);
+    findKey.mockResolvedValue({ id: 'k-n', user_id: BAST_ID, is_revoked: false, scopes: ['lane:design-notes', 'scope-mode:enforce'], user: { role: 'pm' } });
+    const res = await patch('k-n', { scopes: ['lane:design-notes'] });
+    expect(res.status).toBe(400);
+    expect(updateKey).not.toHaveBeenCalled();
+  });
+  it('a key cannot carry design-notes beside the design-track or design-worker lane', async () => {
+    auth.mockResolvedValue(ADMIN);
+    for (const other of ['lane:design-track', 'lane:design-worker']) {
+      const res = await post({ name: 'x', scopes: ['lane:design-notes', other, 'scope-mode:enforce'] });
+      expect(res.status).toBe(400);
+    }
+    expect(createKey).not.toHaveBeenCalled();
+  });
+});
+
 describe('POST /api/api-keys user_id', () => {
   // Fleet wave B (item 6 finding 4): decisions:admin only on a no-lane key for an admin user.
   it('decisions:admin: allowed on a no-lane key for an admin; refused beside a lane or for a non-admin user', async () => {

@@ -3,6 +3,7 @@ import type { DesignSessionStatus } from '@prisma/client';
 import { prisma } from '@/lib/db/prisma';
 import { ApiError, handleApiError } from '@/lib/api/errors';
 import { requireWorker, workerSessionView } from '@/lib/design/worker-kit';
+import { loadWorkerTracks } from '@/lib/design/track-session';
 import { SESSION_STATUSES, isTerminalStatus } from '@/lib/design/sessions';
 
 const LIVE = SESSION_STATUSES.filter((s) => !isTerminalStatus(s));
@@ -21,7 +22,8 @@ export async function GET(request: NextRequest) {
       statuses = asked as DesignSessionStatus[];
     }
     const rows = await prisma.designSession.findMany({ where: { status: { in: statuses } }, orderBy: { created_at: 'asc' }, take: 500 });
-    return NextResponse.json({ sessions: rows.map((s) => workerSessionView(s)) });
+    const tracks = await loadWorkerTracks(rows);
+    return NextResponse.json({ sessions: rows.map((s) => workerSessionView({ ...s, track: s.track_id ? tracks.get(s.track_id) ?? null : null })) });
   } catch (error) {
     return handleApiError(error);
   }

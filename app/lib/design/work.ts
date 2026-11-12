@@ -13,6 +13,7 @@ import { calculateEstimatedMinutes } from '@/lib/calculations/energy';
 import { DESIGN_SITE_TYPE, DESIGN_VISIBLE_PROJECT_STATUSES, assignedProjectIdsFor } from './access';
 import { createOrGetSession, loadSessionDefaults } from './sessions';
 import { isUuid, type DesignActor } from './helpers';
+import { OPEN_TRACK_STAGES_EXCLUDED } from './track-session';
 
 export const WORK_TAG = 'design-work';
 export const MAX_WORK_TITLE = 120;
@@ -79,6 +80,10 @@ export async function startWork(actor: DesignActor, input: StartWorkInput, db: D
   }
   if (!site.design_portal_enabled) throw new ApiError('This site is not set up for the Designer Portal', 409, 'site_not_enabled');
   if (site.site_type !== DESIGN_SITE_TYPE) throw new ApiError('Only eleventy sites can use the Designer Portal', 409, 'site_not_eleventy');
+
+  // v2 (SPEC 2.3): a site with an open design track has its work on the track; "Start new work" creates nothing.
+  const openTrack = await db.designTrack.findFirst({ where: { site_id: site.id, stage: { notIn: OPEN_TRACK_STAGES_EXCLUDED } }, select: { id: true } });
+  if (openTrack) throw new ApiError('This site has a design in progress; open it from your tasks', 409, 'track_live');
 
   const project = await db.project.findFirst({
     where: { ...siteProject, ...openProjectWhere(assigned) },

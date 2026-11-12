@@ -57,6 +57,7 @@ import {
   type PolicyRefusal,
 } from './publish-policy';
 import { projectPublishPage, projectSession } from './projections';
+import { assertTrackWritable, loadSessionTrackView } from './track-session';
 
 type Db = PrismaClient;
 type Tx = Prisma.TransactionClient;
@@ -260,6 +261,7 @@ export async function createPublishIntent(
   db: Db = defaultDb,
 ): Promise<PublishIntentResult> {
   const session = await withStanding(actor, await loadSessionFor(actor, sessionId, { mode: 'read' }, db), db);
+  await assertTrackWritable(session, { busy: true }, db); // SPEC 2.2: 409 track_busy while Bast is building
   const ctx = await loadContext(db, session.site_id);
   const decision = canPublish(actor, session, ctx.site, policySettings(ctx), ctx.mainRole, {
     head_sha: headSha,
@@ -444,6 +446,7 @@ export async function requestPublish(
   db: Db = defaultDb,
 ) {
   const session = await withStanding(actor, await loadSessionFor(actor, sessionId, { mode: 'read' }, db), db);
+  await assertTrackWritable(session, { busy: true }, db);
   const ctx = await loadContext(db, session.site_id);
   const decision = canRequestPublish(actor, session, ctx.site, policySettings(ctx), ctx.mainRole);
   if (!decision.ok && ACTOR_CODES.has(decision.code)) fail(decision);
@@ -473,7 +476,7 @@ export async function requestPublish(
     entityId: session.id,
     bundleKey: `design-publish-request:${session.id}`,
   });
-  return { session: projectSession(updated, now) };
+  return { session: projectSession({ ...updated, track: await loadSessionTrackView(updated, db) }, now) };
 }
 
 // ---------------------------------------------------------------------------------------------------------

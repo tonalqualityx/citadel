@@ -100,7 +100,7 @@ test('the preview frame itself is locked down', async ({ browser }) => {
   const iframe = page.locator('iframe[title="Site preview"]');
   await expect(iframe).toBeVisible({ timeout: 20_000 });
   expect(await iframe.getAttribute('sandbox')).toBe('allow-scripts allow-same-origin');
-  expect(await iframe.getAttribute('src')).toMatch(/^https:\/\/design-[a-z0-9]+\.dpe2e\.pages\.dev\//);
+  expect(await iframe.getAttribute('src')).toMatch(/^https:\/\/design-(?:[0-9a-f]{8}(?:-[0-9]+)?|t-[a-z2-7]{16})\.dpe2e\.pages\.dev\//);
   // The preview host must not be framable by anyone but this Citadel origin (the header the fixture sends).
   const res = await fetch(`http://127.0.0.1:${preview.port}/`);
   expect(res.headers.get('content-security-policy')).toBe(`frame-ancestors ${BASE_URL}`);

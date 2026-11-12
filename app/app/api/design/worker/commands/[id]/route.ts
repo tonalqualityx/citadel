@@ -5,6 +5,9 @@ import { prisma } from '@/lib/db/prisma';
 import { ApiError, handleApiError } from '@/lib/api/errors';
 import { idParam, requireWorker, workerBody } from '@/lib/design/worker-kit';
 import { claimCommand, completeCommand } from '@/lib/design/commands';
+import { trackTx } from '@/lib/design/track-core';
+import { TRACK_COMMAND_RESULT_BYTES, applyAdoptCompletion, applyFinishCompletion, isTrackVerb } from '@/lib/design/track-adopt';
+import { recordTrackStage } from '@/lib/design/track-stage';
 
 const schema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('claim') }),
@@ -34,6 +37,26 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       if (!pub || !FINAL_PUBLISH.includes(pub.status)) {
         throw new ApiError('The publish has not reached a final state', 409, 'publish_not_final');
       }
+    }
+    if (isTrackVerb(cmd.verb)) {
+      // v2 track verbs: the completion and its stage effects (adopt: job, head, stage; finish: result, done) are one
+      // transaction, so a failure leaves the command claimed for the daemon to retry. Results may carry a page list.
+      const command = await trackTx(async (scope) => {
+        const done = await completeCommand(
+          id,
+          { status: b.status, result: b.result as Prisma.InputJsonValue | undefined, error: b.error, maxResultBytes: TRACK_COMMAND_RESULT_BYTES },
+          scope.tx as never,
+        );
+        if (done.verb === 'adopt_branch') await applyAdoptCompletion(scope, done);
+        else await applyFinishCompletion(scope, done);
+        return done;
+      });
+      const trackId = (command.payload as { track_id?: unknown } | null)?.track_id;
+      if (typeof trackId === 'string') {
+        const t = await prisma.designTrack.findUnique({ where: { id: trackId }, select: { stage: true, busy_job_id: true } });
+        if (t) await recordTrackStage(trackId, { stage: t.stage, busy: t.busy_job_id !== null, command: command.verb, status: command.status });
+      }
+      return NextResponse.json({ command });
     }
     const command = await completeCommand(id, { status: b.status, result: b.result as Prisma.InputJsonValue | undefined, error: b.error });
     return NextResponse.json({ command });

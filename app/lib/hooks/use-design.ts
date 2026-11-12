@@ -18,6 +18,8 @@ export interface SessionListItem {
   task: { id: string; title: string };
   site: { name: string };
   status: string;
+  /** v2: the track's stage (null = untracked). */
+  track_stage?: string | null;
   last_publish: { id: string; status: string; finished_at: string | null } | null;
   updated_at: string;
 }
@@ -129,7 +131,19 @@ export interface DesignSessionView {
   last_seq: number;
   publish_requested_at: string | null;
   last_publish_id: string | null;
+  /** v2: the design track this session works on (null = untracked, v1 behaviour). */
+  track?: DesignSessionTrack | null;
   [key: string]: unknown;
+}
+
+export interface DesignSessionTrack {
+  id: string;
+  stage: string;
+  busy: boolean;
+  busy_line: string | null;
+  preview_alias: string;
+  preview_url: string | null;
+  finish: { green: boolean; finished_at: string | null } | null;
 }
 
 export interface DesignSessionResponse {

@@ -34,17 +34,19 @@ export const LANES = [
   'oracle',
   'design-worker',
   'bast-chat',
+  'design-track',
+  'design-notes',
 ] as const;
 
 export type Lane = (typeof LANES)[number];
 
 /**
- * Lanes that are enforced whatever the key says (W8.2 H3). The design-worker and bast-chat lanes were born
- * enforced: their keys must carry scope-mode:enforce (refused at mint and PATCH, lib/auth/key-scopes.ts), and a
- * key planted without it is still refused outside the lane instead of running in shadow. The fleet-6 lanes keep
- * shadow mode for their staged rollout, so they are not listed here.
+ * Lanes that are enforced whatever the key says (W8.2 H3). The design-worker, bast-chat, design-track and
+ * design-notes lanes were born enforced: their keys must carry scope-mode:enforce (refused at mint and PATCH,
+ * lib/auth/key-scopes.ts), and a key planted without it is still refused outside the lane instead of running in
+ * shadow. The fleet-6 lanes keep shadow mode for their staged rollout, so they are not listed here.
  */
-export const ALWAYS_ENFORCED_LANES: readonly Lane[] = ['design-worker', 'bast-chat'];
+export const ALWAYS_ENFORCED_LANES: readonly Lane[] = ['design-worker', 'bast-chat', 'design-track', 'design-notes'];
 export type LaneMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 export interface LaneRoute {
@@ -69,6 +71,8 @@ export const LANE_IDENTITY: Record<Lane, 'bast' | 'troubador' | 'oracle' | 'desi
   oracle: 'oracle',
   'design-worker': 'design-worker',
   'bast-chat': 'bast',
+  'design-track': 'bast', // the Bast runner (portal v2, SPEC 6.1a); never the design worker
+  'design-notes': 'bast', // the meeting intake's design statements (portal v2, SPEC 8.1); never the design worker
 };
 
 export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
@@ -303,6 +307,35 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('POST', '/api/design/worker/sessions/:id/scope-flags'),
     r('PATCH', '/api/design/worker/commands/:id'),
     r('PATCH', '/api/design/worker/publishes/:id'),
+    // Portal v2 (SPEC 5.1): what the worker may read of its own session's track, and the one write. No sign, no revise.
+    r('GET', '/api/design/worker/sessions/:id/context'),
+    r('PATCH', '/api/design/worker/sessions/:id/art-direction'),
+    r('GET', '/api/design/worker/sessions/:id/track-assets/:assetId'),
+  ],
+  // Designer Portal v2 Bast runner (SPEC 6.1a). Minted for the Bast user, always enforced; exactly these 14, all under
+  // /api/design/runner/. Every :param sits in a folder that holds only its [id] segment, so PARAM_EXCEPT needs no entry.
+  'design-track': [
+    r('GET', '/api/design/runner/candidates'),
+    r('POST', '/api/design/runner/tracks'),
+    r('GET', '/api/design/runner/tracks/:id'),
+    r('POST', '/api/design/runner/claims'),
+    r('PATCH', '/api/design/runner/jobs/:id'),
+    r('POST', '/api/design/runner/jobs/:id/client-email'), // W6.1 F7: one client brief email per signed version
+    r('POST', '/api/design/runner/tracks/:id/assets'),
+    r('GET', '/api/design/runner/tracks/:id/assets/:assetId'),
+    r('PATCH', '/api/design/runner/tracks/:id/assets/:assetId'),
+    r('POST', '/api/design/runner/tracks/:id/references'),
+    r('PATCH', '/api/design/runner/references/:id'),
+    r('POST', '/api/design/runner/tracks/:id/briefs'),
+    r('POST', '/api/design/runner/tracks/:id/adopt'),
+    r('POST', '/api/design/runner/tracks/:id/imports'),
+  ],
+  // Designer Portal v2 intake (SPEC 8.1, W0.4). Minted for the Bast user, always enforced; exactly these 3. The :id of the
+  // clients route reuses the existing `bulk` exception; /api/design-notes holds only its [id] segment.
+  'design-notes': [
+    r('POST', '/api/clients/:id/design-notes'),
+    r('GET', '/api/clients/:id/design-notes'),
+    r('PATCH', '/api/design-notes/:id'),
   ],
   // Bast chat daemon (Mike's home screen panel; implementation/plans/bast-chat.md 2.1 and 3 T3). Bast user,
   // always enforced. Exactly these 46 method+path entries (the worker conversation route is GET and PATCH; v2 adds the ops route; home Slice 2a adds the keeper's GET and POST, 2b the summaries' two, 4a the owed route's two, 4d its bookings route's two, 6a the home-watch route's two, 6b the ack route's one, 6c the scan result route's one, 7a the learn route's two, 9a the sent-mail reconciler's three: its context GET, its candidates POST and its dry-or-real POST, which write internal notes on his own tasks as Bast and make cards; nothing is sent, no time entry is ever created, no task status changes; chat reads add the sends listing's one GET: what the courier sent or queued, no bodies, no addresses).

@@ -4,6 +4,7 @@ import { handleApiError } from '@/lib/api/errors';
 import { loadSessionFor } from '@/lib/design/access';
 import { appendDesignerEvent } from '@/lib/design/events';
 import { pageContextSchema } from '@/lib/design/page-context';
+import { assertTrackWritable } from '@/lib/design/track-session';
 import { authActor, body, guardMutation, type IdParams } from '@/lib/design/route-kit';
 
 const messageSchema = z.object({ client_ref: z.string().uuid(), text: z.string().trim().min(1).max(8000), context: pageContextSchema.optional() }).strict();
@@ -16,6 +17,7 @@ export async function POST(request: NextRequest, { params }: IdParams) {
     const { actor } = await authActor();
     const { id } = await params;
     const session = await loadSessionFor(actor, id, { mode: 'write' });
+    await assertTrackWritable(session, { busy: true, done: true }); // SPEC 2.2, 2.3: 409 track_busy / track_done
     const input = await body(request, messageSchema, 48 * 1024);
     const { seq, duplicate } = await appendDesignerEvent({
       sessionId: session.id,
