@@ -14,7 +14,15 @@
 // constant instead. There's no file for a drift test to re-read against for this one
 // value; if spawn-gate.py's MIKE_ID ever changes, this constant has to be updated by
 // hand alongside it.
-export const BLOCKING_TAGS: readonly string[] = ['needs-mike', 'cockpit-owned', 'awaiting-clarification', 'needs-pm-release'];
+export const BLOCKING_TAGS: readonly string[] = [
+  'needs-mike',
+  'cockpit-owned',
+  'awaiting-clarification',
+  'needs-pm-release',
+  'scheduled',
+  'client-plan-approval',
+  'plan-approval',
+];
 
 export const BOT_USER_IDS: readonly string[] = [
   'ca5335e7-a374-4eff-92dc-fd67ceef2297', // Bast
