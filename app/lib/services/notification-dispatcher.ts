@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/db/prisma';
+import { suppressedForTriage } from './notification-triage-guard';
 import { deferUntilCommit } from '@/lib/db/scope';
 import { NotificationType, NotificationPriority } from '@prisma/client';
 import {
@@ -271,19 +272,6 @@ export async function dispatchNotification(
     return { inApp: { sent: false }, email: { sent: false }, slack: { sent: false } };
   }
   return dispatchNow(options);
-}
-
-/**
- * A task in triage is parked for Mike: a contractor (role tech) is told nothing about it, not even its title.
- * Guarded here, under every notification entry point, so no caller can step around it.
- */
-export async function suppressedForTriage(userId: string, entityType?: string | null, entityId?: string | null): Promise<boolean> {
-  if (entityType !== 'task' || !entityId) return false;
-  const [task, user] = await Promise.all([
-    prisma.task.findUnique({ where: { id: entityId }, select: { status: true } }),
-    prisma.user.findUnique({ where: { id: userId }, select: { role: true } }),
-  ]);
-  return task?.status === 'triage' && user?.role === 'tech';
 }
 
 async function dispatchNow(options: DispatchOptions): Promise<DispatchResult> {

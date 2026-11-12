@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/db/prisma';
 import { NotificationType, NotificationPriority } from '@prisma/client';
-import { dispatchNotification, suppressedForTriage, DispatchOptions } from './notification-dispatcher';
+import { dispatchNotification, DispatchOptions } from './notification-dispatcher';
+import { suppressedForTriage } from './notification-triage-guard';
 import { BOT_USER_IDS } from '@/lib/oracle/projects/gate-constants';
 
 interface CreateNotificationParams {
