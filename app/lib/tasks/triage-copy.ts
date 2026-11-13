@@ -5,6 +5,9 @@
 export const TRIAGE_UNDO_HOURS = 72;
 
 /** The conversation on a card (a Triage card, before or after release) is with Dox, the office manager. Display only. The general chat stays Bast. */
+/** Dox's picture (public/avatars): the small file for turns and chips, the large one for a header. */
+export const DOX_AVATAR_SMALL = '/avatars/dox-128.jpg';
+export const DOX_AVATAR_LARGE = '/avatars/dox-512.jpg';
 export const DOX_NAME = 'Dox';
 export const DOX_EMPTY_HINT = "Dox has the card, its questions and the plan. Tell him what you're thinking.";
 

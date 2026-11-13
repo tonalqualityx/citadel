@@ -20,6 +20,8 @@ export interface Fx {
   mkStaff(name: string, role?: 'pm' | 'admin' | 'tech'): Promise<string>;
   /** Make sure the project has a brief, and start a LIVE pass on it (Dox's "I am working on this project now" record; a dry pass writes nothing). Pass {mode: 'dry'} in extra for a dry one. Returns the pass id. */
   openPass(projectId: string, lane?: string | null, extra?: Record<string, unknown>): Promise<string>;
+  /** Start a card pass (live unless {mode: 'dry'}) on a released card with no project. Returns the pass id. */
+  openCardPass(taskId: string, lane?: string | null, extra?: Record<string, unknown>): Promise<string>;
   cleanup(): Promise<void>;
 }
 
@@ -54,7 +56,12 @@ export async function makeFixture(prefix: string): Promise<Fx> {
       const pass = await prisma.engagementPass.create({ data: { brief_id: brief.id, mode: 'live', lane, ...extra } as never });
       return pass.id;
     },
+    async openCardPass(taskId, lane = 'dox', extra = {}) {
+      const pass = await prisma.engagementPass.create({ data: { brief_id: null, task_id: taskId, mode: 'live', kind: 'setup', lane, ...extra } as never });
+      return pass.id;
+    },
     async cleanup() {
+      await prisma.engagementPass.deleteMany({ where: { task_id: { in: fx.taskIds } } });
       await prisma.notification.deleteMany({ where: { entity_id: { in: fx.taskIds } } });
       await prisma.notification.deleteMany({ where: { user_id: { in: fx.staffIds } } });
       const briefs = await prisma.engagementBrief.findMany({ where: { project_id: { in: fx.projectIds } }, select: { id: true } });

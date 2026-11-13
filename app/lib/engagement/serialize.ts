@@ -27,6 +27,7 @@ export function serializePass(p: EngagementPass) {
   return {
     id: p.id,
     brief_id: p.brief_id,
+    task_id: p.task_id,
     mode: p.mode,
     kind: p.kind,
     started_at: p.started_at.toISOString(),

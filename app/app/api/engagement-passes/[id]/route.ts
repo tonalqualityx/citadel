@@ -43,7 +43,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         ...(body.finished && !pass.finished_at ? { finished_at: now } : {}),
       },
     });
-    if (body.finished && !pass.finished_at) {
+    if (body.finished && !pass.finished_at && pass.brief_id) {
       await prisma.engagementBrief.update({ where: { id: pass.brief_id }, data: { last_pass_at: now } });
     }
     return NextResponse.json(serializePass(row));

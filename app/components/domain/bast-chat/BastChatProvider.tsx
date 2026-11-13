@@ -6,7 +6,8 @@ import { usePathname } from 'next/navigation';
 import { MessageSquare, ChevronLeft, ChevronsLeft, ChevronsRight, X, Plus } from 'lucide-react';
 import '@/components/domain/home/home-tokens.css';
 import { BastChatPanel } from './BastChatPanel';
-import { DOX_NAME } from '@/lib/tasks/triage-copy';
+import { Avatar } from '@/components/ui/avatar';
+import { DOX_AVATAR_SMALL, DOX_NAME } from '@/lib/tasks/triage-copy';
 import { cardFromInput, type OpenCardInput } from './card-context';
 import {
   BAST_CHAT_WIDTH_KEY,
@@ -664,6 +665,11 @@ function ChatBody({ layout, onClose }: { layout: 'full' | 'split'; onClose: () =
             <X className="h-4 w-4" aria-hidden="true" />
           )}
         </button>
+        {v.cardChatTitle !== null ? (
+          <span data-testid="dox-avatar-header" style={{ flex: 'none', display: 'inline-flex' }}>
+            <Avatar src={DOX_AVATAR_SMALL} name={DOX_NAME} size="lg" />
+          </span>
+        ) : null}
         <h2
           data-testid="bast-chat-title"
           style={{ flex: 1, minWidth: 0, fontSize: '0.95rem', textAlign: layout === 'full' ? 'center' : 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}

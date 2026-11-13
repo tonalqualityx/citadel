@@ -4,6 +4,7 @@ import { guardDoxProjectCreate } from '@/lib/dox/guard';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
+import { ensureProjectBrief } from '@/lib/engagement/ensure-brief';
 import { formatProjectResponse } from '@/lib/api/formatters';
 
 const createProjectSchema = z.object({
@@ -169,6 +170,8 @@ export async function POST(request: NextRequest) {
           // One project per card: the link only lands on a card that still has no project, otherwise the whole thing rolls back.
           const linked = await tx.task.updateMany({ where: { id: doxCard.id, project_id: null, is_deleted: false }, data: { project_id: made.id } });
           if (linked.count !== 1) throw new ApiError('That card already belongs to a project: one project per card.', 403, 'dox_card_closed');
+          // The card's new project gets its brief at once (dry, default cadence), so the project's own passes can open.
+          await ensureProjectBrief(tx as never, made.id, auth.userId);
           return made;
         })
       : await createProject(prisma);

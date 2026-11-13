@@ -6,6 +6,7 @@
  * the signed contract (Project -> accord -> contract) with a link to the deal page, and the sitemap (ProjectPage rows). It never
  * carries the plan folder, a task, or anything from the plan folder's contents: those columns are not selected.
  */
+import { TRIAGE_DATE_PREFIX, triageDateFlags } from './triage-date-reason';
 import type { PrismaClient } from '@prisma/client';
 import { BAST_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import type { HomeAskedAfterRelease, HomeTriageCard, HomeTriageProject } from '@/lib/home/types';
@@ -164,6 +165,7 @@ export async function loadCards(db: Db, taskIds: string[], now: Date = new Date(
   const setupProjectIds = Array.from(new Set(tasks.filter((t) => t.triage_kind === 'project_setup' && t.project).map((t) => t.project!.id)));
   const blocks = await projectBlocks(db, setupProjectIds);
   const changes = await recentChanges(db, ids);
+  const dateQs = await db.taskQuestion.findMany({ where: { task_id: { in: ids }, state: 'open', cause_key: { startsWith: TRIAGE_DATE_PREFIX } }, select: { task_id: true, cause_key: true } });
   const planRows = await db.taskPlanItem.findMany({ where: { task_id: { in: ids } }, select: { task_id: true, section: true, data: true, wrong_at: true } });
   const cards: HomeTriageCard[] = tasks.map((t) => {
     const plan = planRelease({
@@ -207,6 +209,7 @@ export async function loadCards(db: Db, taskIds: string[], now: Date = new Date(
       plan_line: planLineFor(planRows.filter((r) => r.task_id === t.id), t.project?.target_date ? dayOf(t.project.target_date) : null, t.triage_kind === 'project_setup' && t.project ? (blocks.get(t.project.id)?.sitemap.length ?? 0) : 0),
       target_start_date: dayOf(t.project?.start_date),
       target_launch_date: dayOf(t.project?.target_date),
+      date_flags: triageDateFlags(dateQs.filter((q) => q.task_id === t.id).map((q) => q.cause_key), dayOf(t.project?.start_date), dayOf(t.project?.target_date)),
       looks_done: ev === null ? null : { evidence: ev, links: evidenceParts(ev).filter((p) => p.href).map((p) => ({ text: p.text, href: p.href as string })) },
       project: t.triage_kind === 'project_setup' && t.project ? (blocks.get(t.project.id) ?? null) : null,
     };
