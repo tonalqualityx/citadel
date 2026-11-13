@@ -85,8 +85,8 @@ async function projectBlocks(db: Db, projectIds: string[]): Promise<Map<string, 
   // plan_folder is deliberately not selected anywhere in this file.
   const rows = (await db.project.findMany({
     where: { id: { in: projectIds }, is_deleted: false },
-    select: { id: true, name: true, status: true, accord_id: true, accord: { select: { id: true, name: true } } },
-  })) as { id: string; name: string; status: string; accord_id: string | null; accord: { id: string; name: string } | null }[];
+    select: { id: true, name: true, status: true, start_date: true, target_date: true, accord_id: true, accord: { select: { id: true, name: true } } },
+  })) as { id: string; name: string; status: string; start_date: Date | null; target_date: Date | null; accord_id: string | null; accord: { id: string; name: string } | null }[];
   const phases = await db.projectPhase.findMany({
     where: { project_id: { in: projectIds } },
     orderBy: [{ sort_order: 'asc' }, { created_at: 'asc' }],
@@ -114,6 +114,8 @@ async function projectBlocks(db: Db, projectIds: string[]): Promise<Map<string, 
       project_id: p.id,
       name: p.name,
       status: p.status,
+      start_date: dayOf(p.start_date),
+      target_date: dayOf(p.target_date),
       phases: ph.map((x) => ({ id: x.id, name: x.name, summary: x.summary, mike_part: x.mike_part })),
       mike_parts: ph.filter((x) => x.mike_part && x.mike_part.trim() !== '').map((x) => ({ phase: x.name, text: x.mike_part as string })),
       contract: c && p.accord_id ? { status: c.status, signed_at: c.signed_at ? c.signed_at.toISOString() : null, version: c.version, deal_id: p.accord_id, deal_href: `/deals/${p.accord_id}` } : null,
@@ -122,6 +124,11 @@ async function projectBlocks(db: Db, projectIds: string[]): Promise<Map<string, 
     });
   }
   return out;
+}
+
+/** A project date as the calendar day it was set for (YYYY-MM-DD), or null. Dates are kept as days, never as a clock time. */
+export function dayOf(d: Date | null | undefined): string | null {
+  return d ? d.toISOString().slice(0, 10) : null;
 }
 
 /** The cards for these task ids (all must be in Triage; others are skipped), ordered: looks done first, then oldest first. */
@@ -140,7 +147,7 @@ export async function loadCards(db: Db, taskIds: string[], now: Date = new Date(
       client_id: true,
       site: { select: { id: true, name: true } },
       assignee: { select: { name: true } },
-      project: { select: { id: true, name: true, status: true } },
+      project: { select: { id: true, name: true, status: true, start_date: true, target_date: true } },
     },
   });
   const ids = tasks.map((t) => t.id);
@@ -185,6 +192,8 @@ export async function loadCards(db: Db, taskIds: string[], now: Date = new Date(
       release_ready: plan.ready,
       release_block: plan.block,
       open_questions: qCounts.get(t.id) ?? 0,
+      target_start_date: dayOf(t.project?.start_date),
+      target_launch_date: dayOf(t.project?.target_date),
       looks_done: ev === null ? null : { evidence: ev, links: evidenceParts(ev).filter((p) => p.href).map((p) => ({ text: p.text, href: p.href as string })) },
       project: t.triage_kind === 'project_setup' && t.project ? (blocks.get(t.project.id) ?? null) : null,
     };

@@ -47,6 +47,8 @@ describe('no red on the home screen', () => {
       }
     });
     it('never shows overdue or a priority label', () => {
+      // No file here is exempt. The owner's own tab name ("overdue by others", 2026-11-13) lives in the one constant in lib/home/others-copy.ts, which
+      // these components import; see others-copy.test.ts, which pins that constant as the only home of the word.
       expect(src).not.toMatch(/overdue|past due|priority|P[0-4]\b(?!x)/i);
     });
   });

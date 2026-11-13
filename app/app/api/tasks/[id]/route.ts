@@ -9,6 +9,7 @@ import { formatTaskResponse } from '@/lib/api/formatters';
 import { logUpdate, logDelete } from '@/lib/services/activity';
 import { checkTaskAccess, patchTask, mayLeaveTriage, TRIAGE_EXIT_TEXT } from '@/lib/services/task-patch';
 import { loadCards } from '@/lib/tasks/triage-card';
+import { guardDoxTaskPatch } from '@/lib/dox/guard';
 
 export async function GET(
   request: NextRequest,
@@ -93,7 +94,12 @@ export async function PATCH(
 
     const existingTask = await checkTaskAccess(id, auth);
     const rawBody = await request.json();
-    const body = await guardChatTaskBody(auth, 'PATCH', rawBody, existingTask);
+    const body = await guardDoxTaskPatch(
+      auth,
+      request.headers,
+      await guardChatTaskBody(auth, 'PATCH', rawBody, existingTask),
+      { id, status: existingTask.status, project_id: existingTask.project_id ?? null, tags: existingTask.tags ?? [], assignee_id: existingTask.assignee_id ?? null, updated_at: existingTask.updated_at ?? null },
+    );
     const chatConversation = await chatConversationFor(auth, request.headers, 'PATCH');
 
     // Chat lane only: the reach check. A change that would start or re-steer Bast, or show something to a client, is

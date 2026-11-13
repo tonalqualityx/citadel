@@ -112,7 +112,7 @@ describe('sentences', () => {
     expect(e.projects).toBe('No active projects.');
     expect(e.everything_else).toBe('');
     expect(Object.keys(e).sort()).toEqual(
-      ['everything_else', 'handled', 'leads', 'mail', 'needs_you_now', 'next', 'projects', 'today', 'triage', 'working_on'],
+      ['everything_else', 'handled', 'leads', 'mail', 'needs_you_now', 'next', 'past_date_others', 'projects', 'today', 'triage', 'working_on'],
     );
   });
   it('the Everything else sentence', () => {

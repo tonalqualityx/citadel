@@ -219,9 +219,10 @@ export const miscEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'POST',
-        summary: 'Notify assignees about tasks due within 24 hours.',
+        summary: 'The day-before notice: tell a staff assignee once, one day before a task is due (the due date, in their time zone, is tomorrow).',
         auth: 'cron',
-        responseExample: { success: true, notifications_sent: 'number' },
+        responseExample: { success: true, tasksChecked: 'number', notificationsSent: 'number' },
+        responseNotes: 'x-cron-secret must match CRON_SECRET (401 otherwise). Staff only: never a bot user, never the owner, never a Triage task, never a task on a project that is not live (ready, in_progress, review) or one with no project. Once per task and due date (the announced due date is stored on the task); a moved due date is announced again. Safe to run hourly. Scheduled by app/scripts/cron/task-due-soon.sh from system cron; nothing in the repo triggers it.',
       },
     ],
   },

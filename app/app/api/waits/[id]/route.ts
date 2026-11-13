@@ -11,6 +11,7 @@ import { stampPriceReviewDone } from '@/lib/price-review/apply';
 import { isPriceReviewApproval, NOT_JUST_MARKED_HANDLED, PriceReviewResolutionRefused } from '@/lib/price-review/guard';
 import { approvedTermsSchema, startDateProblem } from '@/lib/price-review/terms';
 import { resolveWaitOwner, type WaitRow } from '@/lib/waits/sweeper';
+import { guardDoxWaitPatch } from '@/lib/dox/guard';
 import { serializeWait } from '@/lib/waits/serialize';
 import {
   extendWait,
@@ -104,6 +105,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     requireRole(auth, ['pm', 'admin']);
     const { id } = await params;
     const body = patchSchema.parse(await request.json());
+    await guardDoxWaitPatch(auth, request.headers, id, body as { action?: unknown; resolution?: unknown });
     const w = await load(id);
     const store = prismaSweepStore(prisma);
     const now = new Date();

@@ -4,6 +4,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import type { HomeTriageProject } from '@/lib/home/types';
 import { plain } from './home-screen-logic';
+import { triageDatesLine } from '@/lib/tasks/triage-copy';
 
 const PHASES_SHOWN = 6;
 const PAGES_SHOWN = 3;
@@ -40,6 +41,12 @@ export function TriageProjectBlock({ project, variant }: { project: HomeTriagePr
   const deal = dealLink(project);
   const pages = project.sitemap;
   const phases = project.phases;
+  const dates = triageDatesLine(project.start_date, project.target_date);
+  const datesNode = dates ? (
+    <p className="home-small" data-testid="triage-dates">
+      {dates}
+    </p>
+  ) : null;
   const contract = (
     <p className="home-small" data-testid="triage-contract">
       {contractLine(project)}
@@ -59,6 +66,7 @@ export function TriageProjectBlock({ project, variant }: { project: HomeTriagePr
     return (
       <div className="home-tproject" data-testid="triage-project-compact">
         {contract}
+        {datesNode}
         {phases.length > 0 ? (
           <ol className="home-tphases" aria-label="Phases">
             {shown.map((ph) => (
@@ -84,6 +92,7 @@ export function TriageProjectBlock({ project, variant }: { project: HomeTriagePr
       <div className="home-blk">
         <h3>Contract</h3>
         {contract}
+        {datesNode}
       </div>
       <div className="home-blk">
         <h3>Shape of the plan</h3>

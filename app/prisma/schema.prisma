@@ -1231,6 +1231,8 @@ model Task {
 
   // Dates
   due_date     DateTime?
+  // The due_date the assignee was last told about one day ahead (/api/cron/task-due-soon). Equal to due_date = already told; a new due date is told again.
+  due_notice_for DateTime?
   started_at   DateTime?
   completed_at DateTime?
 
@@ -4451,6 +4453,8 @@ model EngagementPass {
   actions     Json      @default("[]")
   mike_items  Json      @default("[]")
   error       String?   @db.Text
+  /// The lane of the key that started the pass (null for a signed-in session). Dox's writes need an open pass started by the dox lane.
+  lane        String?   @db.VarChar(40)
 
   @@index([brief_id, started_at])
   @@map("engagement_passes")
@@ -5934,6 +5938,8 @@ model TaskQuestion {
   asked_by_user_id      String?            @db.Uuid
   asked_by_lane         String?            @db.VarChar(40)
   chat_conversation_id  String?            @db.Uuid
+  // Dox: the underlying cause this question is about. One OPEN question per cause (on the card, or on the project for a project-level cause); a repeat POST returns the open one.
+  cause_key             String?            @db.VarChar(120)
   // His answer (exact words, or the option label he picked)
   answer_option_id      String?            @db.VarChar(40)
   answer_text           String?            @db.Text
@@ -5949,5 +5955,6 @@ model TaskQuestion {
 
   // Uniqueness of (task_id, question) among non-withdrawn rows is enforced in code inside the task-locked transaction (Prisma cannot express a partial unique index without drift).
   @@index([task_id, state])
+  @@index([cause_key, state])
   @@map("task_questions")
 }

@@ -8,6 +8,7 @@ import { loadHomeInputs } from '@/lib/home/load';
 import { getHomeDay, getOrCreateHomeDay, loadItemStates, updateHomeDay } from '@/lib/home/state';
 import { selectHome } from '@/lib/home/select';
 import { loadTriage } from '@/lib/tasks/triage';
+import { loadOverdueByOthers } from '@/lib/home/overdue-others';
 import { applyEmergencyInsert, assembleHomeResponse, proposeDay } from '@/lib/home/today';
 import type { DayLike } from '@/lib/home/today';
 
@@ -76,6 +77,9 @@ export async function GET() {
     // Triage is Mike's alone: loadTriage answers null for anyone else, and a null section is left out of the payload.
     const triage = await loadTriage(prisma, userId);
     if (triage) body.triage = triage;
+    // Overdue by others is his alone too: null for anyone else, and a null section is left out. Read only; no notification is made for it.
+    const overdue = await loadOverdueByOthers(prisma, userId, now, timezone);
+    if (overdue) body.past_date_others = overdue;
     return NextResponse.json(body, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     return handleApiError(error);

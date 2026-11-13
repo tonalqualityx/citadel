@@ -224,3 +224,17 @@
 /* The panel on the card page */
 [data-home] .home-tpanel { border: 1px solid var(--border); border-radius: 10px; background: var(--bg-elevated); padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; }
 [data-home] .home-tpanel[data-looks-done="true"] { border-left: 4px solid var(--accent-text); }
+
+/* Overdue by others: who, the task, the project, days overdue. A list to read; one column on a phone, one line on a wide screen. */
+[data-home] .home-olist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+[data-home] .home-orow { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding: 11px 0; border-top: 1px solid var(--border); align-items: baseline; }
+[data-home] .home-orow:first-child { border-top: 0; }
+[data-home] .home-owho { grid-column: 1; font-size: 0.8rem; color: var(--text-secondary); }
+[data-home] .home-otitle { grid-column: 1; font-weight: 600; font-size: 0.93rem; line-height: 1.35; color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+[data-home] .home-oproject { grid-column: 1; }
+[data-home] .home-odays { grid-column: 2; grid-row: 1 / span 3; align-self: center; white-space: nowrap; color: var(--warning-line); font-weight: 600; }
+@media (min-width: 900px) {
+  [data-home] .home-orow { grid-template-columns: 11rem 1fr 14rem 8rem; align-items: baseline; }
+  [data-home] .home-owho, [data-home] .home-otitle, [data-home] .home-oproject, [data-home] .home-odays { grid-column: auto; grid-row: auto; }
+  [data-home] .home-odays { text-align: right; }
+}

@@ -8,6 +8,7 @@ import { clientVisibleCommentWhere } from '@/lib/comments/visibility';
 import { afterReplyShared, assertShareable } from '@/lib/portal/share-reply';
 import { actorLaneField } from '@/lib/auth/actor-lane';
 import { OWNER_ONLY_COMMENT_WHERE } from '@/lib/tasks/looks-done';
+import { guardDoxComment, guardDoxTaskWrite } from '@/lib/dox/guard';
 
 const createCommentSchema = z.object({
   content: z.string().min(1, 'Comment cannot be empty').max(10000),
@@ -161,6 +162,9 @@ export async function POST(
     const body = await request.json();
 
     const data = createCommentSchema.parse(body);
+    // Dox lane: always an internal note, never shared with a client.
+    const doxForce = guardDoxComment(auth, data);
+    if (doxForce) data.is_internal = true;
     if (data.client_question && !data.client_visible) {
       throw new ApiError('A question for the client must also be client_visible.', 400, 'question_not_visible');
     }
@@ -180,6 +184,9 @@ export async function POST(
     if (!task) {
       throw new ApiError('Task not found', 404);
     }
+
+    // Dox lane: a comment is a task write, bound to the project in play (never a quote, queue or suspended project).
+    await guardDoxTaskWrite(auth, request.headers, { status: task.status, project_id: task.project_id });
 
     // Tech users can only comment on tasks they have access to
     if (auth.role === 'tech') {

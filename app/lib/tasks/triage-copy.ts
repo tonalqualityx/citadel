@@ -151,3 +151,21 @@ export const TRIAGE_UNDONE = 'Put back in Triage.';
 export function talkAboutLine(label: string, count: number): string {
   return `Triage: ${label} (${n(count, 'idea', 'ideas')})`;
 }
+
+/** A calendar day (YYYY-MM-DD) in words, with no time zone shift: "Nov 30, 2026". '' when the value is not a day. */
+export function dayWords(day: string | null | undefined): string {
+  if (!day || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return '';
+  const d = new Date(`${day}T12:00:00Z`);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+}
+
+/** The project card's dates in one plain line: "Start Nov 10, 2026 · Launch Nov 30, 2026". '' when neither is set. */
+export function triageDatesLine(start: string | null | undefined, launch: string | null | undefined): string {
+  const parts: string[] = [];
+  const s = dayWords(start);
+  const l = dayWords(launch);
+  if (s) parts.push(`Start ${s}`);
+  if (l) parts.push(`Launch ${l}`);
+  return parts.join(' · ');
+}
