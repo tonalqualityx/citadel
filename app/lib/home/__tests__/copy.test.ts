@@ -103,6 +103,7 @@ describe('sentences', () => {
   it('empty sentences are the design\'s', () => {
     const e = copy.emptySentences();
     expect(e.needs_you_now).toBe('Nothing urgent.');
+    expect(e.triage).toBe('Nothing in Triage. Tell Bast and it lands here.');
     expect(e.working_on).toBe('Nothing in progress.');
     expect(e.leads).toBe('No one is waiting on a reply from you.');
     expect(e.mail).toBe('No one is waiting on a reply from you.');
@@ -111,7 +112,7 @@ describe('sentences', () => {
     expect(e.projects).toBe('No active projects.');
     expect(e.everything_else).toBe('');
     expect(Object.keys(e).sort()).toEqual(
-      ['everything_else', 'handled', 'leads', 'mail', 'needs_you_now', 'next', 'projects', 'today', 'working_on'],
+      ['everything_else', 'handled', 'leads', 'mail', 'needs_you_now', 'next', 'projects', 'today', 'triage', 'working_on'],
     );
   });
   it('the Everything else sentence', () => {
