@@ -68,7 +68,7 @@ describe.skipIf(!SCRATCH)('release by kind (real database)', () => {
     const q = await question(id);
     const before = await row(id);
     const line = (await card(id)).release_line;
-    expect(line).toContain('Starts the project: Dox sets up');
+    expect(line).toContain('Starts the project: hands');
     const res = await release(id);
     const after = await row(id);
     expect(after.status).toBe('not_started');

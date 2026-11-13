@@ -16,17 +16,17 @@ describe('planRelease: the line and the effects come from one function', () => {
   it('project_setup on a queue project: data and the exact sentence, both hold states', () => {
     const on = planRelease(base({ kind: 'project_setup', project: P('queue'), assignee_id: 'someone', pm_hold: true }));
     expect(on.effects).toMatchObject({ to_status: 'not_started', assign_bast: true, add_tags: ['kickoff', 'from-triage', PM_RELEASE_TAG], project_to_ready: true, starts_project: true, held_for_dox: true, lands_on: 'Bast' });
-    expect(on.line).toBe('Starts the project: Dox sets up Stronghold, creating and assigning every task. Nothing begins until Dox picks it up.');
+    expect(on.line).toBe('Starts the project: hands Stronghold to Dox to set up, creating and assigning every task. Nothing begins until Dox picks it up.');
     const off = planRelease(base({ kind: 'project_setup', project: P('queue'), pm_hold: false }));
     expect(off.effects).toMatchObject({ add_tags: ['kickoff', 'from-triage'], held_for_dox: false });
-    expect(off.line).toBe('Starts the project: Dox sets up Stronghold, creating and assigning every task.');
+    expect(off.line).toBe('Starts the project: hands Stronghold to Dox to set up, creating and assigning every task.');
   });
 
   it('project_setup on an already live project does not say it starts the project', () => {
     const r = planRelease(base({ kind: 'project_setup', project: P('in_progress'), pm_hold: true }));
     expect(r.effects).toMatchObject({ project_to_ready: false, starts_project: false });
     expect(r.line).not.toContain('Starts the project');
-    expect(r.line).toBe('Hands the setup of Stronghold to Dox, who creates and assigns every task. Nothing begins until Dox picks it up.');
+    expect(r.line).toBe('Hands Stronghold to Dox to set up, who creates and assigns every task. Nothing begins until Dox picks it up.');
   });
 
   it('project_setup is refused for a quote project, no project, and a closed project, and the line says why', () => {
@@ -161,7 +161,7 @@ describe('planRelease: every effect has its phrase, present exactly when the eff
       expect(has(/The questions and your answers stay on it/), label).toBe(fx.closes_card);
       // project made ready / set up by Dox
       expect(has(/^Starts the project:/), label).toBe(fx.project_to_ready);
-      expect(has(/sets up|setup of/), label).toBe(fx.kind === 'project_setup');
+      expect(has(/to Dox to set up/), label).toBe(fx.kind === 'project_setup');
       // held for Dox
       expect(has(/Nothing begins until Dox picks it up\./), label).toBe(fx.held_for_dox);
       expect(fx.held_for_dox, label).toBe(fx.add_tags.includes(PM_RELEASE_TAG));

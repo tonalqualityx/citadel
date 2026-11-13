@@ -220,6 +220,23 @@ function Dropped({ items, section, c, render }: { items: PlanItemOut[]; section:
 const live = (s: PlanSectionOut) => s.items.filter((i) => str(i.mark) !== 'dropped');
 const droppedOf = (s: PlanSectionOut) => s.items.filter((i) => str(i.mark) === 'dropped');
 
+/** What this project is for: the project's own description, read only. Project cards only. */
+function Purpose({ project }: { project: NonNullable<PlanOut['project']> }) {
+  const lines = project.description_lines;
+  if (!lines || lines.length === 0) return null;
+  return (
+    <Block title="What this project is for" testid="plan-purpose">
+      <div className="home-plan-text" data-testid="plan-purpose-text">
+        {lines.map((l, k) => (
+          <p key={k} className="home-plan-purpose-line">
+            {plain(l)}
+          </p>
+        ))}
+      </div>
+    </Block>
+  );
+}
+
 function Requirements({ s, c }: { s: PlanSectionOut; c: Controls }) {
   const items = live(s);
   return (
@@ -608,7 +625,7 @@ export function PlanView({
   const c: Controls = { canEdit: canEdit && reviewing, onRemove, onMarkWrong };
   const [closed, setClosed] = React.useState<Record<string, boolean>>({});
   React.useEffect(() => setClosed(readClosed()), []);
-  const keys = [...PLAN_BLOCK_KEYS, ...(plan.project ? PROJECT_BLOCK_KEYS : [])];
+  const keys = [...PLAN_BLOCK_KEYS, ...(plan.project ? [...(plan.project.description_lines?.length ? ['plan-purpose'] : []), ...PROJECT_BLOCK_KEYS] : [])];
   const allClosed = keys.every((k) => closed[k]);
   const setAll = (shut: boolean) => {
     const next = shut ? Object.fromEntries(keys.map((k) => [k, true])) : {};
@@ -647,6 +664,7 @@ export function PlanView({
           )}
         </p>
       ) : null}
+      {plan.project ? <Purpose project={plan.project} /> : null}
       <Requirements s={by('requirements')} c={c} />
       <Dates s={by('dates')} c={c} project={plan.project} />
       <Team s={by('team')} c={c} project={plan.project} />

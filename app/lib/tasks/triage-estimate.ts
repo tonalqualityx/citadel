@@ -1,5 +1,5 @@
 /**
- * The default estimate of a project setup card (Mike, 2026-11-13: "default project triage tasks to 1 hour").
+ * The default estimate of a project card (Mike, 2026-11-13: "default project triage tasks to 1 hour").
  *
  * HOW A TASK'S MINUTES REALLY WORK: `estimated_minutes` is not an input. The task PATCH and create paths write it only as
  * round(energyToMinutes(energy_estimate) x mystery multiplier x battery multiplier) (lib/calculations/energy.ts), and every reader
