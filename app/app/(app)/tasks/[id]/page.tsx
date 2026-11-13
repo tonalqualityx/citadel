@@ -76,6 +76,7 @@ import { TimeEntriesSection } from '@/components/domain/tasks/time-entries-secti
 import { ResourceLinks } from '@/components/domain/projects/resource-links';
 import { TaskDependencies } from '@/components/domain/tasks/task-dependencies';
 import { TaskBastChat } from '@/components/domain/tasks/task-bast-chat';
+import { TaskLooksDone } from '@/components/domain/tasks/task-looks-done';
 import { TaskQuestions } from '@/components/domain/tasks/questions/TaskQuestions';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { useTaskQuestions } from '@/lib/hooks/use-task-questions';
@@ -508,6 +509,8 @@ export default function QuestDetailPage() {
           </Button>
         </div>
       </div>
+
+      <TaskLooksDone taskId={taskId} status={task.status} tags={task.tags ?? []} isOwner={user?.id === MIKE_USER_ID} />
 
       <Tabs value={cardTab ?? 'card'} onValueChange={(v) => setCardTab(v as 'card' | 'questions')}>
         {questionsShown > 0 && (

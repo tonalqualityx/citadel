@@ -708,6 +708,10 @@ export interface HomeTriageTask {
   project_name: string | null;
   /** Questions on this card still waiting for his answer. */
   open_questions: number;
+  /** One line of what is wanted (the first line of the card's description). '' when there is none. Absent in older payloads. */
+  summary?: string;
+  /** When the card was filed (ISO), for its age. */
+  created_at?: string;
 }
 
 /** Triage: one group of parked ideas, by project, or by a `triage-pass:` tag when the tasks carry one. */
@@ -729,8 +733,24 @@ export interface HomeTriageGroup {
   still_quote: boolean;
 }
 
+/** Triage: a card an agent marked `triage:looks-done`, with the evidence line it left (the text after "Looks done: "). */
+export interface HomeTriageLooksDone {
+  task_id: string;
+  title: string;
+  href: string;
+  project_name: string | null;
+  /** What was done and where to see it, from the newest internal "Looks done: " comment. Plain text; links are made clickable by the card. */
+  evidence: string;
+  open_questions: number;
+  summary?: string;
+  created_at?: string;
+}
+
 export interface HomeTriage {
+  /** Every card in Triage, marked ones included. */
   count: number;
+  /** Cards marked looks-done, shown first under their own heading and not part of any group below. Absent in older payloads. */
+  looks_done?: HomeTriageLooksDone[];
   /** Open questions across every card in Triage. */
   open_questions: number;
   groups: HomeTriageGroup[];
@@ -808,7 +828,9 @@ export type HomeActName =
   | 'attach_choose'
   | 'triage_release'
   | 'triage_release_plan'
-  | 'triage_drop';
+  | 'triage_drop'
+  | 'triage_close_done'
+  | 'triage_not_done';
 
 /** How a step reached arc_add, kept in the home_actions row for the "where he acts" measure. */
 export type HomeArcAddOrigin =
@@ -948,6 +970,8 @@ export type HomeActRequest =
   | { action: 'triage_release'; task_ids: string[] }
   | { action: 'triage_release_plan'; group_key: string }
   | { action: 'triage_drop'; task_ids: string[] }
+  | { action: 'triage_close_done'; task_ids: string[] }
+  | { action: 'triage_not_done'; task_ids: string[] }
   | { action: 'finished_close'; item_keys: string[] }
   | { action: 'finished_close_one'; item_key: string }
   | { action: 'finished_keep'; item_key: string }
@@ -1568,6 +1592,8 @@ export type KeeperActionKind =
   | 'triage_release'
   | 'triage_release_plan'
   | 'triage_drop'
+  | 'triage_close_done'
+  | 'triage_not_done'
   // Work stage E: work started from a session the owner said to track, and the one-time clear of old session questions (source keeper, Undo for 72 hours)
   | 'session_track'
   | 'work_stale_clear'

@@ -8,6 +8,8 @@
  *                 left alone and the tap says so. Dependencies hold the order as they always do (the gate parks a task whose
  *                 blocker is not done); nothing here touches them.
  *   drop          tasks to abandoned.
+ *   closeDone     "Close as done": a card an agent marked (or Mike says) is already finished goes straight to done. Owner only.
+ *   notDone       "Not done": takes the looks-done mark off and leaves the card in Triage, with an internal comment.
  *   undoTriage    puts back exactly the tasks still as the tap left them (compare-and-set), for 72 hours.
  *
  * Open questions (lib/tasks/questions.ts) never block a release. Each open question follows its if_nobody_action: `go_with_recommendation`
@@ -25,12 +27,17 @@ import { MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import { patchTask } from '@/lib/services/task-patch';
 import { ownerActor } from '@/lib/home/reconcile/actor';
 import { appendHomeAction, type HomeDb } from '@/lib/home/state';
-import type { HomeActResponse, HomeTriage, HomeTriageGroup, HomeTriageTask } from '@/lib/home/types';
-import { TRIAGE_MESSAGES, TRIAGE_UNDO_HOURS, droppedLine, questionsLine, releasedLine, releasedPlanLine } from './triage-copy';
+import type { HomeActResponse, HomeTriage, HomeTriageGroup, HomeTriageLooksDone, HomeTriageTask } from '@/lib/home/types';
+import { CLOSE_UNDONE_COMMENT, NOT_DONE_COMMENT, TRIAGE_MESSAGES, TRIAGE_UNDO_HOURS, closedDoneComment, closedDoneLine, droppedLine, notDoneLine, questionsLine, releasedLine, releasedPlanLine } from './triage-copy';
+import { SUMMARY_HEAD_CHARS, summaryFromHead } from './triage-summary';
+import { LOOKS_DONE_PREFIX, LOOKS_DONE_TAG, evidenceOf } from './looks-done';
+import { markHomeActionUndone } from '@/lib/home/state';
+import { readWorkCloseRecord, undoWorkClose, type WorkCloseRecord } from '@/lib/work/ask-closure';
+import { stageALines } from '@/lib/work/finished-store';
 import { HELD_NEEDS_MIKE_MARK, HELD_TAG, NEEDS_MIKE_TAG, openQuestionCounts } from './questions';
 
 export const TRIAGE_PASS_PREFIX = 'triage-pass:';
-export const TRIAGE_ACTIONS = ['triage_release', 'triage_release_plan', 'triage_drop'] as const;
+export const TRIAGE_ACTIONS = ['triage_release', 'triage_release_plan', 'triage_drop', 'triage_close_done', 'triage_not_done'] as const;
 export type TriageAction = (typeof TRIAGE_ACTIONS)[number];
 const HOUR_MS = 3600 * 1000;
 const TITLES_SHOWN = 3;
@@ -49,6 +56,7 @@ const ROW_SELECT = {
   title: true,
   tags: true,
   updated_at: true,
+  created_at: true,
   project_id: true,
   project: { select: { id: true, name: true, status: true } },
 } satisfies Prisma.TaskSelect;
@@ -92,7 +100,34 @@ async function rowsOfGroup(db: HomeDb, key: string): Promise<Row[]> {
   const where = whereForGroup(key);
   if (!where) return [];
   const rows = await openTriageRows(db, where);
-  return rows.filter((r) => groupKeyFor(r) === key);
+  // A card marked looks-done is shown under its own heading, never inside a group, so a group tap (Release plan) must not take it along.
+  return rows.filter((r) => groupKeyFor(r) === key && !r.tags.includes(LOOKS_DONE_TAG));
+}
+
+/** The newest internal "Looks done: " comment on each task: its id and evidence line. Client-visible and deleted comments never count. */
+async function evidenceFor(db: HomeDb, taskIds: string[]): Promise<Map<string, { id: string; evidence: string }>> {
+  const out = new Map<string, { id: string; evidence: string }>();
+  if (taskIds.length === 0) return out;
+  const comments = await db.comment.findMany({
+    where: { task_id: { in: taskIds }, is_deleted: false, is_internal: true, client_visible: false, content: { startsWith: LOOKS_DONE_PREFIX } },
+    select: { id: true, task_id: true, content: true },
+    orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
+  });
+  for (const c of comments) {
+    if (out.has(c.task_id)) continue;
+    const evidence = evidenceOf(c.content);
+    if (evidence) out.set(c.task_id, { id: c.id, evidence });
+  }
+  return out;
+}
+
+/** One line per task from the first SUMMARY_HEAD_CHARS of its description, read in SQL so whole bodies are never loaded. */
+async function summariesFor(db: HomeDb, taskIds: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (taskIds.length === 0) return out;
+  const rows = await db.$queryRaw<{ id: string; head: string | null }[]>`SELECT id::text AS id, left(description, ${SUMMARY_HEAD_CHARS}) AS head FROM tasks WHERE id = ANY(${taskIds}::uuid[])`;
+  for (const r of rows) out.set(r.id, summaryFromHead(r.head));
+  return out;
 }
 
 /** The Triage section. Null for anyone but Mike, and null when nothing waits. */
@@ -100,8 +135,10 @@ export async function loadTriage(db: HomeDb, userId: string): Promise<HomeTriage
   if (!isTriageOwner(userId)) return null;
   const rows = await openTriageRows(db);
   if (rows.length === 0) return null;
+  const marked = rows.filter((r) => r.tags.includes(LOOKS_DONE_TAG));
+  const unmarked = rows.filter((r) => !r.tags.includes(LOOKS_DONE_TAG));
   const groups = new Map<string, { kind: HomeTriageGroup['kind']; label: string; project_id: string | null; rows: Row[] }>();
-  for (const r of rows) {
+  for (const r of unmarked) {
     const key = groupKeyFor(r);
     let g = groups.get(key);
     if (!g) {
@@ -116,6 +153,18 @@ export async function loadTriage(db: HomeDb, userId: string): Promise<HomeTriage
     g.rows.push(r);
   }
   const qCounts = await openQuestionCounts(db, rows.map((r) => r.id));
+  const evidence = await evidenceFor(db, marked.map((r) => r.id));
+  const summaries = await summariesFor(db, rows.map((r) => r.id));
+  const looksDone: HomeTriageLooksDone[] = marked.map((r) => ({
+    task_id: r.id,
+    title: r.title,
+    href: `/tasks/${r.id}`,
+    project_name: r.project?.name ?? null,
+    evidence: evidence.get(r.id)?.evidence ?? '',
+    open_questions: qCounts.get(r.id) ?? 0,
+    summary: summaries.get(r.id) ?? '',
+    created_at: r.created_at.toISOString(),
+  }));
   const out: HomeTriageGroup[] = [...groups.entries()].map(([key, g]) => {
     const tasks: HomeTriageTask[] = g.rows.map((r) => ({
       task_id: r.id,
@@ -123,6 +172,8 @@ export async function loadTriage(db: HomeDb, userId: string): Promise<HomeTriage
       href: `/tasks/${r.id}`,
       project_name: r.project?.name ?? null,
       open_questions: qCounts.get(r.id) ?? 0,
+      summary: summaries.get(r.id) ?? '',
+      created_at: r.created_at.toISOString(),
     }));
     const withProject = g.rows.filter((r) => r.project);
     return {
@@ -138,7 +189,12 @@ export async function loadTriage(db: HomeDb, userId: string): Promise<HomeTriage
     };
   });
   out.sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
-  return { count: rows.length, open_questions: out.reduce((a, g) => a + g.open_questions, 0), groups: out };
+  return {
+    count: rows.length,
+    looks_done: looksDone,
+    open_questions: out.reduce((a, g) => a + g.open_questions, 0) + looksDone.reduce((a, t) => a + t.open_questions, 0),
+    groups: out,
+  };
 }
 
 // ----------------------------------------------------------------------------
@@ -148,7 +204,7 @@ export async function loadTriage(db: HomeDb, userId: string): Promise<HomeTriage
 /** The record a tap stores, so Undo can put back exactly what it did. */
 export interface TriageRecord {
   kind: 'triage';
-  mode: 'release' | 'drop';
+  mode: 'release' | 'drop' | 'close_done' | 'not_done';
   started_at: string;
   items: {
     task_id: string;
@@ -158,7 +214,14 @@ export interface TriageRecord {
     defaulted_question_ids?: string[];
     /** Tags this tap added (held-for-questions, needs-mike). Undo takes exactly these off. */
     tags_added?: string[];
+    /** close_done and not_done: the looks-done mark this tap took off. Undo puts it back. */
+    tag_removed?: boolean;
+    /** close_done: the Looks done comment the close relied on, and the comment the close wrote. */
+    evidence_comment_id?: string | null;
+    close_comment_id?: string;
   }[];
+  /** close_done: the work_close lines the close caused (its emails closed with it). Undo reopens them. */
+  ask_action_ids?: string[];
   projects: { project_id: string; from: 'queue'; to: 'ready'; updated_after: string }[];
 }
 
@@ -166,7 +229,7 @@ export function readTriageRecord(v: unknown): TriageRecord | null {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
   const r = (v as { triage?: unknown }).triage as Partial<TriageRecord> | undefined;
   if (!r || r.kind !== 'triage' || !Array.isArray(r.items)) return null;
-  return { ...(r as TriageRecord), projects: Array.isArray(r.projects) ? r.projects : [] };
+  return { ...(r as TriageRecord), projects: Array.isArray(r.projects) ? r.projects : [], ask_action_ids: Array.isArray(r.ask_action_ids) ? r.ask_action_ids : [] };
 }
 
 function uniqueIds(ids: string[]): string[] {
@@ -305,6 +368,86 @@ export async function drop(db: PrismaClient, userId: string, taskIds: string[], 
   return run(db, userId, 'triage_drop', 'drop', rows, false, now);
 }
 
+/**
+ * Close as done. A card that is "already done elsewhere" goes straight from Triage to done (owner only: patchTask's own triage-exit
+ * check is the authority, and the status table now allows triage to done). The close needs no Looks done mark, because Mike can say
+ * "that one is done" in the chat; when a mark and evidence are there, the comment references them.
+ *
+ * The done-guards, honestly handled. patchTask has no hard guard on done: the checklist ("Done when") and the review flags are not
+ * checked for a status write, and a normal close from the task page or the looks-finished list ticks and approves nothing either.
+ * So the close does not tick the checklist and does not set `approved`. Why: an idea Mike closes as done elsewhere was never
+ * reviewed here, and `approved` is what lets an approval-gated dependent start (lib/services/dependencies.ts); setting it would
+ * start other work on an agent's say-so. A dependent on an approval-gated project therefore stays blocked until someone approves,
+ * exactly as it does for any done task. The comment records the evidence and who closed it, which is the honest paper trail.
+ * Done also closes the emails linked to the task (Stage A), as every other close does; Undo reopens them.
+ */
+export async function closeDone(db: PrismaClient, userId: string, taskIds: string[], now: Date): Promise<HomeActResponse> {
+  requireOwner(userId);
+  const rows = await rowsById(db, uniqueIds(taskIds));
+  if (rows.length === 0) throw changedErr();
+  const evidence = await evidenceFor(db, rows.map((r) => r.id));
+  const actor = await ownerActor(db, userId);
+  const rec: TriageRecord = { kind: 'triage', mode: 'close_done', started_at: now.toISOString(), items: [], projects: [], ask_action_ids: [] };
+  const details: string[] = [];
+  for (const row of rows) {
+    const marked = row.tags.includes(LOOKS_DONE_TAG);
+    try {
+      const res = await patchTask({
+        actor,
+        id: row.id,
+        body: { status: 'done', ...(marked ? { tags: row.tags.filter((t) => t !== LOOKS_DONE_TAG) } : {}) },
+        expect: { status: 'triage', updated_at: row.updated_at },
+      });
+      if (!res.ok) continue;
+    } catch (e) {
+      if (e instanceof ApiError && e.code === 'triage_exit_forbidden') throw e;
+      continue;
+    }
+    const ev = evidence.get(row.id) ?? null;
+    const comment = await db.comment.create({
+      data: { task_id: row.id, user_id: userId, content: closedDoneComment(ev?.id ?? null, ev?.evidence ?? null), is_internal: true, client_visible: false },
+      select: { id: true },
+    });
+    const after = await db.task.findUnique({ where: { id: row.id }, select: { updated_at: true } });
+    rec.items.push({
+      task_id: row.id,
+      project_id: row.project_id,
+      updated_after: (after?.updated_at ?? new Date()).toISOString(),
+      tag_removed: marked,
+      evidence_comment_id: ev?.id ?? null,
+      close_comment_id: comment.id,
+    });
+    details.push(`${row.title} /tasks/${row.id}`);
+  }
+  if (rec.items.length === 0) throw changedErr();
+  rec.ask_action_ids = await stageALines(db, userId, rec.items.map((i) => i.task_id), now);
+  return writeLine(db, userId, 'triage_close_done', rec, closedDoneLine(rec.items.length), details, now);
+}
+
+/** Not done: the looks-done mark comes off and the card stays in Triage, with an internal comment. Only a marked card in Triage. */
+export async function notDone(db: PrismaClient, userId: string, taskIds: string[], now: Date): Promise<HomeActResponse> {
+  requireOwner(userId);
+  const rows = (await rowsById(db, uniqueIds(taskIds))).filter((r) => r.tags.includes(LOOKS_DONE_TAG));
+  if (rows.length === 0) throw changedErr();
+  const actor = await ownerActor(db, userId);
+  const rec: TriageRecord = { kind: 'triage', mode: 'not_done', started_at: now.toISOString(), items: [], projects: [] };
+  const details: string[] = [];
+  for (const row of rows) {
+    try {
+      const res = await patchTask({ actor, id: row.id, body: { tags: row.tags.filter((t) => t !== LOOKS_DONE_TAG) }, expect: { status: 'triage', updated_at: row.updated_at } });
+      if (!res.ok) continue;
+    } catch {
+      continue;
+    }
+    await db.comment.create({ data: { task_id: row.id, user_id: userId, content: NOT_DONE_COMMENT, is_internal: true, client_visible: false } });
+    const after = await db.task.findUnique({ where: { id: row.id }, select: { updated_at: true } });
+    rec.items.push({ task_id: row.id, project_id: row.project_id, updated_after: (after?.updated_at ?? new Date()).toISOString(), tag_removed: true });
+    details.push(`${row.title} /tasks/${row.id}`);
+  }
+  if (rec.items.length === 0) throw changedErr();
+  return writeLine(db, userId, 'triage_not_done', rec, notDoneLine(rec.items.length), details, now);
+}
+
 // ----------------------------------------------------------------------------
 // Undo (called from runHomeUndo inside its transaction)
 // ----------------------------------------------------------------------------
@@ -320,6 +463,7 @@ export async function undoTriage(db: HomeDb, userId: string, rec: TriageRecord, 
   requireOwner(userId);
   const prisma = db as unknown as PrismaClient;
   const actor = await ownerActor(prisma, userId);
+  if (rec.mode === 'close_done' || rec.mode === 'not_done') return undoLooksDone(prisma, db, userId, actor, rec, now);
   const restored: string[] = [];
   const from = rec.mode === 'release' ? 'not_started' : 'abandoned';
   for (const it of rec.items) {
@@ -357,3 +501,40 @@ export async function undoTriage(db: HomeDb, userId: string, rec: TriageRecord, 
   return { restored };
 }
 
+
+/**
+ * Undo of Close as done or Not done. Each card goes back only while it is still as the tap left it (compare-and-set through patchTask).
+ * A done card returns through not_started (the status table has no done to triage step) and the looks-done mark is put back; the
+ * emails the close closed reopen through Stage A's own undo. A card that changed since stays where it is.
+ */
+async function undoLooksDone(prisma: PrismaClient, db: HomeDb, userId: string, actor: Awaited<ReturnType<typeof ownerActor>>, rec: TriageRecord, now: Date): Promise<{ restored: string[] }> {
+  const restored: string[] = [];
+  for (const it of rec.items) {
+    try {
+      let current: { status: 'done' | 'not_started' | 'triage'; updated_at: Date | string } = { status: rec.mode === 'close_done' ? 'done' : 'triage', updated_at: it.updated_after };
+      if (rec.mode === 'close_done') {
+        const a = await patchTask({ actor, id: it.task_id, body: { status: 'not_started' }, expect: current });
+        if (!a.ok) continue;
+        const t = await prisma.task.findUnique({ where: { id: it.task_id }, select: { updated_at: true } });
+        if (!t) continue;
+        current = { status: 'not_started', updated_at: t.updated_at };
+      }
+      const t = await prisma.task.findUnique({ where: { id: it.task_id }, select: { tags: true } });
+      const tags = t && it.tag_removed && !t.tags.includes(LOOKS_DONE_TAG) ? [...t.tags, LOOKS_DONE_TAG] : (t?.tags ?? []);
+      const res = await patchTask({ actor, id: it.task_id, body: { status: 'triage', tags }, expect: current });
+      if (!res.ok) continue;
+      restored.push(it.task_id);
+      if (rec.mode === 'close_done') {
+        await prisma.comment.create({ data: { task_id: it.task_id, user_id: userId, content: CLOSE_UNDONE_COMMENT, is_internal: true, client_visible: false } });
+      }
+    } catch {
+      // changed since: it stays as it is
+    }
+  }
+  for (const actionId of rec.ask_action_ids ?? []) {
+    const row = await db.homeAction.findFirst({ where: { id: actionId, user_id: userId }, select: { before: true } });
+    const wc: WorkCloseRecord | null = readWorkCloseRecord(row?.before);
+    if (wc && (await markHomeActionUndone(db, userId, actionId, now))) await undoWorkClose(db, userId, wc, now);
+  }
+  return { restored };
+}

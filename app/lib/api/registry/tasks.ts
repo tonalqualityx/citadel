@@ -17,7 +17,7 @@ export const taskEndpoints: ApiEndpoint[] = [
           { name: 'project_id', type: 'uuid', required: false, description: 'Filter by project' },
           { name: 'assignee_id', type: 'uuid', required: false, description: 'Filter by assignee (e.g. the Bast service user to drain its queue)' },
           { name: 'source', type: 'string', required: false, description: 'Filter by provenance: portal | email | internal' },
-          { name: 'tags', type: 'string', required: false, description: 'Comma-separated tag list; matches tasks having ALL listed tags (hasEvery). Handles triage-state tags (bast-doable, needs-mike, awaiting-clarification, staged, …) and the stack:/kind: classification namespaces.' },
+          { name: 'tags', type: 'string', required: false, description: 'Comma-separated tag list; matches tasks having ALL listed tags (hasEvery). Handles triage-state tags (triage:looks-done marks a Triage card an agent says is finished; list status=triage to see which are marked; every task in the list carries its tags; bast-doable, needs-mike, awaiting-clarification, staged, …) and the stack:/kind: classification namespaces.' },
           { name: 'charter_id', type: 'uuid', required: false, description: 'Filter by charter' },
           { name: 'maintenance_period', type: 'string', required: false, description: 'Filter by period (e.g., 2026-05)' },
           { name: 'phase', type: 'string', required: false, description: 'Filter by phase' },

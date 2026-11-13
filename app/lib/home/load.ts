@@ -103,6 +103,8 @@ const KEEPER_ACTIONS: readonly string[] = [
   'triage_release',
   'triage_release_plan',
   'triage_drop',
+  'triage_close_done',
+  'triage_not_done',
   // Work stage D: a source attached quietly to the work it belongs to (Undo for 72 hours)
   'work_attach',
   // Work stage E: work started from a session, and the one-time clear of old session questions (Undo for 72 hours)
