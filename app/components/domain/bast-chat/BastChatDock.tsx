@@ -169,7 +169,7 @@ function DockInner({ card: cardInput, openSignal = 0 }: BastChatDockProps) {
         style={{
           position: 'fixed',
           right: 16,
-          bottom: 16,
+          bottom: 'max(16px, env(safe-area-inset-bottom))',
           zIndex: 30,
           gap: 8,
           borderRadius: 999,
@@ -208,6 +208,7 @@ function DockInner({ card: cardInput, openSignal = 0 }: BastChatDockProps) {
           flexDirection: 'column',
           gap: 8,
           padding: 12,
+          paddingBottom: 'max(12px, env(safe-area-inset-bottom))',
           boxSizing: 'border-box',
           background: 'var(--bg-elevated)',
           color: 'var(--text-primary)',

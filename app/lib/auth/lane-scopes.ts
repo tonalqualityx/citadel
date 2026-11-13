@@ -196,6 +196,8 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('GET', '/api/tasks/:id'),
     r('PATCH', '/api/tasks/:id'),
     r('GET', '/api/tasks/:id/comments'),
+    // Card questions: read only, so a session knows whether Mike answered (never a triage card; never ask or answer)
+    r('GET', '/api/tasks/:id/questions'),
     r('POST', '/api/tasks/:id/comments'),
     r('POST', '/api/tasks/:id/live'),
     r('POST', '/api/tasks/:id/staged'),
@@ -401,6 +403,11 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('GET', '/api/tasks/:id/comments'),
     // Tick, untick or answer one "Done when" item on the owner's word (not on a task a bot holds; the answer is an internal note)
     r('POST', '/api/tasks/:id/checklist'),
+    // Card questions: read, ask, edit or withdraw, and record Mike's answer in his own words (the answer comment starts "From Mike, through the chat: ")
+    r('GET', '/api/tasks/:id/questions'),
+    r('POST', '/api/tasks/:id/questions'),
+    r('PATCH', '/api/tasks/:id/questions/:qid'),
+    r('POST', '/api/tasks/:id/questions/:qid/answer'),
     r('GET', '/api/projects'),
     r('GET', '/api/projects/:id'),
     r('GET', '/api/oracle/projects'),

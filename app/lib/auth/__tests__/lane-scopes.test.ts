@@ -140,6 +140,13 @@ describe('matching', () => {
     expect(laneAllows('courier', 'GET', '/api/sites')).toBe(false);
   });
 
+  it('bast reads card questions but never asks, edits or answers', () => {
+    expect(laneAllows('bast', 'GET', '/api/tasks/7f1c/questions')).toBe(true);
+    expect(laneAllows('bast', 'POST', '/api/tasks/7f1c/questions')).toBe(false);
+    expect(laneAllows('bast', 'PATCH', '/api/tasks/7f1c/questions/9a')).toBe(false);
+    expect(laneAllows('bast', 'POST', '/api/tasks/7f1c/questions/9a/answer')).toBe(false);
+  });
+
   it('bast reads one meeting (decisions/capture.py) but not the incomplete list or a write', () => {
     expect(laneAllows('bast', 'GET', '/api/meetings/7f1c')).toBe(true);
     expect(laneAllows('bast', 'GET', '/api/meetings/incomplete')).toBe(false);

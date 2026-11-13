@@ -12,6 +12,7 @@ export const TRIAGE_BUTTONS = {
   releasePlan: 'Release plan',
   drop: 'Drop',
   talk: 'Talk about this',
+  questions: 'Questions',
   showAll: 'Show all',
   showLess: 'Show fewer',
 } as const;
@@ -37,6 +38,28 @@ export function releasedPlanLine(count: number, projectNames: string[], madeRead
   const ready = madeReady.length > 0 ? ` ${madeReady.length === 1 ? madeReady[0] : n(madeReady.length, 'project', 'projects')} is now ready.` : '';
   return `Released the plan: ${n(count, 'idea', 'ideas')}${where}.${ready}`;
 }
+
+/** What the release did with the open questions on the released cards, or '' when there were none. */
+export function questionsLine(defaulted: number, waiting: number): string {
+  const parts: string[] = [];
+  if (defaulted > 0) parts.push(`${defaulted} ${defaulted === 1 ? 'question goes' : 'questions go'} with the recommendation`);
+  if (waiting > 0) parts.push(`${waiting} ${waiting === 1 ? 'waits' : 'wait'} for you`);
+  if (parts.length === 0) return '';
+  const joined = parts.join(', ');
+  return `${joined.charAt(0).toUpperCase()}${joined.slice(1)}.`;
+}
+
+export const QUESTIONS_HEADING = 'Questions';
+export const QUESTION_BUTTONS = {
+  questions: 'Questions',
+  context: 'Context',
+  hideContext: 'Hide context',
+  change: 'Change',
+  other: 'Other answer',
+  send: 'Send answer',
+  cancel: 'Cancel',
+  recommended: 'Recommended',
+} as const;
 
 export function droppedLine(count: number): string {
   return `Dropped ${n(count, 'idea', 'ideas')} from Triage.`;
