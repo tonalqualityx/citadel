@@ -94,7 +94,10 @@ export const bastChatEndpoints: ApiEndpoint[] = [
         summary: 'The last 20 conversations of the owner, newest first; with task_id, only that card\'s conversation (zero or one row)',
         auth: 'required',
         roles: OWNER,
-        queryParams: [{ name: 'task_id', type: 'uuid', required: false, description: 'Only the conversation about this card (a conversation tied to a Triage card, operating model S4); a bad id is 400' }],
+        queryParams: [
+          { name: 'task_id', type: 'uuid', required: false, description: 'Only the newest conversation about this card (a conversation tied to a Triage card, operating model S4); a bad id is 400' },
+          { name: 'all', type: 'string', required: false, description: "With task_id and all=1: every conversation about the card, newest first (older ones are history)" },
+        ],
         responseExample: { conversations: [{ id: 'uuid', title: 'string|null', status: 'idle|queued|running|closed', last_message_at: 'ISO-8601|null', created_at: 'ISO-8601', task_id: 'uuid|null (the card; null for the general chat)' }] },
       },
       {
@@ -102,9 +105,12 @@ export const bastChatEndpoints: ApiEndpoint[] = [
         summary: 'Start a new conversation (the open general one is closed and kept), or open the conversation about one card',
         auth: 'required',
         roles: OWNER,
-        bodySchema: [{ name: 'task_id', type: 'uuid', required: false, description: 'Open this card\'s own conversation. Omit for the general chat. A card that does not exist or is deleted is 404' }],
+        bodySchema: [
+          { name: 'task_id', type: 'uuid', required: false, description: 'Open this card\'s own conversation. Omit for the general chat. A card that does not exist or is deleted is 404' },
+          { name: 'fresh', type: 'boolean', required: false, description: 'With task_id: start fresh on the card. Its open conversation is closed and kept as history and a new, empty one is opened on the same card: 201 {id, reopened: false}. Without task_id it is 400' },
+        ],
         responseExample: { id: 'uuid', reopened: 'boolean (only with task_id)' },
-        responseNotes: 'Strict body: {} or {task_id}. JSON content type and same origin required. Without task_id: 201 {id}, the open general conversation is closed and kept, as always. With task_id: a conversation tied to a card is exempt from the one-open rule and closes nothing; the first time 201 {id, reopened: false}, after that 200 {id, reopened: true} and a closed one goes back to idle with its turns intact (the machine replays the last 20). One per card per owner (unique index). Owner session only, as every route here.',
+        responseNotes: 'Strict body: {}, {task_id} or {task_id, fresh: true}. JSON content type and same origin required. Without task_id: 201 {id}, the open general conversation is closed and kept, as always. With task_id: a conversation tied to a card is exempt from the one-open rule and closes nothing; the first time 201 {id, reopened: false}, after that 200 {id, reopened: true} and a closed one goes back to idle with its turns intact (the machine replays the last 20). A card can have several conversations over time but at most one open (partial unique index on open conversations, and one transaction with an advisory lock); reopening gives the newest; the machine replays turns of the conversation it is given only. Owner session only, as every route here.',
       },
     ],
   },
