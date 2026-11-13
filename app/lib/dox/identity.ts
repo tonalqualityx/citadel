@@ -14,5 +14,6 @@ export function isDoxLaneValue(lane: string | null | undefined): boolean {
 /** The name a comment or a question shows as its author: "Dox" for the Dox lane, else the user's own name. */
 export function authorLabel(lane: string | null | undefined, userName: string | null | undefined, fallback = 'Unknown'): string {
   if (isDoxLaneValue(lane)) return DOX_LABEL;
+  if ((lane ?? '').split(',').some((l) => l.trim() === 'triage-desk')) return 'A session';
   return userName || fallback;
 }

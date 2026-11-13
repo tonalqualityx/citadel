@@ -148,10 +148,10 @@ describe('lane dox', () => {
 
   it('only Dox, bast-chat and bast reach what they should of the Triage card read and the question write', () => {
     expect(laneAllows('dox', 'GET', '/api/tasks/7f1c/triage')).toBe(true);
-    for (const lane of LANES.filter((l) => l !== 'bast-chat' && l !== 'dox')) {
+    for (const lane of LANES.filter((l) => l !== 'bast-chat' && l !== 'dox' && l !== 'triage-desk')) {
       expect(laneAllows(lane, 'GET', '/api/tasks/7f1c/triage'), lane).toBe(false);
     }
-    for (const lane of LANES.filter((l) => l !== 'bast-chat' && l !== 'dox')) {
+    for (const lane of LANES.filter((l) => l !== 'bast-chat' && l !== 'dox' && l !== 'triage-desk')) {
       expect(laneAllows(lane, 'POST', '/api/tasks/7f1c/questions'), lane).toBe(false);
     }
   });

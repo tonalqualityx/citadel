@@ -16,8 +16,10 @@ import { openQuestionCounts } from './questions';
 import { recentChanges } from './triage-rev';
 import { planLine } from './plan-summary';
 import { SUMMARY_HEAD_CHARS, summaryFromHead } from './triage-summary';
+import { readDeals } from '@/lib/deals/read';
+import { sessionChangesFor } from '@/lib/triage-desk/changes';
 
-type Db = Pick<PrismaClient, 'task' | 'comment' | 'taskQuestion' | 'project' | 'projectPhase' | 'projectPage' | 'contract' | 'taskPlanItem' | '$queryRaw'>;
+type Db = Pick<PrismaClient, 'task' | 'comment' | 'taskQuestion' | 'project' | 'projectPhase' | 'projectPage' | 'contract' | 'accord' | 'accordCommissionItem' | 'charter' | 'client' | 'taskPlanItem' | '$queryRaw'>;
 
 const DAY_MS = 86_400_000;
 
@@ -107,6 +109,9 @@ export async function projectBlocks(db: Db, projectIds: string[]): Promise<Map<s
         select: { accord_id: true, status: true, signed_at: true, version: true },
       })
     : [];
+  // The deal with its items, for each project (read-only; lib/deals/read.ts says how a project is tied to its deal).
+  const details = new Map<string, Awaited<ReturnType<typeof readDeals>>>();
+  for (const p of rows) details.set(p.id, await readDeals(db, { projectId: p.id }));
   for (const p of rows) {
     const ph = phases.filter((x) => x.project_id === p.id);
     const mine = contracts.filter((c) => c.accord_id === p.accord_id);
@@ -122,6 +127,7 @@ export async function projectBlocks(db: Db, projectIds: string[]): Promise<Map<s
       mike_parts: ph.filter((x) => x.mike_part && x.mike_part.trim() !== '').map((x) => ({ phase: x.name, text: x.mike_part as string })),
       contract: c && p.accord_id ? { status: c.status, signed_at: c.signed_at ? c.signed_at.toISOString() : null, version: c.version, deal_id: p.accord_id, deal_href: `/deals/${p.accord_id}` } : null,
       deal: p.accord ? { id: p.accord.id, name: p.accord.name, href: `/deals/${p.accord.id}` } : null,
+      deal_detail: details.get(p.id) ?? null,
       sitemap: pages.filter((x) => x.project_id === p.id).map((x) => ({ id: x.id, name: x.name, page_type: x.page_type, needs_design: x.needs_design, notes: x.notes })),
     });
   }
@@ -156,6 +162,7 @@ export async function loadCards(db: Db, taskIds: string[], now: Date = new Date(
   const ids = tasks.map((t) => t.id);
   const openQs = await openQuestionRows(db, ids);
   const hold = pmReleaseHold();
+  const sessionChanges = await sessionChangesFor(db, ids);
   const [qCounts, summaries, evidence] = await Promise.all([openQuestionCounts(db, ids), summariesFor(db, ids), evidenceFor(db, tasks.filter((t) => t.tags.includes(LOOKS_DONE_TAG)).map((t) => t.id))]);
   const setupProjectIds = Array.from(new Set(tasks.filter((t) => t.triage_kind === 'project_setup' && t.project).map((t) => t.project!.id)));
   const blocks = await projectBlocks(db, setupProjectIds);
@@ -206,6 +213,7 @@ export async function loadCards(db: Db, taskIds: string[], now: Date = new Date(
       target_launch_date: dayOf(t.project?.target_date),
       looks_done: ev === null ? null : { evidence: ev, links: evidenceParts(ev).filter((p) => p.href).map((p) => ({ text: p.text, href: p.href as string })) },
       project: t.triage_kind === 'project_setup' && t.project ? (blocks.get(t.project.id) ?? null) : null,
+      session_changes: sessionChanges.get(t.id) ?? [],
     };
   });
   cards.sort((a, b) => Number(b.looks_done !== null) - Number(a.looks_done !== null) || a.created_at.localeCompare(b.created_at) || a.task_id.localeCompare(b.task_id));

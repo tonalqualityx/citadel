@@ -10,6 +10,10 @@ import { logUpdate, logDelete } from '@/lib/services/activity';
 import { checkTaskAccess, patchTask, mayLeaveTriage, TRIAGE_EXIT_TEXT } from '@/lib/services/task-patch';
 import { loadCards } from '@/lib/tasks/triage-card';
 import { guardDoxTaskPatch } from '@/lib/dox/guard';
+import { mayReadDeal } from '@/lib/deals/access';
+import { guardDeskTaskPatch } from '@/lib/triage-desk/guard';
+import { recordSessionChange } from '@/lib/triage-desk/changes';
+import { readDeals } from '@/lib/deals/read';
 
 export async function GET(
   request: NextRequest,
@@ -72,13 +76,20 @@ export async function GET(
       formattedTask.review_requirements = null;
     }
 
+    // The signed deal of the task's project (or, with no project, of its client): read-only, for the chat lane and for Dox inside its project binding.
+    const dealAbout = task ? { projectId: task.project_id ?? null, clientId: task.client_id ?? null } : null;
+    const deal = dealAbout && (dealAbout.projectId || dealAbout.clientId) && (await mayReadDeal(auth, request.headers, dealAbout))
+      ? await readDeals(prisma, dealAbout)
+      : undefined;
+    const withDeal = <T extends object>(o: T): T | (T & { deal: typeof deal }) => (deal ? { ...o, deal } : o);
+
     // A Triage card shows what Release will do (Mike's session or the chat lane only; nobody else gets these fields).
     if (task && task.status === 'triage' && mayLeaveTriage(auth)) {
       const [card] = await loadCards(prisma, [id]);
-      if (card) return NextResponse.json({ ...formattedTask, triage_kind: card.kind, release_line: card.release_line, release_ready: card.release_ready });
+      if (card) return NextResponse.json(withDeal({ ...formattedTask, triage_kind: card.kind, release_line: card.release_line, release_ready: card.release_ready }));
     }
 
-    return NextResponse.json(formattedTask);
+    return NextResponse.json(withDeal(formattedTask));
   } catch (error) {
     return handleApiError(error);
   }
@@ -94,11 +105,13 @@ export async function PATCH(
 
     const existingTask = await checkTaskAccess(id, auth);
     const rawBody = await request.json();
-    const body = await guardDoxTaskPatch(
+    // Triage-desk lane: the looks-done mark on a Triage card and nothing else (the body it returns replaces the request's).
+    const deskBody = guardDeskTaskPatch(auth, rawBody, { status: existingTask.status, tags: existingTask.tags ?? [] });
+    const body = deskBody ?? await guardDoxTaskPatch(
       auth,
       request.headers,
       await guardChatTaskBody(auth, 'PATCH', rawBody, existingTask),
-      { id, status: existingTask.status, project_id: existingTask.project_id ?? null, tags: existingTask.tags ?? [], assignee_id: existingTask.assignee_id ?? null, updated_at: existingTask.updated_at ?? null },
+      { id, status: existingTask.status, project_id: existingTask.project_id ?? null, tags: existingTask.tags ?? [], assignee_id: existingTask.assignee_id ?? null, updated_at: existingTask.updated_at ?? null, requested_by_contact_id: existingTask.requested_by_contact_id ?? null, client_visible: existingTask.client_visible ?? null, staging_preview_url: existingTask.staging_preview_url ?? null, approved: existingTask.approved ?? null, client_approved_at: existingTask.client_approved_at ?? null },
     );
     const chatConversation = await chatConversationFor(auth, request.headers, 'PATCH');
 
@@ -131,6 +144,7 @@ export async function PATCH(
       });
       // Only a caller passing `expect` can get this: the chat lane (its reach check read the task first).
       if (!result.ok) throw new ApiError(RACE_TEXT, 409, 'changed_since');
+      if (deskBody) await recordSessionChange(auth.userId, id, 'marked the card looks-done');
       return withChatAction(NextResponse.json({
         ...formatTaskResponse(result.task),
         ...(result.completionNudge ? { completion_nudge: result.completionNudge } : {}),

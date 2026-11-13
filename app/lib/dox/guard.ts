@@ -21,6 +21,7 @@ import { prisma } from '@/lib/db/prisma';
 import { BAST_USER_ID, BOT_USER_IDS } from '@/lib/oracle/projects/gate-constants';
 import { LOOKS_DONE_TAG } from '@/lib/tasks/looks-done';
 import { FROM_TRIAGE_TAG, PM_RELEASE_TAG } from '@/lib/tasks/triage-kind';
+import { isShownInPortal, renderedFieldsTouched } from '@/lib/portal/client-rendered';
 import { getTemplate } from '@/lib/waits/templates';
 import { liveSessionTaskIds } from '@/lib/work/state';
 import { DOX_LANE, isDoxLaneValue } from './identity';
@@ -39,8 +40,8 @@ export const DOX_LIVE_PROJECT_STATUSES = ['ready', 'in_progress', 'review'] as c
 export const DOX_PASS_MAX_AGE_MS = 24 * 3600 * 1000;
 /** A bot-held task counts as a dead hold only after this long with no movement. */
 export const DOX_HOLD_DEAD_MS = 48 * 3600 * 1000;
-/** Triage kinds a card may have for Dox to make a small project from it (null = unsorted ad hoc). */
-export const DOX_PROJECT_CARD_KINDS = ['task', 'reusable_tool', 'rule_proposal'] as const;
+/** Project types Dox may create (the plan calls for one): any of the project type enum. A card of ANY kind may become a project (Mike, 2026-11-13: "Dox should be able to create a project of any size"). */
+export const DOX_PROJECT_TYPES = ['project', 'retainer', 'internal'] as const;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -135,6 +136,12 @@ export interface DoxTaskHead {
   tags: string[];
   assignee_id?: string | null;
   updated_at?: Date | string | null;
+  /** What the portal's own visibility rules read (lib/portal/visibility.ts). Left out, the task counts as not shown. */
+  requested_by_contact_id?: string | null;
+  client_visible?: boolean | null;
+  staging_preview_url?: string | null;
+  approved?: boolean | null;
+  client_approved_at?: Date | string | null;
 }
 
 /** The tags a created task may carry: nothing outside `from-dox` and `setup:<uuid>`. Returns the list to store. Pure. */
@@ -259,6 +266,13 @@ export async function guardDoxTaskPatch(auth: LaneAuth, headers: Hdrs, rawBody: 
     return { tags: [...new Set([...existing.tags, LOOKS_DONE_TAG])] };
   }
   if (add.length > 0) refuse('Dox adds the looks-done tag to Triage cards only.', 'dox_tag_closed');
+  // A task a client can see today: nothing the portal or a client email renders may change through this lane (its status, or a tag the portal reads).
+  // The text fields (title, description, checklist, client title) and the routing fields are not on this lane's patch list at all (dox_field_closed above).
+  if (isShownInPortal(existing)) {
+    const changedNames = [...(body.status !== undefined ? ['status'] : []), ...(remove.length > 0 ? ['tags'] : [])];
+    const touched = renderedFieldsTouched(changedNames, { before: existing.tags, after: existing.tags.filter((t) => !remove.includes(t)) }, { strict: true });
+    if (touched.length > 0) refuse(`A client can see this task, so Dox does not change what the portal shows of it (${touched.join(', ')}).`, 'dox_client_closed');
+  }
   for (const t of remove) {
     if (!(DOX_REMOVABLE_TAGS as readonly unknown[]).includes(t)) refuse('Dox can take off only a dead session hold (cockpit-owned) or needs-pm-release.', 'dox_tag_closed');
   }
@@ -363,10 +377,14 @@ export interface DoxProjectCard {
 }
 
 /**
- * POST /api/projects as Dox: a small project for ONE released card. The request names the card (`x-dox-card`): a task tagged from-triage, no longer
- * in Triage, with no project, of kind task, reusable_tool or rule_proposal (or not sorted). The new project is type internal or the card's client,
- * status ready, and nothing else about it is Dox's to set. The route links the card into the new project in the same transaction, so a card makes
- * one project, and the card is the proof (a finished project is never reused: this is always a new one).
+ * POST /api/projects as Dox: a project of any size for ONE released card. The request names the card (`x-dox-card`): a task tagged from-triage,
+ * no longer in Triage, with no project, of ANY kind (task, reusable tool, rule proposal, project setup, project addition, question only, or not
+ * sorted). The new project is of any type the plan calls for (project, retainer or internal), for the card's own client or internal, status ready,
+ * and nothing else about it is Dox's to set. The route links the card into the new project in the same transaction, so a card makes exactly one
+ * project, and the card is the proof (a finished project is never reused: this is always a new one).
+ *
+ * A project_setup card normally already has its queued project, which the release made ready: that card has a project, so it is refused here
+ * ("one project per card") and Dox works on that project through its project binding (x-dox-project and an open pass), which this guard does not touch.
  */
 export async function guardDoxProjectCreate(auth: LaneAuth, headers: Hdrs, rawBody: unknown, db: Db = prisma): Promise<DoxProjectCard | null> {
   if (!isDoxLane(auth)) return null;
@@ -374,17 +392,15 @@ export async function guardDoxProjectCreate(auth: LaneAuth, headers: Hdrs, rawBo
   for (const k of Object.keys(body)) {
     if (!PROJECT_CREATE_FIELDS.has(k)) refuse(`Dox cannot set "${k}" on a new project.`, 'dox_field_closed');
   }
+  if (body.type !== undefined && !(DOX_PROJECT_TYPES as readonly unknown[]).includes(body.type)) badBody('type is project, retainer or internal.');
   const cardId = uuidHeader(headers, DOX_CARD_HEADER);
   if (!cardId) return refuse('Name the released card this project is for: send the x-dox-card header.', 'dox_no_card');
   const card = await db.task.findFirst({
     where: { id: cardId, is_deleted: false },
-    select: { id: true, status: true, tags: true, project_id: true, client_id: true, triage_kind: true },
+    select: { id: true, status: true, tags: true, project_id: true, client_id: true },
   });
   if (!card || !card.tags.includes(FROM_TRIAGE_TAG) || card.status === 'triage') return refuse('That is not a card released from Triage.', 'dox_card_closed');
   if (card.project_id) return refuse('That card already belongs to a project: one project per card.', 'dox_card_closed');
-  if (card.triage_kind !== null && !(DOX_PROJECT_CARD_KINDS as readonly string[]).includes(card.triage_kind)) {
-    return refuse('A card of this kind does not become a project.', 'dox_card_closed');
-  }
   if (body.status !== 'ready') refuse('A project Dox creates starts as ready.', 'dox_status_closed');
   const internal = body.type === 'internal';
   if (!internal && !(card.client_id && body.client_id === card.client_id)) {

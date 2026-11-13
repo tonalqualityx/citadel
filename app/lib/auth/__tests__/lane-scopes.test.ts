@@ -53,7 +53,7 @@ describe('lane list', () => {
   it('has the fixed lanes in order, each with a route and an identity', () => {
     expect(LANES).toEqual([
       'courier', 'bellringer', 'portal-chat-machine', 'qbo', 'porter', 'wright', 'clarity', 'bast',
-      'audit-lane', 'troubador', 'oracle', 'design-worker', 'bast-chat', 'design-track', 'design-notes', 'dox',
+      'audit-lane', 'troubador', 'oracle', 'design-worker', 'bast-chat', 'design-track', 'design-notes', 'dox', 'triage-desk',
     ]);
     for (const l of LANES) expect(LANE_ROUTES[l].length).toBeGreaterThan(0);
   });
@@ -157,6 +157,8 @@ describe('matching', () => {
       for (const [m, path] of [['GET', '/api/tasks/7f1c/triage'], ['PATCH', '/api/tasks/7f1c/triage'], ['PUT', '/api/tasks/7f1c/triage/shape']] as const) {
         // Dox reads a Triage card (its dates) and nothing more: the GET only.
         if (lane === 'dox' && m === 'GET') continue;
+        // The triage desk edits a card too (its own list and refusals are pinned in lane-triage-desk.test.ts).
+        if (lane === 'triage-desk') continue;
         expect(laneAllows(lane, m, path), `${lane} ${m} ${path}`).toBe(false);
       }
     }
