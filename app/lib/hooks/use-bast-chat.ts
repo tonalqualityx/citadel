@@ -12,6 +12,8 @@
  *        200 ChatStatus.  403 or 404: not enabled or not the owner; the dock then renders nothing.
  *   POST /api/bast-chat/conversations            {}
  *        201 {id} (also accepted: {conversation:{id}}).  Starts a new conversation (closes the current one).
+ *   POST /api/bast-chat/conversations            {task_id, fresh: true}
+ *        201 {id}.  Start fresh on a card: its open conversation is closed (kept as history) and a new, empty one opened.
  *   POST /api/bast-chat/conversations            {task_id}
  *        201 or 200 {id, reopened}.  Opens (or reopens) the conversation about one card; closes nothing.
  *   GET  /api/bast-chat/conversations/:id/feed?after=<seq>
@@ -76,6 +78,9 @@ export interface ChatAction {
   card?: ProposalCard | null;
   /** For a failed proposal: the server's plain refusal. */
   error?: string | null;
+  /** The conversation it belongs to. A card's feed also carries the actions of its earlier conversations (start fresh keeps Undo). */
+  conversation_id?: string;
+  created_at?: string;
 }
 
 export type CardKind = 'bast_start' | 'bast_resteer' | 'client_show';
@@ -160,7 +165,8 @@ export interface TimelineMessage {
 export type TimelineItem =
   | { type: 'message'; key: string; message: TimelineMessage }
   | { type: 'note'; key: string; text: string }
-  | { type: 'action'; key: string; action: ChatAction };
+  /** `at`: when the action's event was written (ISO), or null when that event is not loaded. */
+  | { type: 'action'; key: string; action: ChatAction; at?: string | null; earlier?: boolean };
 
 export const OFFLINE_TEXT = "Bast's machine isn't answering right now. Your message will wait for 2 hours.";
 export const PAUSED_TEXT = 'Bast chat is paused on the machine.';
@@ -355,6 +361,7 @@ export function useBastChat({ open, enabled = true }: { open: boolean; enabled?:
     live.current.availability = availability;
   });
   const inflight = useRef(false);
+  const rerun = useRef(false);
 
   const hide = useCallback(() => {
     live.current.availability = 'unavailable';
@@ -430,7 +437,13 @@ export function useBastChat({ open, enabled = true }: { open: boolean; enabled?:
   }, [readStatus]);
 
   const pollOnce = useCallback(async (): Promise<void> => {
-    if (inflight.current || live.current.availability === 'unavailable') return;
+    if (live.current.availability === 'unavailable') return;
+    if (inflight.current) {
+      // A read is already running (maybe for the conversation that was just left): read again as soon as it ends,
+      // so a card's own conversation shows now and not at the next slow poll.
+      rerun.current = true;
+      return;
+    }
     inflight.current = true;
     try {
       const l = live.current;
@@ -442,6 +455,10 @@ export function useBastChat({ open, enabled = true }: { open: boolean; enabled?:
       if (l2.conversationId && (l2.open || busy2)) await readFeed();
     } finally {
       inflight.current = false;
+      if (rerun.current) {
+        rerun.current = false;
+        void pollOnce();
+      }
     }
   }, [readFeed, readStatus]);
 
@@ -482,8 +499,8 @@ export function useBastChat({ open, enabled = true }: { open: boolean; enabled?:
     return () => clearInterval(t);
   }, [gone]);
 
-  const startConversation = useCallback(async (taskId: string | null = null): Promise<string | null> => {
-    const r = await chatFetch<{ id?: string; conversation?: { id?: string } }>('POST', '/conversations', taskId ? { task_id: taskId } : {});
+  const startConversation = useCallback(async (taskId: string | null = null, fresh = false): Promise<string | null> => {
+    const r = await chatFetch<{ id?: string; conversation?: { id?: string } }>('POST', '/conversations', taskId ? (fresh ? { task_id: taskId, fresh: true } : { task_id: taskId }) : {});
     if (r.status === 403 || r.status === 404) {
       hide();
       return null;
@@ -561,8 +578,12 @@ export function useBastChat({ open, enabled = true }: { open: boolean; enabled?:
 
   const newChat = useCallback(async () => {
     setError(null);
-    await startConversation(null);
-  }, [startConversation]);
+    // In a card's conversation this starts a fresh conversation ON THE SAME CARD; in the general chat it is what it always was.
+    const card = live.current.taskId;
+    const id = await startConversation(card, card !== null);
+    // A card keeps its earlier conversations' actions (Undo): read them now, not at the next slow poll.
+    if (id && card !== null) void pollOnce();
+  }, [startConversation, pollOnce]);
 
   const leaveCardConversation = useCallback(async () => {
     setError(null);
@@ -634,8 +655,11 @@ export function useBastChat({ open, enabled = true }: { open: boolean; enabled?:
     const items: Array<{ order: number; item: TimelineItem }> = [];
     const actionBySeq = new Map<number, ChatAction[]>();
     const loose: ChatAction[] = [];
+    const earlier: ChatAction[] = [];
     for (const a of actions) {
-      if (a.event_seq != null) actionBySeq.set(a.event_seq, [...(actionBySeq.get(a.event_seq) ?? []), a]);
+      // An action of an earlier conversation about this card: its event seq belongs to another conversation, so it is not placed by seq.
+      if (a.conversation_id && conversationId && a.conversation_id !== conversationId) earlier.push(a);
+      else if (a.event_seq != null) actionBySeq.set(a.event_seq, [...(actionBySeq.get(a.event_seq) ?? []), a]);
       else loose.push(a);
     }
     const seqs = new Set(events.map((e) => e.seq));
@@ -666,14 +690,15 @@ export function useBastChat({ open, enabled = true }: { open: boolean; enabled?:
       ) {
         items.push({ order: e.seq, item: { type: 'note', key: `e${e.seq}`, text: e.payload.text } });
       }
-      for (const a of actionBySeq.get(e.seq) ?? []) items.push({ order: e.seq + 0.5, item: { type: 'action', key: `a${a.id}`, action: a } });
+      for (const a of actionBySeq.get(e.seq) ?? []) items.push({ order: e.seq + 0.5, item: { type: 'action', key: `a${a.id}`, action: a, at: e.created_at ?? a.created_at ?? null } });
     }
     // Actions whose event is not loaded (or has no seq) still show, after what is loaded.
     for (const [seq, list] of actionBySeq) {
       if (seqs.has(seq)) continue;
-      for (const a of list) items.push({ order: seq + 0.5, item: { type: 'action', key: `a${a.id}`, action: a } });
+      for (const a of list) items.push({ order: seq + 0.5, item: { type: 'action', key: `a${a.id}`, action: a, at: a.created_at ?? null } });
     }
-    for (const a of loose) items.push({ order: Number.MAX_SAFE_INTEGER - 1, item: { type: 'action', key: `a${a.id}`, action: a } });
+    for (const a of loose) items.push({ order: Number.MAX_SAFE_INTEGER - 1, item: { type: 'action', key: `a${a.id}`, action: a, at: a.created_at ?? null } });
+    earlier.forEach((a, i) => items.push({ order: -1_000_000 + i, item: { type: 'action', key: `a${a.id}`, action: a, at: a.created_at ?? null, earlier: true } }));
     items.sort((x, y) => x.order - y.order);
     const out = items.map((x) => x.item);
     for (const p of pending) {
@@ -684,7 +709,7 @@ export function useBastChat({ open, enabled = true }: { open: boolean; enabled?:
       });
     }
     return out;
-  }, [events, actions, waiting, pending, resent]);
+  }, [events, actions, waiting, pending, resent, conversationId]);
 
   let lastAssistantSeq = status?.last_assistant_seq ?? 0;
   for (const e of events) if (e.role === 'assistant' && e.kind === 'text' && e.seq > lastAssistantSeq) lastAssistantSeq = e.seq;

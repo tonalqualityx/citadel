@@ -77,6 +77,7 @@ import { ResourceLinks } from '@/components/domain/projects/resource-links';
 import { TaskDependencies } from '@/components/domain/tasks/task-dependencies';
 import { TaskBastChat } from '@/components/domain/tasks/task-bast-chat';
 import { TaskQuestions } from '@/components/domain/tasks/questions/TaskQuestions';
+import { useBastChatShell } from '@/components/domain/bast-chat/BastChatProvider';
 import { TriagePanel } from '@/components/domain/tasks/TriagePanel';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { useTaskQuestions } from '@/lib/hooks/use-task-questions';
@@ -210,7 +211,25 @@ function InlineDate({ value, onChange, placeholder = 'Set date', inputId }: Inli
 // MAIN PAGE COMPONENT
 // ============================================
 
+/**
+ * While the chat is open beside the page, the page column is narrower than the window: the breakpoints above follow the
+ * window, so the grids are laid out from the column's own width instead.
+ */
+function usePageColumnStyles() {
+  const { pageWidth } = useBastChatShell();
+  if (pageWidth === null) return { statsGridStyle: undefined, bodyGridStyle: undefined, bodyMainStyle: undefined };
+  const cols = (n: number) => ({ gridTemplateColumns: `repeat(${n}, minmax(0, 1fr))` });
+  const stats = pageWidth >= 900 ? 5 : pageWidth >= 640 ? 3 : pageWidth >= 420 ? 2 : 1;
+  const twoColumns = pageWidth >= 760;
+  return {
+    statsGridStyle: cols(stats),
+    bodyGridStyle: twoColumns ? { gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)' } : cols(1),
+    bodyMainStyle: { gridColumn: 'auto' } as React.CSSProperties,
+  };
+}
+
 export default function QuestDetailPage() {
+  const { statsGridStyle, bodyGridStyle, bodyMainStyle } = usePageColumnStyles();
   const params = useParams();
   const router = useRouter();
   const taskId = params.id as string;
@@ -562,7 +581,7 @@ export default function QuestDetailPage() {
       )}
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4" style={statsGridStyle}>
         <Card>
           <CardContent className="py-4">
             <div className="flex items-center gap-3">
@@ -651,9 +670,9 @@ export default function QuestDetailPage() {
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" style={bodyGridStyle}>
         {/* Main Content */}
-        <div className="lg:col-span-2 space-y-6">
+        <div className="lg:col-span-2 space-y-6" style={bodyMainStyle}>
           {/* Description */}
           <Card>
             <CardHeader>

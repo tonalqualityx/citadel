@@ -5550,7 +5550,10 @@ model BastChatConversation {
   events  BastChatEvent[]
   actions BastChatAction[]
 
-  @@unique([owner_id, task_id]) // one conversation per card per owner (NULLs never collide, so the general chats are unaffected)
+  // A card can have several conversations over time ("start fresh"), at most ONE open: the partial unique index
+  // bast_chat_conversations_one_open_per_card (owner_id, task_id WHERE task_id IS NOT NULL AND status <> 'closed') is written by hand in
+  // migration 20261120090000 because Prisma cannot express a partial index.
+  @@index([owner_id, task_id])
   @@index([owner_id, updated_at])
   @@index([status])
   @@map("bast_chat_conversations")

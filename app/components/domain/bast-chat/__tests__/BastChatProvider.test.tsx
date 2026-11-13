@@ -325,6 +325,34 @@ describe('Bast chat shell: a card page and its conversation', () => {
     await waitFor(() => expect(calls.filter((c) => c.url.endsWith('/status')).length).toBeGreaterThan(statusBefore));
     expect(screen.queryByTestId('card-chat-line')).toBeNull();
   });
+  it('in a card conversation the header button is Start fresh and starts a new conversation on the same card', async () => {
+    mq.split = true;
+    responder = cardResponder;
+    render(app(triage));
+    await openIt();
+    await waitFor(() => expect(screen.getByTestId('bast-chat-title').textContent).toBe('Idea about invoices'));
+    const btn = screen.getByRole('button', { name: 'Start fresh' });
+    expect(btn.getAttribute('title')).toMatch(/about this card/);
+    expect(screen.queryByRole('button', { name: 'New chat' })).toBeNull();
+    calls.length = 0;
+    fireEvent.click(btn);
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/conversations'))).toBe(true));
+    const post = calls.find((c) => c.method === 'POST' && c.url.endsWith('/conversations'))!;
+    expect(post.body).toEqual({ task_id: U, fresh: true });
+    // still about the same card
+    expect(screen.getByTestId('bast-chat-title').textContent).toBe('Idea about invoices');
+  });
+  it('the general chat keeps New chat, posting an empty body', async () => {
+    mq.split = true;
+    responder = cardResponder;
+    render(app(null));
+    await openIt();
+    await screen.findByTestId('bast-chat-split');
+    calls.length = 0;
+    fireEvent.click(screen.getByRole('button', { name: 'New chat' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/conversations'))).toBe(true));
+    expect(calls.find((c) => c.method === 'POST' && c.url.endsWith('/conversations'))!.body).toEqual({});
+  });
   it('the Triage page does not switch a closed chat, nor a full-screen one', async () => {
     responder = cardResponder;
     render(app(triage));
