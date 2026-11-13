@@ -7,8 +7,22 @@ const OVERRIDE = 'x-middleware-override-headers';
 const fwd = (res: Response, name: string) => res.headers.get(`x-middleware-request-${name}`);
 
 describe('proxy (x-citadel-route)', () => {
-  it('only runs on /api', () => {
-    expect(config.matcher).toEqual(['/api/:path*']);
+  it('runs on /api and on pages, not on Next internals or files', () => {
+    expect(config.matcher).toEqual(['/api/:path*', '/((?!api/|_next/|.*\\..*).*)']);
+  });
+
+  it('stamps x-citadel-page on a page request and drops a spoofed one, without a route header', () => {
+    const req = new NextRequest('http://localhost:3000/tasks/abc?tab=2', {
+      headers: { 'x-citadel-page': '//evil.example' },
+    });
+    const res = proxy(req);
+    expect(fwd(res, 'x-citadel-page')).toBe('/tasks/abc?tab=2');
+    expect(fwd(res, 'x-citadel-route')).toBeNull();
+  });
+
+  it('drops a spoofed x-citadel-page on an API request', () => {
+    const res = proxy(new NextRequest('http://localhost:3000/api/tasks', { headers: { 'x-citadel-page': '/x' } }));
+    expect(fwd(res, 'x-citadel-page')).toBeNull();
   });
 
   it('sets the route header from the real method and pathname', () => {

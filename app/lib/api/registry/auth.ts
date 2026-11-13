@@ -60,6 +60,21 @@ export const authEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/auth/continue',
+    group: 'auth',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Silent sign-in on a cold open: refresh from the refresh_token cookie, then redirect to a same-origin page.',
+        auth: 'none',
+        queryParams: [
+          { name: 'to', type: 'string', required: false, description: 'Same-origin relative page path to land on (default /dashboard). Anything else is ignored.' },
+        ],
+        responseNotes: '307 redirect. On success sets access_token, refresh_token and a 30-second silent_refresh marker. On any failure redirects to /login and sets nothing.',
+      },
+    ],
+  },
+  {
     path: '/api/auth/forgot-password',
     group: 'auth',
     methods: [

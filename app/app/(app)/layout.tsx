@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
 import { AppProviders } from '@/components/layout/app-providers';
 import { verifyAccessToken } from '@/lib/auth/jwt';
+import { redirectToContinueOrLogin } from '@/lib/auth/silent-refresh';
 
 // BlockNote / Mantine CSS imports
 import '@mantine/core/styles.css';
@@ -18,7 +19,7 @@ export default async function AppLayout({
   const token = cookieStore.get('access_token');
 
   if (!token) {
-    redirect('/login');
+    return redirectToContinueOrLogin();
   }
 
   // Designer Portal (design D1): a designer never sees the staff shell. This is UX only; the API
