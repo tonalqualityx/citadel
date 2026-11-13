@@ -10,7 +10,8 @@ import type { PrismaClient } from '@prisma/client';
 import { BAST_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import type { HomeAskedAfterRelease, HomeTriageCard, HomeTriageProject } from '@/lib/home/types';
 import { LOOKS_DONE_PREFIX, LOOKS_DONE_TAG, evidenceOf, evidenceParts } from './looks-done';
-import { FROM_TRIAGE_TAG, planRelease, type TriageKindName } from './triage-kind';
+import { FROM_TRIAGE_TAG, planRelease, pmReleaseHold, type TriageKindName } from './triage-kind';
+import { releaseVersion } from './triage-version';
 import { openQuestionCounts } from './questions';
 import { SUMMARY_HEAD_CHARS, summaryFromHead } from './triage-summary';
 
@@ -32,6 +33,39 @@ export async function evidenceFor(db: Pick<Db, 'comment'>, taskIds: string[]): P
     const evidence = evidenceOf(c.content);
     if (evidence) out.set(c.task_id, { id: c.id, evidence });
   }
+  return out;
+}
+
+/** Open questions of these tasks with the field Release reads (if_nobody_action), by task. */
+export async function openQuestionRows(db: Pick<Db, 'taskQuestion'>, taskIds: string[]): Promise<Map<string, { id: string; if_nobody_action: string }[]>> {
+  const out = new Map<string, { id: string; if_nobody_action: string }[]>();
+  if (taskIds.length === 0) return out;
+  const rows = await db.taskQuestion.findMany({ where: { task_id: { in: taskIds }, state: 'open' }, select: { id: true, task_id: true, if_nobody_action: true }, orderBy: { id: 'asc' } });
+  for (const r of rows) out.set(r.task_id, [...(out.get(r.task_id) ?? []), { id: r.id, if_nobody_action: r.if_nobody_action }]);
+  return out;
+}
+
+/** Counts by what Release does with them: `go` follow the recommendation, `wait` wait for him. */
+export function questionSplit(rows: { if_nobody_action: string }[] | undefined): { go: number; wait: number } {
+  const all = rows ?? [];
+  const go = all.filter((q) => q.if_nobody_action === 'go_with_recommendation').length;
+  return { go, wait: all.length - go };
+}
+
+/**
+ * Task ids whose text may have come from a client: a task from a client email or the portal, one with a requesting contact, a linked
+ * email ask, or a comment a client contact wrote. Mike's and agents' text is not in this set. Used by the chat's reach check.
+ */
+export async function clientTextTaskIds(db: Pick<Db, 'task'> & { comment: Db['comment'] }, taskIds: string[]): Promise<Set<string>> {
+  const out = new Set<string>();
+  if (taskIds.length === 0) return out;
+  const tasks = await db.task.findMany({
+    where: { id: { in: taskIds }, OR: [{ source: { in: ['email', 'portal'] } }, { requested_by_contact_id: { not: null } }, { email_asks: { some: {} } }] },
+    select: { id: true },
+  });
+  for (const t of tasks) out.add(t.id);
+  const comments = await db.comment.findMany({ where: { task_id: { in: taskIds }, is_deleted: false, author_contact_id: { not: null } }, select: { task_id: true }, distinct: ['task_id'] });
+  for (const c of comments) out.add(c.task_id);
   return out;
 }
 
@@ -102,11 +136,16 @@ export async function loadCards(db: Db, taskIds: string[], now: Date = new Date(
       created_at: true,
       triage_kind: true,
       assignee_id: true,
+      site_id: true,
+      client_id: true,
+      site: { select: { id: true, name: true } },
       assignee: { select: { name: true } },
       project: { select: { id: true, name: true, status: true } },
     },
   });
   const ids = tasks.map((t) => t.id);
+  const openQs = await openQuestionRows(db, ids);
+  const hold = pmReleaseHold();
   const [qCounts, summaries, evidence] = await Promise.all([openQuestionCounts(db, ids), summariesFor(db, ids), evidenceFor(db, tasks.filter((t) => t.tags.includes(LOOKS_DONE_TAG)).map((t) => t.id))]);
   const setupProjectIds = Array.from(new Set(tasks.filter((t) => t.triage_kind === 'project_setup' && t.project).map((t) => t.project!.id)));
   const blocks = await projectBlocks(db, setupProjectIds);
@@ -117,6 +156,10 @@ export async function loadCards(db: Db, taskIds: string[], now: Date = new Date(
       assignee_name: t.assignee?.name ?? null,
       project: t.project ? { id: t.project.id, name: t.project.name, status: t.project.status } : null,
       bast_id: BAST_USER_ID,
+      site: t.site ? { id: t.site.id, name: t.site.name } : null,
+      open_go: questionSplit(openQs.get(t.id)).go,
+      open_wait: questionSplit(openQs.get(t.id)).wait,
+      pm_hold: hold,
     });
     const marked = t.tags.includes(LOOKS_DONE_TAG);
     const ev = marked ? (evidence.get(t.id)?.evidence ?? '') : null;
@@ -129,6 +172,15 @@ export async function loadCards(db: Db, taskIds: string[], now: Date = new Date(
       age_days: Math.max(0, Math.floor((now.getTime() - t.created_at.getTime()) / DAY_MS)),
       summary: summaries.get(t.id) ?? '',
       release_line: plan.line,
+      release_version: releaseVersion({
+        kind: t.triage_kind,
+        assignee_id: t.assignee_id,
+        project_id: t.project?.id ?? null,
+        project_status: t.project?.status ?? null,
+        site_id: t.site_id,
+        client_id: t.client_id,
+        questions: openQs.get(t.id) ?? [],
+      }),
       release_ready: plan.ready,
       release_block: plan.block,
       open_questions: qCounts.get(t.id) ?? 0,

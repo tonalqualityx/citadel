@@ -33,7 +33,7 @@ describe.skipIf(!SCRATCH)('release by kind (real database)', () => {
     ids.push(t.id);
     return t.id;
   };
-  const release = (id: string) => runHomeAct(prisma, MIKE_USER_ID, { action: 'triage_release_card', task_ids: [id] }, OPTS);
+  const release = async (id: string) => runHomeAct(prisma, MIKE_USER_ID, { action: 'triage_release_card', task_ids: [id], release_version: (await loadCards(prisma, [id]))[0].release_version }, OPTS);
   const undo = (actionId: string) => runHomeUndo(prisma, MIKE_USER_ID, actionId, new Date(NOW.getTime() + 3600_000));
   const question = (task_id: string, over: Record<string, unknown> = {}) =>
     prisma.taskQuestion.create({
@@ -124,7 +124,7 @@ describe.skipIf(!SCRATCH)('release by kind (real database)', () => {
     const after = await row(id);
     expect(after.status).toBe('not_started');
     expect(after.assignee_id).toBe(BAST_USER_ID);
-    expect(after.tags).toEqual(['keep-me', 'from-triage']);
+    expect(after.tags).toEqual(['keep-me', 'from-triage', 'needs-pm-release']);
     await undo(res.action_id);
     const back = await row(id);
     expect(back.status).toBe('triage');
@@ -182,7 +182,7 @@ describe.skipIf(!SCRATCH)('release by kind (real database)', () => {
 
   it('only Mike: another user gets a 404 and nothing moves', async () => {
     const id = await mk('not yours', { triage_kind: 'task' });
-    await expect(runHomeAct(prisma, adminId, { action: 'triage_release_card', task_ids: [id] }, OPTS)).rejects.toMatchObject({ statusCode: 404 });
+    await expect(runHomeAct(prisma, adminId, { action: 'triage_release_card', task_ids: [id], release_version: 'v'.repeat(32) }, OPTS)).rejects.toMatchObject({ statusCode: 404 });
     expect((await row(id)).status).toBe('triage');
   });
 
@@ -205,8 +205,9 @@ describe.skipIf(!SCRATCH)('release by kind (real database)', () => {
   it('triage_release_card takes exactly one card', async () => {
     const a = await mk('a', { triage_kind: 'task' });
     const b = await mk('b', { triage_kind: 'task' });
-    expect(homeActSchema.safeParse({ action: 'triage_release_card', task_ids: [a, b] }).success).toBe(false);
-    expect(homeActSchema.safeParse({ action: 'triage_release_card', task_ids: [] }).success).toBe(false);
-    expect(homeActSchema.safeParse({ action: 'triage_release_card', task_ids: [a] }).success).toBe(true);
+    expect(homeActSchema.safeParse({ action: 'triage_release_card', task_ids: [a, b], release_version: 'v'.repeat(32) }).success).toBe(false);
+    expect(homeActSchema.safeParse({ action: 'triage_release_card', task_ids: [], release_version: 'v'.repeat(32) }).success).toBe(false);
+    expect(homeActSchema.safeParse({ action: 'triage_release_card', task_ids: [a], release_version: 'v'.repeat(32) }).success).toBe(true);
+    expect(homeActSchema.safeParse({ action: 'triage_release_card', task_ids: [a] }).success).toBe(false);
   });
 });

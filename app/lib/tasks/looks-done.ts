@@ -11,6 +11,11 @@ export const LOOKS_DONE_TAG = 'triage:looks-done';
 export const LOOKS_DONE_PREFIX = 'Looks done: ';
 export const EVIDENCE_MAX = 600;
 
+/** Where a comment is one of the owner-only Triage notes: the Looks done evidence (it may name commits and links) and the close note that repeats it. */
+export const OWNER_ONLY_COMMENT_WHERE: { NOT: { is_internal: boolean; OR: { content: { startsWith: string } }[] } } = {
+  NOT: { is_internal: true, OR: [{ content: { startsWith: LOOKS_DONE_PREFIX } }, { content: { startsWith: 'Closed as done from Triage' } }] },
+};
+
 /** The evidence line of a "Looks done: " comment (the text after the prefix), or null when the comment is not one. */
 export function evidenceOf(content: string | null | undefined): string | null {
   if (typeof content !== 'string' || !content.startsWith(LOOKS_DONE_PREFIX)) return null;

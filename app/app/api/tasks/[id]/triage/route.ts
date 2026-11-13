@@ -39,7 +39,7 @@ const bodySchema = z
 
 /**
  * PATCH /api/tasks/:id/triage   { kind?: project_setup|task|project_addition|reusable_tool|rule_proposal|question_only|null, project_id?: uuid|null }
- * Sets what the card is and, for a project card, which project it sets up (the card takes the project's client and site). Triage cards
+ * Sets what the card is and, for a project card, which project it sets up (the card takes the new project's client and site, even when it has no site; unlinking clears both). Triage cards
  * only; Mike's session or the chat lane only (403 for everyone else). Returns the card.
  */
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -53,13 +53,18 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const data: Record<string, unknown> = {};
     if (body.kind !== undefined) data.triage_kind = body.kind;
     if (body.project_id !== undefined) {
-      if (body.project_id === null) data.project_id = null;
-      else {
+      if (body.project_id === null) {
+        // Unlinking clears what the link set, so the card never keeps a project's client or site.
+        data.project_id = null;
+        data.client_id = null;
+        data.site_id = null;
+      } else {
         const p = await prisma.project.findFirst({ where: { id: body.project_id, is_deleted: false }, select: { id: true, client_id: true, site_id: true } });
         if (!p) throw new ApiError('That project does not exist.', 404, 'project_missing');
         data.project_id = p.id;
         data.client_id = p.client_id;
-        if (p.site_id) data.site_id = p.site_id;
+        // Always the new project's site, including none: the card must not keep the old project's site.
+        data.site_id = p.site_id ?? null;
       }
     }
     await prisma.task.update({ where: { id }, data: data as never });

@@ -7,6 +7,7 @@ import { createNotification } from '@/lib/services/notifications';
 import { clientVisibleCommentWhere } from '@/lib/comments/visibility';
 import { afterReplyShared, assertShareable } from '@/lib/portal/share-reply';
 import { actorLaneField } from '@/lib/auth/actor-lane';
+import { OWNER_ONLY_COMMENT_WHERE } from '@/lib/tasks/looks-done';
 
 const createCommentSchema = z.object({
   content: z.string().min(1, 'Comment cannot be empty').max(10000),
@@ -117,8 +118,11 @@ export async function GET(
     // Client-facing surfaces (audience=client) never see internal/team notes.
     const audience = request.nextUrl.searchParams.get('audience');
     const baseWhere = { task_id: taskId, is_deleted: false };
-    const where =
-      audience === 'client' ? clientVisibleCommentWhere(baseWhere) : baseWhere;
+    // The owner-only Triage notes (Looks done evidence, the close note) stay with the owner and the PMs after a card leaves Triage:
+    // they may name commits, links and internal work, so tech and designer users never get them (the client audience already drops every internal note).
+    const ownerOnlyHidden = auth.role === 'tech' || auth.role === 'designer';
+    const visibleWhere = audience === 'client' ? clientVisibleCommentWhere(baseWhere) : baseWhere;
+    const where = ownerOnlyHidden ? { AND: [visibleWhere, OWNER_ONLY_COMMENT_WHERE] } : visibleWhere;
 
     // Fetch comments
     const comments = await prisma.comment.findMany({

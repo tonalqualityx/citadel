@@ -29,12 +29,13 @@ import { ownerActor } from '@/lib/home/reconcile/actor';
 import { appendHomeAction, type HomeDb } from '@/lib/home/state';
 import type { HomeActResponse, HomeTriage, HomeTriageGroup, HomeTriageLooksDone, HomeTriageTask } from '@/lib/home/types';
 import { CLOSE_UNDONE_COMMENT, NOT_DONE_COMMENT, TRIAGE_MESSAGES, TRIAGE_UNDO_HOURS, closedDoneComment, closedDoneLine, droppedLine, notDoneLine, questionsLine, releasedLine, releasedPlanLine } from './triage-copy';
-import { askedAfterRelease, evidenceFor, loadCards, summariesFor } from './triage-card';
+import { askedAfterRelease, clientTextTaskIds, evidenceFor, loadCards, openQuestionRows, questionSplit, summariesFor } from './triage-card';
+import { CARD_CHANGED_MESSAGE, releaseVersion } from './triage-version';
 import { LOOKS_DONE_TAG } from './looks-done';
 import { markHomeActionUndone } from '@/lib/home/state';
 import { readWorkCloseRecord, undoWorkClose, type WorkCloseRecord } from '@/lib/work/ask-closure';
 import { stageALines } from '@/lib/work/finished-store';
-import { RELEASE_REFUSALS, planRelease, type ReleasePlan, type TriageKindName } from './triage-kind';
+import { RELEASE_REFUSALS, planRelease, pmReleaseHold, type ReleasePlan, type TriageKindName } from './triage-kind';
 import { HELD_NEEDS_MIKE_MARK, HELD_TAG, NEEDS_MIKE_TAG, openQuestionCounts } from './questions';
 
 export const TRIAGE_PASS_PREFIX = 'triage-pass:';
@@ -62,6 +63,9 @@ const ROW_SELECT = {
   triage_kind: true,
   assignee_id: true,
   assignee: { select: { name: true } },
+  site_id: true,
+  client_id: true,
+  site: { select: { id: true, name: true } },
   project: { select: { id: true, name: true, status: true } },
 } satisfies Prisma.TaskSelect;
 type Row = Prisma.TaskGetPayload<{ select: typeof ROW_SELECT }>;
@@ -104,8 +108,8 @@ async function rowsOfGroup(db: HomeDb, key: string): Promise<Row[]> {
   const where = whereForGroup(key);
   if (!where) return [];
   const rows = await openTriageRows(db, where);
-  // A card marked looks-done is shown under its own heading, never inside a group, so a group tap (Release plan) must not take it along.
-  return rows.filter((r) => groupKeyFor(r) === key && !r.tags.includes(LOOKS_DONE_TAG));
+  // A looks-done card is drawn in its group too (the live UI only draws groups), so Release plan takes it along like any other card.
+  return rows.filter((r) => groupKeyFor(r) === key);
 }
 
 /** The Triage section. Null for anyone but Mike, and null when nothing waits. */
@@ -115,9 +119,8 @@ export async function loadTriage(db: HomeDb, userId: string): Promise<HomeTriage
   const asked = await askedAfterRelease(db);
   if (rows.length === 0) return asked.length > 0 ? { count: 0, open_questions: 0, groups: [], cards: [], asked_after_release: asked } : null;
   const marked = rows.filter((r) => r.tags.includes(LOOKS_DONE_TAG));
-  const unmarked = rows.filter((r) => !r.tags.includes(LOOKS_DONE_TAG));
   const groups = new Map<string, { kind: HomeTriageGroup['kind']; label: string; project_id: string | null; rows: Row[] }>();
-  for (const r of unmarked) {
+  for (const r of rows) {
     const key = groupKeyFor(r);
     let g = groups.get(key);
     if (!g) {
@@ -174,7 +177,7 @@ export async function loadTriage(db: HomeDb, userId: string): Promise<HomeTriage
     looks_done: looksDone,
     cards,
     asked_after_release: asked,
-    open_questions: out.reduce((a, g) => a + g.open_questions, 0) + looksDone.reduce((a, t) => a + t.open_questions, 0),
+    open_questions: out.reduce((a, g) => a + g.open_questions, 0),
     groups: out,
   };
 }
@@ -269,9 +272,14 @@ function quoteErr(): ApiError {
 }
 
 /** What Release will do to one row. Null = the legacy path (an unsorted card tapped from the old group UI): move to not_started, nothing else. */
-function releasePlanOf(row: Row, requireKind: boolean): ReleasePlan | null {
+function releasePlanOf(row: Row, requireKind: boolean, open: { if_nobody_action: string }[] = []): ReleasePlan | null {
   if (row.triage_kind === null && !requireKind) return null;
+  const split = questionSplit(open);
   return planRelease({
+    site: row.site ? { id: row.site.id, name: row.site.name } : null,
+    open_go: split.go,
+    open_wait: split.wait,
+    pm_hold: pmReleaseHold(),
     kind: row.triage_kind as TriageKindName | null,
     assignee_id: row.assignee_id,
     assignee_name: row.assignee?.name ?? null,
@@ -289,7 +297,7 @@ async function run(
   rows: Row[],
   plan: boolean,
   now: Date,
-  opts: { requireKind?: boolean } = {},
+  opts: { requireKind?: boolean; expectVersion?: string } = {},
 ): Promise<HomeActResponse> {
   const rec: TriageRecord = { kind: 'triage', mode, started_at: now.toISOString(), items: [], projects: [], ask_action_ids: [] };
   const details: string[] = [];
@@ -300,8 +308,24 @@ async function run(
   const blocks: ReleasePlan['block'][] = [];
   const toReady = new Map<string, string>();
   const closedIds: string[] = [];
+  const openByTask = mode === 'release' ? await openQuestionRows(db, rows.map((r) => r.id)) : new Map<string, { id: string; if_nobody_action: string }[]>();
+  if (opts.expectVersion !== undefined) {
+    // The card must still be what the owner read: everything Release depends on is hashed and compared before anything moves.
+    const row = rows[0];
+    const now_ = releaseVersion({
+      kind: row.triage_kind,
+      assignee_id: row.assignee_id,
+      project_id: row.project?.id ?? null,
+      project_status: row.project?.status ?? null,
+      site_id: row.site_id,
+      client_id: row.client_id,
+      questions: openByTask.get(row.id) ?? [],
+    });
+    if (now_ !== opts.expectVersion) throw new ApiError(CARD_CHANGED_MESSAGE, 409, 'card_changed');
+  }
   for (const row of rows) {
-    const rp = mode === 'release' ? releasePlanOf(row, opts.requireKind === true) : null;
+    const openRows = openByTask.get(row.id) ?? [];
+    const rp = mode === 'release' ? releasePlanOf(row, opts.requireKind === true, openRows) : null;
     if (mode === 'release') {
       if (rp && !rp.ready) {
         blocks.push(rp.block);
@@ -316,7 +340,7 @@ async function run(
     const fx = rp?.effects ?? null;
     const target = fx ? fx.to_status : mode === 'release' ? 'not_started' : 'abandoned';
     // Open questions never block him: each follows its own if_nobody_action. A card closed as done has nothing to hold, so its questions are left as they are.
-    const open = mode === 'release' && target !== 'done' ? await db.taskQuestion.findMany({ where: { task_id: row.id, state: 'open' }, select: { id: true, if_nobody_action: true } }) : [];
+    const open = mode === 'release' && target !== 'done' ? openRows : [];
     const goIds = open.filter((q) => q.if_nobody_action === 'go_with_recommendation').map((q) => q.id);
     const waitCount = open.length - goIds.length;
     // When release itself adds needs-mike it also adds the second marker, so answering removes only what release added.
@@ -398,13 +422,14 @@ export async function release(db: PrismaClient, userId: string, taskIds: string[
 
 /**
  * Release one card by its kind (the Triage tab's Release). Same effects as the card's `release_line` (see triage-kind.ts), and a card
- * with no kind is refused with a 409 (not_sorted): the line says "Not sorted yet".
+ * with no kind is refused with a 409 (not_sorted): the line says "Not sorted yet". `version` is the card's release_version as the owner
+ * read it; if anything Release depends on changed since, the answer is 409 card_changed and nothing moves.
  */
-export async function releaseCard(db: PrismaClient, userId: string, taskId: string, now: Date): Promise<HomeActResponse> {
+export async function releaseCard(db: PrismaClient, userId: string, taskId: string, version: string, now: Date): Promise<HomeActResponse> {
   requireOwner(userId);
   const rows = await rowsById(db, [taskId]);
   if (rows.length === 0) throw changedErr();
-  return run(db, userId, 'triage_release_card', 'release', rows, false, now, { requireKind: true });
+  return run(db, userId, 'triage_release_card', 'release', rows, false, now, { requireKind: true, expectVersion: version });
 }
 
 /**
@@ -416,6 +441,28 @@ export async function releasePlan(db: PrismaClient, userId: string, groupKey: st
   const rows = await rowsOfGroup(db, groupKey);
   if (rows.length === 0) throw new ApiError(TRIAGE_MESSAGES.gone, 404, 'not_found');
   return run(db, userId, 'triage_release_plan', 'release', rows, true, now);
+}
+
+/**
+ * For the chat's reach check (lib/bast-chat/ops/home.ts): of the cards a release request would release, the ones that END assigned to
+ * Bast with a worker-eligible status, and whether each carries text a client may have written. Read-only. Same rules as run():
+ * an unsorted card on the legacy path keeps its assignee, a closed (question_only) card never starts anything.
+ */
+export async function releaseBastCards(
+  db: PrismaClient,
+  req: { action: 'triage_release' | 'triage_release_card' | 'triage_release_plan'; task_ids?: string[]; group_key?: string },
+): Promise<{ task_id: string; client_text: boolean }[]> {
+  const rows = req.action === 'triage_release_plan' ? await rowsOfGroup(db, req.group_key ?? '') : await rowsById(db, Array.from(new Set(req.task_ids ?? [])));
+  const ending: Row[] = [];
+  for (const row of rows) {
+    const rp = releasePlanOf(row, req.action === 'triage_release_card');
+    if (rp) {
+      if (!rp.ready || !rp.effects || rp.effects.to_status === 'done') continue;
+      if (rp.effects.assign_bast || row.assignee_id === BAST_USER_ID) ending.push(row);
+    } else if (row.assignee_id === BAST_USER_ID && row.project?.status !== 'quote') ending.push(row);
+  }
+  const clientText = await clientTextTaskIds(db, ending.map((r) => r.id));
+  return ending.map((r) => ({ task_id: r.id, client_text: clientText.has(r.id) }));
 }
 
 /** Drop: the named tasks to abandoned. */

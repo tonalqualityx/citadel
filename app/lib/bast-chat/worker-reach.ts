@@ -160,6 +160,12 @@ export type ReachOrigin = 'chat' | 'undo' | 'tap';
 /** Non-task operations of POST /api/bast-chat/worker/ops (plan 2.2). */
 export type ReachOp =
   | { op: 'home_act' }
+  /**
+   * A Triage release made from the chat. `cards` are the released cards that END assigned to Bast and open (not closed as done);
+   * `client_text` says whether the card carries text a client may have written (a client email, the portal, a client's comment).
+   * Plan rule: a release acts at once when the text is Mike's or an agent's, and taps when it carries client text.
+   */
+  | { op: 'triage_release'; cards: { task_id: string; client_text?: boolean }[] }
   | { op: 'email_ask_state'; ask_id?: string }
   | { op: 'project_status'; project_id: string; status_before?: string; status_after?: string }
   | {
@@ -1080,6 +1086,14 @@ export function checkOp(input: OpInput): ReachResult {
     case 'home_act':
       // runHomeAct writes only the owner's home rows (lib/home/act.ts 8 to 12); the worker never reads them.
       break;
+    case 'triage_release': {
+      // Same rule as a task change that hands a task to Bast (R1 hand_to_bast), judged on the text: only client-written text taps.
+      for (const c of op.cards) {
+        if (c.client_text === undefined) acc.hit('missing_data', c.task_id, 'missing: whether the card carries client text', ['status', 'assignee_id']);
+        else if (c.client_text) acc.hit('hand_to_bast', c.task_id, 'a Triage release hands a card with client mail text to Bast', ['status', 'assignee_id', 'tags']);
+      }
+      break;
+    }
     case 'email_ask_state':
       // No worker session reads ask state; the classifier only marks drafts and resolves asks mechanically.
       break;

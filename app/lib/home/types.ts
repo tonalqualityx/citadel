@@ -784,6 +784,8 @@ export interface HomeTriageCard {
   /** "On release" sentence, built from the same function Release runs. */
   release_line: string;
   /** False when Release would be refused (kind null, project missing or still a quote). release_line then says why. */
+  /** Everything Release depends on, hashed. triage_release_card must send the one the owner read; a mismatch answers 409 card_changed. */
+  release_version: string;
   release_ready: boolean;
   release_block: 'unsorted' | 'no_project' | 'still_quote' | 'project_closed' | null;
   open_questions: number;
@@ -1030,7 +1032,7 @@ export type HomeActRequest =
    * finished_keep: Not finished; the row leaves the card and is not offered again for 90 days (Undo 24 hours).
    */
   | { action: 'triage_release'; task_ids: string[] }
-  | { action: 'triage_release_card'; task_ids: [string] }
+  | { action: 'triage_release_card'; task_ids: [string]; release_version: string }
   | { action: 'triage_release_plan'; group_key: string }
   | { action: 'triage_drop'; task_ids: string[] }
   | { action: 'triage_close_done'; task_ids: string[] }

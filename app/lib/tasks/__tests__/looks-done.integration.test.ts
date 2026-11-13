@@ -142,7 +142,7 @@ describe.skipIf(!SCRATCH)('triage looks-done (real database)', () => {
   });
 
   describe('the section', () => {
-    it('marked cards come first with their evidence, are not in any group, and the count includes them', async () => {
+    it('marked cards come first with their evidence, are also drawn in their group (the live UI draws groups), and the count includes them', async () => {
       const g = await mk('grouped');
       const markedId = await mk('marked two');
       await mark(markedId, 'Looks done: shipped, https://example.test/a.');
@@ -150,7 +150,7 @@ describe.skipIf(!SCRATCH)('triage looks-done (real database)', () => {
       const mine = t.looks_done!.filter((x) => x.task_id === markedId);
       expect(mine).toHaveLength(1);
       expect(mine[0].evidence).toBe('shipped, https://example.test/a.');
-      expect(t.groups.some((gr) => gr.tasks.some((x) => x.task_id === mine[0].task_id))).toBe(false);
+      expect(t.groups.some((gr) => gr.tasks.some((x) => x.task_id === mine[0].task_id))).toBe(true);
       expect(t.groups.some((gr) => gr.tasks.some((x) => x.task_id === g))).toBe(true);
     });
 
@@ -171,7 +171,7 @@ describe.skipIf(!SCRATCH)('triage looks-done (real database)', () => {
       expect(Date.parse(task.created_at!)).toBeGreaterThan(0);
     });
 
-    it('a group tap never takes a marked card along (Release plan skips it)', async () => {
+    it('a group tap takes a marked card along (it is drawn in the group, so Release plan must not skip it)', async () => {
       const client = await prisma.client.create({ data: { name: `${tag} Co`, type: 'direct', status: 'active' } });
       const project = await prisma.project.create({ data: { name: `${tag} P`, status: 'ready', client_id: client.id } });
       const a = await mk('plan a', { project_id: project.id });
@@ -179,7 +179,7 @@ describe.skipIf(!SCRATCH)('triage looks-done (real database)', () => {
       await mark(b);
       await releasePlan(prisma, MIKE_USER_ID, `project:${project.id}`, NOW);
       expect((await row(a)).status).toBe('not_started');
-      expect((await row(b)).status).toBe('triage');
+      expect((await row(b)).status).toBe('not_started');
       await prisma.task.updateMany({ where: { id: { in: [a, b] } }, data: { project_id: null } });
       await prisma.project.delete({ where: { id: project.id } });
       await prisma.client.delete({ where: { id: client.id } });

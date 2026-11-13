@@ -25,7 +25,7 @@ import type { HomeActRequest } from '@/lib/home/types';
 import type { OpContext, PreparedOp } from '../actions';
 import { opSummary, type OpLine } from '../actions';
 import { cleanLine, quoted } from '../card-context';
-import { TRIAGE_ACTIONS } from '@/lib/tasks/triage';
+import { TRIAGE_ACTIONS, releaseBastCards } from '@/lib/tasks/triage';
 import { TRIAGE_UNDO_HOURS } from '@/lib/tasks/triage-copy';
 import { checkOp, type ReachOrigin } from '../worker-reach';
 import type { OpDef, OpJson, OpRun, OpDb } from './index';
@@ -161,7 +161,12 @@ async function lineFor(db: OpDb, input: HomeInput, until: Date | null, now: Date
   return opSummary(line, now);
 }
 
-async function prepare(ctx: OpContext, _input: HomeInput, origin: ReachOrigin): Promise<PreparedOp> {
+async function prepare(ctx: OpContext, input: HomeInput, origin: ReachOrigin): Promise<PreparedOp> {
+  // A Triage release that ends with a card assigned to Bast is the worker's to start: judged by checkOp, tapped when the card carries client text.
+  if (input.action === 'triage_release' || input.action === 'triage_release_card' || input.action === 'triage_release_plan') {
+    const cards = await releaseBastCards(ctx.db as unknown as Parameters<typeof releaseBastCards>[0], input);
+    return { reach: checkOp({ op: { op: 'triage_release', cards }, now: ctx.now, origin }), expect: {}, copy: { clause: 'release a card to Bast' } };
+  }
   return { reach: checkOp({ op: { op: 'home_act' }, now: ctx.now, origin }), expect: {}, copy: { clause: 'change your home screen' } };
 }
 

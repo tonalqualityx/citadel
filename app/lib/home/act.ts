@@ -164,7 +164,7 @@ export const homeActSchema: z.ZodType<HomeActRequest> = z.discriminatedUnion('ac
   // Triage (operating model S3): Mike's own taps on the Triage section. Task writes go through patchTask, whose check is the authority.
   z.object({ action: z.literal('triage_release'), task_ids: z.array(z.string().uuid()).min(1).max(1000) }).strict(),
   // Release by kind: exactly one card; refused (409) when the card has no kind.
-  z.object({ action: z.literal('triage_release_card'), task_ids: z.tuple([z.string().uuid()]) }).strict(),
+  z.object({ action: z.literal('triage_release_card'), task_ids: z.tuple([z.string().uuid()]), release_version: z.string().min(8).max(64) }).strict(),
   z.object({ action: z.literal('triage_release_plan'), group_key: z.string().min(1).max(120) }).strict(),
   z.object({ action: z.literal('triage_drop'), task_ids: z.array(z.string().uuid()).min(1).max(1000) }).strict(),
   // Triage close-out: Close as done (owner only) and Not done, for cards an agent marked triage:looks-done.
@@ -1007,7 +1007,7 @@ export async function runHomeAct(
   if (req.action === 'proposal_no') return proposalNo(db, userId, req.item_key, opts.now);
   // Triage: Release, Release plan and Drop (lib/tasks/triage.ts).
   if (req.action === 'triage_release') return triageRelease(db, userId, req.task_ids, opts.now);
-  if (req.action === 'triage_release_card') return triageReleaseCard(db, userId, req.task_ids[0], opts.now);
+  if (req.action === 'triage_release_card') return triageReleaseCard(db, userId, req.task_ids[0], req.release_version, opts.now);
   if (req.action === 'triage_release_plan') return triageReleasePlan(db, userId, req.group_key, opts.now);
   if (req.action === 'triage_drop') return triageDrop(db, userId, req.task_ids, opts.now);
   if (req.action === 'triage_close_done') return triageCloseDone(db, userId, req.task_ids, opts.now);

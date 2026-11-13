@@ -973,3 +973,26 @@ describe('source text', () => {
     }
   });
 });
+
+describe('checkOp: a Triage release from the chat', () => {
+  it('no card ends with Bast: no reach', () => {
+    expect(checkOp({ op: { op: 'triage_release', cards: [] }, now: NOW }).needs_tap).toBe(false);
+  });
+  it('Mike or agent text: acts at once', () => {
+    expect(checkOp({ op: { op: 'triage_release', cards: [{ task_id: 't1', client_text: false }] }, now: NOW }).needs_tap).toBe(false);
+  });
+  it('client mail text on a card that ends with Bast: the one tap, rule hand_to_bast, on that card', () => {
+    const r = checkOp({ op: { op: 'triage_release', cards: [{ task_id: 't1', client_text: false }, { task_id: 't2', client_text: true }] }, now: NOW });
+    expect(r.reaches).toBe(true);
+    expect(r.proposal_kind).toBe('bast_start');
+    expect(r.starts).toHaveLength(1);
+    expect(r.starts[0]).toMatchObject({ rule: 'hand_to_bast', task_id: 't2' });
+  });
+  it('an unknown text origin reaches, never passes quietly', () => {
+    expect(checkOp({ op: { op: 'triage_release', cards: [{ task_id: 't1' }] }, now: NOW }).starts[0].rule).toBe('missing_data');
+  });
+  it('Undo of the release keeps the same rule and is marked via_undo', () => {
+    const r = checkOp({ op: { op: 'triage_release', cards: [{ task_id: 't1', client_text: true }] }, now: NOW, origin: 'undo' });
+    expect(r.starts[0].via_undo).toBe(true);
+  });
+});
