@@ -1,3 +1,4 @@
+import { NextResponse } from 'next/server';
 import {
   DEFAULT_REFRESH_DAYS,
   KEEP_SIGNED_IN_DAYS,
