@@ -1,4 +1,5 @@
 // @vitest-environment node
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
  * The Triage plan against a real scratch Postgres: who may read and write it (every role and lane), per-section validation through the
  * routes, triage_rev rising on every change the owner should see and the 409 with its "what changed" line, the plan surviving release,

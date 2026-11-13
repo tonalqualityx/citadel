@@ -34,7 +34,10 @@ export function TriageActions({ card, onAct, onTalk, busy = false, onDone, child
       await onAct(req);
       onDone?.();
     } catch (e) {
-      if (e instanceof Error && e.message === CARD_CHANGED_MESSAGE) setChanged(true);
+      if (e instanceof Error && e.message === CARD_CHANGED_MESSAGE) {
+        setChanged(true);
+        onDone?.(); // a caller with its own copy of the card (the card page panel) refetches it, so the new line and the new version are on screen
+      }
       // Any other failure: the hook already showed one plain sentence and nothing on the card moved.
     } finally {
       setWorking(false);

@@ -32,6 +32,8 @@ export const PLAN_COPY = {
   } as Record<string, string>,
   withheld: 'Not shown to you.',
   yours: 'Yours',
+  review: 'Review lines',
+  doneReviewing: 'Done reviewing',
   shape: 'Shape',
   sitemap: 'Sitemap',
 } as const;
@@ -440,13 +442,22 @@ export function PlanView({
   onRemove?: (section: PlanSectionName, id: string) => void;
   onMarkWrong?: (section: PlanSectionName, id: string, wrong: boolean) => void;
 }) {
-  const c: Controls = { canEdit, onRemove, onMarkWrong };
+  // The two per-line controls sit behind one "Review lines" switch so the plan stays quiet to read; he edits by talking.
+  const [reviewing, setReviewing] = React.useState(false);
+  const c: Controls = { canEdit: canEdit && reviewing, onRemove, onMarkWrong };
   const by = (n: PlanSectionName) => plan.sections.find((s) => s.section === n) as PlanSectionOut;
   return (
     <div className="home-plan" data-testid="plan-tab">
-      <p className="home-small home-muted" data-testid="plan-last-changed">
-        {plan.updated_at && plan.updated_by ? PLAN_COPY.lastChanged(whenWords(plan.updated_at), plan.updated_by) : PLAN_COPY.nothing}
-      </p>
+      <div className="home-plan-top">
+        <p className="home-small home-muted" data-testid="plan-last-changed">
+          {plan.updated_at && plan.updated_by ? PLAN_COPY.lastChanged(whenWords(plan.updated_at), plan.updated_by) : PLAN_COPY.nothing}
+        </p>
+        {canEdit && plan.sections.some((x) => x.items.length > 0) ? (
+          <button type="button" className="home-btn" aria-pressed={reviewing} onClick={() => setReviewing((r) => !r)}>
+            {reviewing ? PLAN_COPY.doneReviewing : PLAN_COPY.review}
+          </button>
+        ) : null}
+      </div>
       <Requirements s={by('requirements')} c={c} />
       <Dates s={by('dates')} c={c} project={plan.project} />
       <Team s={by('team')} c={c} project={plan.project} />

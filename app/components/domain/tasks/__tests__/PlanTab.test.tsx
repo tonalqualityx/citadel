@@ -193,6 +193,8 @@ describe('Plan tab', () => {
     const ok = req('Eight pages');
     const p = plan({ requirements: [wrong, ok] });
     const { rerender } = render(<PlanView plan={p} canEdit onRemove={m.remove} onMarkWrong={m.markWrong} />);
+    expect(screen.queryByRole('button', { name: 'Mark wrong' })).toBeNull(); // quiet until he asks to review
+    fireEvent.click(screen.getByRole('button', { name: 'Review lines' }));
     const rows = screen.getAllByTestId('plan-item');
     expect(within(rows[0]).getByTestId('plan-wrong').textContent).toContain('Mike marked this wrong');
     expect(within(rows[0]).getByText('Ten pages').closest('.home-plan-text')!.getAttribute('style')).toContain('line-through');
@@ -205,17 +207,18 @@ describe('Plan tab', () => {
     fireEvent.click(within(rows[1]).getByRole('button', { name: 'Remove for good?' }));
     expect(m.remove).toHaveBeenCalledWith('requirements', ok.id);
     rerender(<PlanView plan={p} />);
-    expect(screen.queryByRole('button', { name: 'Mark wrong' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Review lines' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Remove' })).toBeNull();
   });
 
   it('the container shows controls only to the owner and renders nothing when the plan is not available', () => {
     m.plan = plan({ requirements: [req('Eight pages')] });
     const { rerender } = render(<PlanTab taskId="t1" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Review lines' }));
     expect(screen.getByRole('button', { name: 'Mark wrong' })).toBeTruthy();
     m.plan = plan({ requirements: [req('Eight pages')] }, { viewer: { can_write: false, is_owner: false } });
     rerender(<PlanTab taskId="t1" />);
-    expect(screen.queryByRole('button', { name: 'Mark wrong' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Review lines' })).toBeNull();
     m.plan = null;
     const { container } = render(<PlanTab taskId="t2" />);
     expect(container.textContent).toBe('');

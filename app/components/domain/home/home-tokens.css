@@ -259,3 +259,6 @@
 [data-home] .home-plan-ctl .home-linkbtn { min-height: 32px; padding: 4px 0; font-size: 0.8rem; color: var(--text-muted); }
 [data-home] .home-plan-dropped { margin-top: 2px; }
 [data-home] .home-plan-dropped summary { cursor: pointer; min-height: 32px; display: flex; align-items: center; }
+[data-home] .home-plan-top { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; }
+[data-home] .home-plan-top .home-btn { min-height: 40px; }
+[data-home] .home-plan-ol { list-style: none; padding-left: 0; }
