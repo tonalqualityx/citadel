@@ -11,6 +11,8 @@ export const TRIAGE_BUTTONS = {
   release: 'Release',
   releasePlan: 'Release plan',
   drop: 'Drop',
+  closeDone: 'Close as done',
+  notDone: 'Not done',
   talk: 'Talk about this',
   questions: 'Questions',
   showAll: 'Show all',
@@ -64,6 +66,45 @@ export const QUESTION_BUTTONS = {
 export function droppedLine(count: number): string {
   return `Dropped ${n(count, 'idea', 'ideas')} from Triage.`;
 }
+
+/** How long a card has waited: `today`, `1 day old`, `5 days old`, `3 weeks old`, `4 months old`. Empty when the date is missing. */
+export function ageLine(createdAt: string | undefined, nowMs: number = Date.now()): string {
+  if (!createdAt) return '';
+  const t = Date.parse(createdAt);
+  if (Number.isNaN(t)) return '';
+  const days = Math.max(0, Math.floor((nowMs - t) / 86_400_000));
+  if (days < 1) return 'today';
+  if (days < 14) return `${days} ${days === 1 ? 'day' : 'days'} old`;
+  if (days < 60) return `${Math.floor(days / 7)} weeks old`;
+  return `${Math.floor(days / 30)} months old`;
+}
+
+export const LOOKS_DONE_HEADING = 'Looks done';
+export const LOOKS_DONE_HINT = 'Someone says these are already finished. Check the proof, then close them or leave them.';
+export const LOOKS_DONE_NO_NOTE = 'Marked as done, but no note was left.';
+
+/** The count line's tail: `2 look done`. */
+export function lookDoneCount(count: number): string {
+  return `${count} ${count === 1 ? 'looks' : 'look'} done`;
+}
+
+export function closedDoneLine(count: number): string {
+  return count === 1 ? 'Closed 1 idea as done from Triage.' : `Closed ${count} ideas as done from Triage.`;
+}
+
+export function notDoneLine(count: number): string {
+  return count === 1 ? 'Left 1 idea in Triage. It is not done.' : `Left ${count} ideas in Triage. They are not done.`;
+}
+
+/** The internal comment a close writes. `evidenceId` is the Looks done comment it relied on, when there was one. */
+export function closedDoneComment(evidenceId: string | null, evidence: string | null): string {
+  if (!evidenceId || !evidence) return 'Closed as done from Triage. No Looks done note was on the card.';
+  const short = evidence.length > 240 ? `${evidence.slice(0, 239).trimEnd()}\u2026` : evidence;
+  return `Closed as done from Triage. Evidence: comment ${evidenceId}: ${short}`;
+}
+
+export const NOT_DONE_COMMENT = 'Not done: the Looks done note was checked and the card stays in Triage.';
+export const CLOSE_UNDONE_COMMENT = 'The close was undone: the card is back in Triage with its Looks done mark.';
 
 export const TRIAGE_UNDONE = 'Put back in Triage.';
 

@@ -36,6 +36,9 @@ const inputSchema = z
     // that work with its link; create_anyway is the owner's own "start a new one anyway".
     source: z.object({ kind: z.enum(['email', 'session']), ref: z.string().min(1).max(300) }).strict().optional(),
     create_anyway: z.boolean().optional(),
+    // Triage tab: the card in Triage that is this project's setup task. No separate kickoff task is made; the card is linked to the new
+    // queue project and becomes a project_setup card. Release (the card's own) then readies the project and hands the card to Bast.
+    card_task_id: z.string().uuid().optional(),
   })
   .strict()
   .refine((v) => (v.client_id === undefined) !== (v.new_client === undefined), { message: 'Send either client_id or new_client, not both and not neither.' });
@@ -43,7 +46,15 @@ export type StartProjectInput = z.infer<typeof inputSchema>;
 
 const expectSchema = z.object({ client_id: z.string().uuid().nullable(), site_id: z.string().uuid().nullable() }).strict();
 const afterSchema = z
-  .object({ project_id: z.string().uuid(), task_id: z.string().uuid(), client_id: z.string().uuid().nullable(), client_created: z.boolean(), site_id: z.string().uuid().nullable() })
+  .object({
+    project_id: z.string().uuid(),
+    task_id: z.string().uuid(),
+    client_id: z.string().uuid().nullable(),
+    client_created: z.boolean(),
+    site_id: z.string().uuid().nullable(),
+    // Present only when the card was the setup task: what the card held before, so Undo can put it back.
+    card_before: z.object({ triage_kind: z.string().nullable(), client_id: z.string().uuid().nullable(), site_id: z.string().uuid().nullable() }).strict().optional(),
+  })
   .strict();
 
 const CHANGED = 'Changed since. Open the project.';
@@ -71,6 +82,26 @@ async function resolve(db: OpDb, input: StartProjectInput): Promise<Resolved> {
   return { client_id: null, client_name: name, site_id: null };
 }
 
+const CARD_GONE = 'That card is not in Triage any more.';
+interface CardRow {
+  id: string;
+  title: string;
+  project_id: string | null;
+  triage_kind: string | null;
+  client_id: string | null;
+  site_id: string | null;
+}
+
+async function loadCard(db: OpDb, id: string): Promise<CardRow> {
+  const c = (await db.task.findFirst({
+    where: { id, status: 'triage', is_deleted: false },
+    select: { id: true, title: true, project_id: true, triage_kind: true, client_id: true, site_id: true },
+  })) as CardRow | null;
+  if (!c) throw new ApiError(CARD_GONE, 404, 'card_missing');
+  if (c.project_id) throw new ApiError('That card already has a project.', 409, 'card_has_project');
+  return c;
+}
+
 const projectName = (input: StartProjectInput) => cleanLine(input.name ?? input.what, input.name ? 255 : 80) || 'New project';
 
 function kickoffText(input: StartProjectInput, name: string, project: { id: string; link: string } | null): string | null {
@@ -89,6 +120,7 @@ async function prepare(ctx: OpContext, input: StartProjectInput, origin: ReachOr
   await refuseIfTracked(ctx.db as OpDb, sourcesOf(input), input.create_anyway);
   const r = await resolve(ctx.db as OpDb, input);
   const name = projectName(input);
+  if (input.card_task_id) await loadCard(ctx.db as OpDb, input.card_task_id);
   const reach = reachOfNewTask(
     ctx,
     { title: `Kick off ${name}`, description: kickoffText(input, name, null), requirements: null, client_id: r.client_id, site_id: r.site_id, tags: [CHAT_TAG, 'kickoff'] },
@@ -128,8 +160,19 @@ async function run(ctx: OpContext, input: StartProjectInput, expect: unknown): P
     },
     select: { id: true },
   });
-  const taskId = randomUUID();
-  await createStartTask(db, {
+  let taskId: string = randomUUID();
+  let cardBefore: z.infer<typeof afterSchema>['card_before'];
+  if (input.card_task_id) {
+    // The card is the setup task: link it (compare-and-set on "still in Triage, still no project") instead of creating a kickoff task.
+    const card = await loadCard(db, input.card_task_id);
+    const linked = await db.task.updateMany({
+      where: { id: card.id, status: 'triage', project_id: null, is_deleted: false },
+      data: { project_id: project.id, triage_kind: 'project_setup', client_id: clientId, ...(r.site_id ? { site_id: r.site_id } : {}) },
+    });
+    if (linked.count !== 1) throw new ApiError(CHANGED, 409, 'changed_since');
+    taskId = card.id;
+    cardBefore = { triage_kind: card.triage_kind, client_id: card.client_id, site_id: card.site_id };
+  } else await createStartTask(db, {
     id: taskId,
     title: `Kick off ${name}`,
     description: kickoffText(input, name, { id: project.id, link: projectLink(project.id) }),
@@ -145,7 +188,7 @@ async function run(ctx: OpContext, input: StartProjectInput, expect: unknown): P
   return {
     target_id: project.id,
     before: {},
-    after: { project_id: project.id, task_id: taskId, client_id: clientId, client_created: clientCreated, site_id: r.site_id },
+    after: { project_id: project.id, task_id: taskId, client_id: clientId, client_created: clientCreated, site_id: r.site_id, ...(cardBefore ? { card_before: cardBefore } : {}) },
     summary: opSummary({ op: 'start_project', name, client_name: r.client_name, client_created: clientCreated }, ctx.now),
     result: { project_id: project.id, task_id: taskId, client_id: clientId, client_created: clientCreated, site_id: r.site_id },
     undoable: true,
@@ -166,6 +209,13 @@ export const startProjectOp: OpDef<StartProjectInput> = {
     if (!after.success) throw new ApiError("That can't be undone from here. Open it in Citadel.", 409, 'not_undoable');
     const p = await (ctx.db as OpDb).project.findFirst({ where: { id: after.data.project_id, is_deleted: false }, select: { id: true, name: true, status: true } });
     if (!p || p.status !== 'queue') throw new ApiError(CHANGED, 409, 'changed_since');
+    if (after.data.card_before) {
+      // The setup task is a Triage card: it must still be in Triage and still linked to this project. Nothing reaches the worker.
+      const card = await (ctx.db as OpDb).task.findFirst({ where: { id: after.data.task_id, is_deleted: false, status: 'triage', project_id: p.id }, select: { id: true } });
+      if (!card) throw new ApiError(CHANGED, 409, 'changed_since');
+      const reach = reachOfNewTask(ctx, { title: p.name, description: null, requirements: null, client_id: null, site_id: null, tags: [] }, 'undo');
+      return { reach, expect: { project_id: p.id, task_id: after.data.task_id }, copy: { clause: `cancel the ${quoted(p.name, 80)} project and take its card back out of it` } };
+    }
     const reach = await checkStartTaskUndo(ctx, after.data.task_id, CHANGED);
     return { reach, expect: { project_id: p.id, task_id: after.data.task_id }, copy: { clause: `cancel the ${quoted(p.name, 80)} project and drop its kickoff task` } };
   },
@@ -176,7 +226,15 @@ export const startProjectOp: OpDef<StartProjectInput> = {
     try {
       await inOneTransaction(ctx.db as OpDb, async (tx) => {
         const p = await tx.project.updateMany({ where: { id: a.project_id, status: 'queue', is_deleted: false }, data: { status: 'cancelled' } });
-        if (p.count !== 1 || !(await abandonStartTask(tx, a.task_id, ctx.ownerId))) throw new ApiError(CHANGED, 409, 'changed_since');
+        if (p.count !== 1) throw new ApiError(CHANGED, 409, 'changed_since');
+        if (a.card_before) {
+          // The card goes back as it was: no project, its old kind and client and site.
+          const c = await tx.task.updateMany({
+            where: { id: a.task_id, status: 'triage', project_id: a.project_id, is_deleted: false },
+            data: { project_id: null, triage_kind: (a.card_before.triage_kind ?? null) as never, client_id: a.card_before.client_id, site_id: a.card_before.site_id },
+          });
+          if (c.count !== 1) throw new ApiError(CHANGED, 409, 'changed_since');
+        } else if (!(await abandonStartTask(tx, a.task_id, ctx.ownerId))) throw new ApiError(CHANGED, 409, 'changed_since');
       });
     } catch (e) {
       if (e instanceof ApiError && e.statusCode === 409) return { ok: false, reason: 'changed_since' };

@@ -7,12 +7,16 @@ import { handleApiError, ApiError } from '@/lib/api/errors';
 const createPhaseSchema = z.object({
   name: z.string().min(1).max(100),
   icon: z.string().max(50).optional().nullable(),
+  summary: z.string().max(400).optional().nullable(),
+  mike_part: z.string().max(400).optional().nullable(),
   sort_order: z.number().optional(),
 });
 
 const updatePhaseSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   icon: z.string().max(50).optional().nullable(),
+  summary: z.string().max(400).optional().nullable(),
+  mike_part: z.string().max(400).optional().nullable(),
   sort_order: z.number().optional(),
 });
 
@@ -56,6 +60,8 @@ export async function POST(
         project_id: projectId,
         name: data.name,
         icon: data.icon || null,
+        summary: data.summary || null,
+        mike_part: data.mike_part || null,
         sort_order: sortOrder,
       },
       include: {

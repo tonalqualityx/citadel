@@ -708,6 +708,10 @@ export interface HomeTriageTask {
   project_name: string | null;
   /** Questions on this card still waiting for his answer. */
   open_questions: number;
+  /** One line of what is wanted (the first line of the card's description). '' when there is none. Absent in older payloads. */
+  summary?: string;
+  /** When the card was filed (ISO), for its age. */
+  created_at?: string;
 }
 
 /** Triage: one group of parked ideas, by project, or by a `triage-pass:` tag when the tasks carry one. */
@@ -729,8 +733,85 @@ export interface HomeTriageGroup {
   still_quote: boolean;
 }
 
+/** Triage: a card an agent marked `triage:looks-done`, with the evidence line it left (the text after "Looks done: "). */
+export interface HomeTriageLooksDone {
+  task_id: string;
+  title: string;
+  href: string;
+  project_name: string | null;
+  /** What was done and where to see it, from the newest internal "Looks done: " comment. Plain text; links are made clickable by the card. */
+  evidence: string;
+  open_questions: number;
+  summary?: string;
+  created_at?: string;
+}
+
+/** Triage tab: one phase of a project card's shape. */
+export interface HomeTriagePhase {
+  id: string;
+  name: string;
+  summary: string | null;
+  mike_part: string | null;
+}
+
+/** Triage tab: the project block of a project_setup card. Never carries the plan folder or any task. */
+export interface HomeTriageProject {
+  project_id: string;
+  name: string;
+  status: string;
+  phases: HomeTriagePhase[];
+  /** "What will be Mike's": the mike_part lines of the phases, in order. */
+  mike_parts: { phase: string; text: string }[];
+  /** The signed contract (or the newest one, with its status) of the project's deal; null when the project has no deal or no contract. */
+  contract: { status: 'draft' | 'sent' | 'signed'; signed_at: string | null; version: number; deal_id: string; deal_href: string } | null;
+  /** The deal the project came from, even without a contract yet. */
+  deal: { id: string; name: string; href: string } | null;
+  sitemap: { id: string; name: string; page_type: string | null; needs_design: boolean; notes: string | null }[];
+}
+
+/** Triage tab: one card. Only the owner ever gets this. */
+export interface HomeTriageCard {
+  task_id: string;
+  title: string;
+  href: string;
+  /** What Bast thinks the card is; null = not sorted yet. */
+  kind: 'project_setup' | 'task' | 'project_addition' | 'reusable_tool' | 'rule_proposal' | 'question_only' | null;
+  created_at: string;
+  /** Whole days since the card was filed. */
+  age_days: number;
+  /** What is wanted: the first line of the card body, at most 220 characters (the card clamps it to two lines). '' when there is none. */
+  summary: string;
+  /** "On release" sentence, built from the same function Release runs. */
+  release_line: string;
+  /** False when Release would be refused (kind null, project missing or still a quote). release_line then says why. */
+  release_ready: boolean;
+  release_block: 'unsorted' | 'no_project' | 'still_quote' | 'project_closed' | null;
+  open_questions: number;
+  /** A session marked the card finished: the evidence line (text after "Looks done: ") and the web addresses in it. */
+  looks_done: { evidence: string; links: { text: string; href: string }[] } | null;
+  /** project_setup cards only (and only when a project is linked). */
+  project: HomeTriageProject | null;
+}
+
+/** A released card (tag from-triage) that still has questions waiting for his answer. */
+export interface HomeAskedAfterRelease {
+  task_id: string;
+  title: string;
+  href: string;
+  status: string;
+  open_questions: number;
+  released_at: string;
+}
+
 export interface HomeTriage {
+  /** Every card in Triage, marked ones included. */
   count: number;
+  /** The Triage tab's cards: looks done first, then oldest first. Absent in older payloads. */
+  cards?: HomeTriageCard[];
+  /** Released cards with open questions. Absent in older payloads. */
+  asked_after_release?: HomeAskedAfterRelease[];
+  /** Cards marked looks-done, shown first under their own heading and not part of any group below. Absent in older payloads. */
+  looks_done?: HomeTriageLooksDone[];
   /** Open questions across every card in Triage. */
   open_questions: number;
   groups: HomeTriageGroup[];
@@ -807,8 +888,11 @@ export type HomeActName =
   | 'reopen_ask'
   | 'attach_choose'
   | 'triage_release'
+  | 'triage_release_card'
   | 'triage_release_plan'
-  | 'triage_drop';
+  | 'triage_drop'
+  | 'triage_close_done'
+  | 'triage_not_done';
 
 /** How a step reached arc_add, kept in the home_actions row for the "where he acts" measure. */
 export type HomeArcAddOrigin =
@@ -946,8 +1030,11 @@ export type HomeActRequest =
    * finished_keep: Not finished; the row leaves the card and is not offered again for 90 days (Undo 24 hours).
    */
   | { action: 'triage_release'; task_ids: string[] }
+  | { action: 'triage_release_card'; task_ids: [string] }
   | { action: 'triage_release_plan'; group_key: string }
   | { action: 'triage_drop'; task_ids: string[] }
+  | { action: 'triage_close_done'; task_ids: string[] }
+  | { action: 'triage_not_done'; task_ids: string[] }
   | { action: 'finished_close'; item_keys: string[] }
   | { action: 'finished_close_one'; item_key: string }
   | { action: 'finished_keep'; item_key: string }
@@ -1566,8 +1653,11 @@ export type KeeperActionKind =
   | 'finished_close'
   // Triage: ideas released or dropped from the Triage section (source keeper, Undo for 72 hours)
   | 'triage_release'
+  | 'triage_release_card'
   | 'triage_release_plan'
   | 'triage_drop'
+  | 'triage_close_done'
+  | 'triage_not_done'
   // Work stage E: work started from a session the owner said to track, and the one-time clear of old session questions (source keeper, Undo for 72 hours)
   | 'session_track'
   | 'work_stale_clear'

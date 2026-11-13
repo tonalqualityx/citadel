@@ -9,6 +9,12 @@ describe('assertCardConversationOp', () => {
     expect(() => assertCardConversationOp(T, 'home', { action: 'triage_release', task_ids: [T.toUpperCase()] })).not.toThrow();
     expect(() => assertCardConversationOp(T, 'home', { action: 'triage_drop', task_ids: [T] })).not.toThrow();
   });
+  it('the same one-card rule covers Close as done and Not done', () => {
+    expect(() => assertCardConversationOp(T, 'home', { action: 'triage_close_done', task_ids: [T] })).not.toThrow();
+    expect(() => assertCardConversationOp(T, 'home', { action: 'triage_not_done', task_ids: [T] })).not.toThrow();
+    expect(() => assertCardConversationOp(T, 'home', { action: 'triage_close_done', task_ids: [O] })).toThrow(CARD_ONLY_TEXT);
+    expect(() => assertCardConversationOp(T, 'home', { action: 'triage_close_done', task_ids: [T, O] })).toThrow(CARD_ONLY_TEXT);
+  });
   it('refuses another card, several cards, no ids and a whole plan with the plain sentence', () => {
     for (const input of [
       { action: 'triage_release', task_ids: [O] },

@@ -224,9 +224,11 @@ export async function POST(
         user_id: auth.userId,
         content: data.content,
         mentioned_user_ids: mentionedUserIds,
-        is_internal: data.is_internal ?? false,
-        client_visible: data.client_visible ?? false,
-        client_question: data.client_question ?? false,
+        // A card in Triage is never shown to a client, so a comment on it never is either (a Looks done note must stay internal
+        // whatever the caller sent).
+        is_internal: task.status === 'triage' ? true : (data.is_internal ?? false),
+        client_visible: task.status === 'triage' ? false : (data.client_visible ?? false),
+        client_question: task.status === 'triage' ? false : (data.client_question ?? false),
       },
       include: {
         user: {
