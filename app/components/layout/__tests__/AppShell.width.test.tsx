@@ -18,7 +18,12 @@ let store: Map<string, string>;
 function Page() {
   usePageBastChat(null);
   const shell = useBastChatShell();
-  return <button onClick={shell.openChat}>open</button>;
+  return (
+    <>
+      <button onClick={shell.openChat}>open</button>
+      <span data-testid="page-width">{String(shell.pageWidth)}</span>
+    </>
+  );
 }
 const setVw = (w: number) => {
   Object.defineProperty(window, 'innerWidth', { value: w, configurable: true, writable: true });
@@ -73,6 +78,16 @@ describe('split chat width', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Make the chat narrower' }));
     expect(columns()).toBe('minmax(0, 1fr) clamp(360px, 34vw, 480px)');
     expect(store.get(BAST_CHAT_WIDTH_KEY)).toBe('normal');
+  });
+  it('tells pages how wide their column is: null closed, window minus chat when open, and it follows the toggle', async () => {
+    const r = render(<AppShell><Page /></AppShell>);
+    expect(screen.getByTestId('page-width').textContent).toBe('null');
+    fireEvent.click(await screen.findByTestId('bast-chat-button'));
+    await screen.findByTestId('bast-chat-split');
+    expect(screen.getByTestId('page-width').textContent).toBe(String(1440 - 480));
+    fireEvent.click(screen.getByRole('button', { name: 'Make the chat wider' }));
+    expect(screen.getByTestId('page-width').textContent).toBe(String(1440 - 864));
+    r.unmount();
   });
   it('keeps the page column at 360px when the sidebar is showing', async () => {
     homeView = 'overlook';

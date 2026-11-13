@@ -80,6 +80,8 @@ export interface BastChatShell {
   columnRef: React.RefObject<HTMLElement | null>;
   /** The split column's width and its controls (the full-screen sheets ignore all of this). */
   width: ResolvedWidth;
+  /** How wide the page column is while the split is open (null otherwise): pages whose columns follow the window use it to lay out in what is left. */
+  pageWidth: number | null;
   /** Normal width <-> wide. */
   toggleWide: () => void;
   /** Drag or arrow keys: a width in px, clamped to the bounds. `save` false while a drag is still going. */
@@ -103,6 +105,7 @@ const OFF: BastChatShell = {
   setPageCard: noop,
   columnRef: { current: null },
   width: resolveWidth({ kind: 'normal' }, 1440, 0),
+  pageWidth: null,
   toggleWide: noop,
   setWidthPx: noop,
   resetWidth: noop,
@@ -432,12 +435,13 @@ export function BastChatProvider({ children }: { children: React.ReactNode }) {
       setPageCard: setPageCardInput,
       columnRef,
       width,
+      pageWidth: mode === 'split' ? Math.max(0, vw - reservedLeft - width.px) : null,
       toggleWide,
       setWidthPx,
       resetWidth,
       setReservedLeft,
     }),
-    [available, offered, mode, openChat, closeChat, talkAbout, width, toggleWide, setWidthPx, resetWidth],
+    [available, offered, mode, openChat, closeChat, talkAbout, width, vw, reservedLeft, toggleWide, setWidthPx, resetWidth],
   );
 
   const view = React.useMemo<ViewState>(
