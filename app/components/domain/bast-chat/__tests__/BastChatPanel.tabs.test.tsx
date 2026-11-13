@@ -139,6 +139,17 @@ describe('Chat and Actions tabs', () => {
     fireEvent.click(screen.getByTestId('tab-chat'));
     expect(screen.getByTestId('bast-chat-composer')).toBeVisible();
   });
+  it('actions of the earlier conversation on the card are in the Actions tab with Undo, and not in the Chat tab', () => {
+    const old: TimelineItem = { type: 'action', key: 'aold', action: act('old', { conversation_id: 'c0' }), at: '2026-11-12T10:00:00Z', earlier: true };
+    const chat = fakeChat([old, msg(1, 'mike', 'fresh start')]);
+    render(panel(chat));
+    expect(screen.queryByTestId('actions-summary')).toBeNull();
+    expect(screen.getByTestId('tab-actions').textContent).toBe('Actions (1)');
+    fireEvent.click(screen.getByTestId('tab-actions'));
+    expect(screen.getByText(/earlier conversation about this card/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(chat.actOn).toHaveBeenCalledWith('old', 'undo');
+  });
   it('empty state is one muted line', () => {
     render(panel(fakeChat([msg(1, 'mike', 'hi')])));
     fireEvent.click(screen.getByTestId('tab-actions'));

@@ -138,6 +138,9 @@ export interface PanelAction {
   card: ProposalCard | null;
   /** v2: the plain refusal of a failed proposal, else null. */
   error: string | null;
+  /** The conversation the action belongs to: a card's actions come from every conversation it has had (start fresh keeps Undo). */
+  conversation_id: string;
+  created_at: string;
 }
 
 /** The conversation's actions as the panel reads them. A proposal names who it would go to by first name. */
@@ -145,8 +148,11 @@ export async function panelActions(
   conversationId: string,
   now: Date = new Date(),
   db: Pick<PrismaClient, 'bastChatAction' | 'user'> = defaultDb,
+  /** Earlier conversations about the same card: their actions are listed too, so Undo survives "start fresh". */
+  alsoConversationIds: string[] = [],
 ): Promise<PanelAction[]> {
-  const list = await listActions(conversationId, now, db);
+  const lists = await Promise.all([conversationId, ...alsoConversationIds].map((id) => listActions(id, now, db)));
+  const list = lists.flat().sort((a, b) => a.created_at.getTime() - b.created_at.getTime());
   const ids = [...new Set(list.map((a) => a.proposed_assignee_id).filter((v): v is string => !!v))];
   const users = ids.length ? await db.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }) : [];
   const nameOf = new Map(users.map((u) => [u.id, cleanLine(u.name.split(/\s+/)[0] ?? '', 40)]));
@@ -161,6 +167,8 @@ export async function panelActions(
     proposal_kind: a.proposal_kind,
     card: a.card,
     error: a.error,
+    conversation_id: a.conversation_id,
+    created_at: a.created_at.toISOString(),
     ...(a.proposed_assignee_id ? { proposed_assignee: nameOf.get(a.proposed_assignee_id) ?? null } : {}),
   }));
 }

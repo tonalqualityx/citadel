@@ -79,6 +79,25 @@ describe('buildHistory', () => {
   });
 });
 
+describe('actions of an earlier conversation about the card', () => {
+  const earlier = (a: ChatAction): TimelineItem => ({ type: 'action', key: `a${a.id}`, action: a, at: '2026-11-12T10:00:00Z', earlier: true });
+  const tl = [earlier(act('old1')), earlier(act('old2', { status: 'failed' })), msg('m1', 'mike', 'new question'), msg('m2', 'assistant', 'answer'), line(act('new1'))];
+  it('never show in the Chat tab, not even as a summary', () => {
+    const items = buildChatItems(tl, none);
+    expect(items.map((i) => i.type)).toEqual(['message', 'message', 'actions']);
+    expect(items.flatMap((i) => (i.type === 'actions' ? i.actions.map((a) => a.id) : []))).toEqual(['new1']);
+  });
+  it('are listed last in the history as their own group, with their Undo reachable', () => {
+    const h = buildHistory(tl, none);
+    expect(h.map((t) => t.turnKey)).toEqual(['m1', 'earlier']);
+    expect(h[1].earlier).toBe(true);
+    expect(h[1].entries.map((e) => e.action.id)).toEqual(['old2', 'old1']);
+  });
+  it('count toward what can still be undone', () => {
+    expect(undoableCount(tl, none, NOW)).toBe(2);
+  });
+});
+
 describe('undoableCount', () => {
   it('counts open windows only: not expired, not undone, not waiting for a tap', () => {
     const tl = [

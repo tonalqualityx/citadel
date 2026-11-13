@@ -527,6 +527,8 @@ const Launcher = React.forwardRef<HTMLButtonElement, { unread: boolean; hidden: 
   );
 });
 
+/** In a card's conversation the button starts a new conversation about the same card. */
+const FRESH_TIP = 'New conversation about this card. The card, its plan and its notes stay.';
 const WIDE_OFF_TIP = 'The window is too narrow to make the chat wider.';
 
 /** Header button: normal width <-> about twice as wide. Off, with a reason, when the window cannot fit both columns. */
@@ -668,10 +670,12 @@ function ChatBody({ layout, onClose }: { layout: 'full' | 'split'; onClose: () =
           type="button"
           className="home-btn"
           onClick={() => void v.chat.newChat()}
+          title={v.cardChatTitle !== null ? FRESH_TIP : undefined}
+          data-testid="bast-chat-new"
           style={{ minHeight: 40, padding: '4px 10px', gap: 4, border: 0, background: 'none' }}
         >
           <Plus className="h-4 w-4" aria-hidden="true" />
-          New chat
+          {v.cardChatTitle !== null ? 'Start fresh' : 'New chat'}
         </button>
       </div>
       <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', padding: '10px 12px 8px' }}>

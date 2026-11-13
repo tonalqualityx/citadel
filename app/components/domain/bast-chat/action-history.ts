@@ -36,6 +36,8 @@ export function buildChatItems(timeline: TimelineItem[], outcomeOf: (id: string)
     quiet = [];
   };
   for (const item of timeline) {
+    // An action of an earlier conversation about this card lives in the Actions tab only.
+    if (item.type === 'action' && item.earlier) continue;
     if (item.type === 'message' && item.message.role === 'mike') {
       flush();
       turnKey = item.message.key;
@@ -62,6 +64,8 @@ export interface HistoryTurn {
   quote: string | null;
   /** Newest first. */
   entries: HistoryEntry[];
+  /** Actions of an earlier conversation about the same card (the chat was started fresh since). */
+  earlier?: boolean;
 }
 
 const QUOTE_CHARS = 90;
@@ -80,7 +84,16 @@ export function buildHistory(timeline: TimelineItem[], outcomeOf: (id: string) =
   let current: HistoryTurn | null = null;
   let turnKey = 'start';
   let quote: string | null = null;
+  let earlierTurn: HistoryTurn | null = null;
   timeline.forEach((item, index) => {
+    if (item.type === 'action' && item.earlier) {
+      if (!earlierTurn) {
+        earlierTurn = { turnKey: 'earlier', quote: null, entries: [], earlier: true };
+        turns.push(earlierTurn);
+      }
+      earlierTurn.entries.push({ action: item.action, index, at: item.at ?? null });
+      return;
+    }
     if (item.type === 'message' && item.message.role === 'mike') {
       turnKey = item.message.key;
       quote = shortQuote(item.message.text);
@@ -102,7 +115,7 @@ export function buildHistory(timeline: TimelineItem[], outcomeOf: (id: string) =
 export function undoableCount(timeline: TimelineItem[], outcomeOf: (id: string) => ActionOutcome | null, now: number): number {
   let n = 0;
   for (const item of timeline) {
-    if (item.type !== 'action' || isPinned(item.action, outcomeOf(item.action.id))) continue;
+    if (item.type !== 'action' || (!item.earlier && isPinned(item.action, outcomeOf(item.action.id)))) continue;
     if (undoOpen(item.action, now)) n++;
   }
   return n;

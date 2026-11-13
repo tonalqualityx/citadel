@@ -20,6 +20,8 @@ import { closeIdleConversations, currentConversation, startConversation } from '
 import { buildInbox } from '@/lib/bast-chat/inbox';
 import * as convs from '../conversations/route';
 import * as messages from '../conversations/[id]/messages/route';
+import * as feedRoute from '../conversations/[id]/feed/route';
+import * as undoRoute from '../actions/[id]/undo/route';
 import * as workerOps from '../worker/ops/route';
 import * as inboxRoute from '../worker/inbox/route';
 import { runHomeUndo } from '@/lib/home/act';
@@ -47,7 +49,7 @@ describe.skipIf(!SCRATCH)('one chat per card (real database)', () => {
     taskIds.push(t.id);
     return t.id;
   };
-  const convFor = (taskId: string) => prisma.bastChatConversation.findUnique({ where: { owner_id_task_id: { owner_id: MIKE_USER_ID, task_id: taskId } } });
+  const convFor = (taskId: string) => prisma.bastChatConversation.findFirst({ where: { owner_id: MIKE_USER_ID, task_id: taskId }, orderBy: { created_at: 'desc' } });
   const openCard = async (taskId: string) => {
     const r = await as(MIKE, () => convs.POST(post('/api/bast-chat/conversations', { task_id: taskId })));
     return { status: r.status, body: (await r.json()) as { id: string; reopened: boolean } };
@@ -261,5 +263,93 @@ describe.skipIf(!SCRATCH)('one chat per card (real database)', () => {
     expect((await as(MIKE, () => convs.GET(get('/api/bast-chat/conversations?task_id=nope')))).status).toBe(400);
     const none = await as(MIKE, () => convs.GET(get(`/api/bast-chat/conversations?task_id=${missing}`)));
     expect(((await none.json()) as { conversations: unknown[] }).conversations).toEqual([]);
+  });
+
+  // ---- start fresh on a card ----
+  const fresh = async (taskId: string) => {
+    const r = await as(MIKE, () => convs.POST(post('/api/bast-chat/conversations', { task_id: taskId, fresh: true })));
+    return { status: r.status, body: (await r.json()) as { id: string; reopened: boolean } };
+  };
+  const mikeSays = (id: string, ref: string, text: string) => as(MIKE, () => messages.POST(post(`/api/bast-chat/conversations/${id}/messages`, { client_ref: ref, text }), params(id)));
+
+  it('start fresh closes the open conversation (kept, turns intact) and opens a new empty one on the same card', async () => {
+    const t = await mkTask('fresh card');
+    const old = (await openCard(t)).body.id;
+    expect((await mikeSays(old, `${tag}-f1`, 'can you open the live site?')).status).toBe(201);
+    const r = await fresh(t);
+    expect(r.status).toBe(201);
+    expect(r.body.reopened).toBe(false);
+    expect(r.body.id).not.toBe(old);
+    const oldRow = await prisma.bastChatConversation.findUniqueOrThrow({ where: { id: old } });
+    expect(oldRow.status).toBe('closed');
+    expect(oldRow.closed_at).not.toBeNull();
+    expect(await prisma.bastChatEvent.count({ where: { conversation_id: old } })).toBe(1);
+    const fresh1 = await prisma.bastChatConversation.findUniqueOrThrow({ where: { id: r.body.id } });
+    expect(fresh1.task_id).toBe(t);
+    expect(fresh1.status).toBe('idle');
+    // No replay: the new conversation has no turns at all; the machine reads turns by conversation id.
+    expect(await prisma.bastChatEvent.count({ where: { conversation_id: r.body.id } })).toBe(0);
+    const feed = await as(MIKE, () => feedRoute.GET(get(`/api/bast-chat/conversations/${r.body.id}/feed?after=0`), params(r.body.id)));
+    expect(((await feed.json()) as { events: unknown[] }).events).toHaveLength(0);
+    // Opening the card again gives the newest one, not the old one.
+    expect((await openCard(t)).body).toEqual({ id: r.body.id, reopened: true });
+    expect((await as(MIKE, () => convs.GET(get(`/api/bast-chat/conversations?task_id=${t}`)))).status).toBe(200);
+    const all = (await (await as(MIKE, () => convs.GET(get(`/api/bast-chat/conversations?task_id=${t}&all=1`)))).json()) as { conversations: { id: string }[] };
+    expect(all.conversations.map((c) => c.id)).toEqual([r.body.id, old]);
+    // The old one stays readable as history.
+    const history = await as(MIKE, () => feedRoute.GET(get(`/api/bast-chat/conversations/${old}/feed?after=0`), params(old)));
+    expect(((await history.json()) as { events: unknown[] }).events).toHaveLength(1);
+  });
+
+  it('at most one conversation per card is open, even with simultaneous opens and fresh starts', async () => {
+    const t = await mkTask('one open card');
+    await Promise.all([openCard(t), fresh(t), fresh(t), openCard(t), fresh(t)]);
+    const rows = await prisma.bastChatConversation.findMany({ where: { owner_id: MIKE_USER_ID, task_id: t } });
+    expect(rows.filter((c) => c.status !== 'closed')).toHaveLength(1);
+    expect(rows.length).toBeGreaterThanOrEqual(2);
+    // The database holds it too: a second open conversation on the card is refused.
+    await expect(prisma.bastChatConversation.create({ data: { owner_id: MIKE_USER_ID, task_id: t } })).rejects.toMatchObject({ code: 'P2002' });
+  });
+
+  it('start fresh needs a card, and the general New chat is unchanged', async () => {
+    const bad = await as(MIKE, () => convs.POST(post('/api/bast-chat/conversations', { fresh: true })));
+    expect(bad.status).toBe(400);
+    const g1 = (await startConversation(MIKE_USER_ID)).id;
+    const t = await mkTask('general untouched');
+    const card = (await openCard(t)).body.id;
+    const g2 = (await as(MIKE, () => convs.POST(post('/api/bast-chat/conversations', {})))).status;
+    expect(g2).toBe(201);
+    expect((await prisma.bastChatConversation.findUniqueOrThrow({ where: { id: g1 } })).status).toBe('closed');
+    expect((await prisma.bastChatConversation.findUniqueOrThrow({ where: { id: card } })).status).toBe('idle');
+  });
+
+  it('an action of the earlier conversation is still in the card feed and its Undo still works', async () => {
+    const t = await mkTask('undo after fresh');
+    const old = (await openCard(t)).body.id;
+    const c = await prisma.comment.create({ data: { task_id: t, user_id: MIKE_USER_ID, content: 'a note from the chat', is_internal: true, client_visible: false } });
+    const a = await prisma.bastChatAction.create({
+      data: {
+        conversation_id: old,
+        event_seq: null,
+        tool: 'comment_on_task',
+        target_type: 'comment',
+        target_id: c.id,
+        summary: 'Added a note to "x".',
+        status: 'applied',
+        undo_until: new Date(Date.now() + 3600_000),
+        before: { task_id: t, comment: null },
+        after: { task_id: t, comment_id: c.id },
+      },
+    });
+    const next = (await fresh(t)).body.id;
+    const feed = await as(MIKE, () => feedRoute.GET(get(`/api/bast-chat/conversations/${next}/feed?after=0`), params(next)));
+    const body = (await feed.json()) as { actions: { id: string; conversation_id: string; can_undo?: boolean; undo_until: string | null }[] };
+    const mine = body.actions.find((x) => x.id === a.id)!;
+    expect(mine.conversation_id).toBe(old);
+    expect(mine.undo_until).not.toBeNull();
+    const undone = await as(MIKE, () => undoRoute.POST(post(`/api/bast-chat/actions/${a.id}/undo`, {}), params(a.id)));
+    expect(undone.status).toBe(200);
+    expect((await prisma.comment.findUniqueOrThrow({ where: { id: c.id } })).is_deleted).toBe(true);
+    expect((await prisma.bastChatAction.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('undone');
   });
 });

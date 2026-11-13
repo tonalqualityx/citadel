@@ -61,7 +61,7 @@ export function ActionsHistory({
       {turns.map((t) => (
         <section key={t.turnKey} data-turn={t.turnKey} data-highlight={highlight === t.turnKey ? 'true' : undefined} aria-label={t.quote ? `Actions after: ${t.quote}` : 'Actions'} style={{ display: 'flex', flexDirection: 'column', gap: 8, scrollMarginTop: 4, borderRadius: 6, outline: highlight === t.turnKey ? '2px solid var(--accent)' : 'none', outlineOffset: 4 }}>
           <p className="home-small home-muted" data-testid="history-turn-quote" style={{ margin: 0 }}>
-            {t.quote ? `After: \u201c${t.quote}\u201d` : 'Earlier in this chat'}
+            {t.earlier ? 'From the earlier conversation about this card' : t.quote ? `After: \u201c${t.quote}\u201d` : 'Earlier in this chat'}
           </p>
           {t.entries.map((e) => {
             const when = whenWords(e.at, chat.now);
