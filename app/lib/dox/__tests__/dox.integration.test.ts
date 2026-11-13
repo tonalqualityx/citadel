@@ -39,6 +39,7 @@ const authMock = requireAuth as Mock;
 const as = (a: AuthPayload) => authMock.mockResolvedValue(a);
 const call = (project?: string, body?: unknown, method = 'POST') =>
   new NextRequest('http://localhost/api/x', { method, headers: project ? { 'x-dox-project': project } : {}, body: body === undefined ? undefined : JSON.stringify(body) });
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- response bodies are read loosely in these tests
 const json = async (res: Response) => ({ status: res.status, body: (await res.json()) as Record<string, any> });
 
 const CONTEXT = {
