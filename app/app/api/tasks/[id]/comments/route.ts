@@ -9,6 +9,7 @@ import { afterReplyShared, assertShareable } from '@/lib/portal/share-reply';
 import { actorLaneField } from '@/lib/auth/actor-lane';
 import { OWNER_ONLY_COMMENT_WHERE } from '@/lib/tasks/looks-done';
 import { guardDoxComment, guardDoxTaskWrite } from '@/lib/dox/guard';
+import { guardDeskComment } from '@/lib/triage-desk/guard';
 
 const createCommentSchema = z.object({
   content: z.string().min(1, 'Comment cannot be empty').max(10000),
@@ -165,6 +166,8 @@ export async function POST(
     // Dox lane: always an internal note, never shared with a client.
     const doxForce = guardDoxComment(auth, data);
     if (doxForce) data.is_internal = true;
+    // Triage-desk lane: the same, always an internal note (stamped actor_lane = triage-desk below).
+    if (guardDeskComment(auth, data)) data.is_internal = true;
     if (data.client_question && !data.client_visible) {
       throw new ApiError('A question for the client must also be client_visible.', 400, 'question_not_visible');
     }

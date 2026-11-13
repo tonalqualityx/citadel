@@ -1,3 +1,5 @@
+import type { DealSection } from '@/lib/deals/read';
+
 /**
  * Home screen Slice 1: the shared contract (plan task H3). Every later builder codes against
  * this file; read it with your own task in the plan and you have what you need.
@@ -802,6 +804,8 @@ export interface HomeTriageProject {
   contract: { status: 'draft' | 'sent' | 'signed'; signed_at: string | null; version: number; deal_id: string; deal_href: string } | null;
   /** The deal the project came from, even without a contract yet. */
   deal: { id: string; name: string; href: string } | null;
+  /** The deal with its line items, the client's retainers and how the deal is tied to the project (lib/deals/read.ts). Read-only. Absent for a caller that may not read prices. */
+  deal_detail?: DealSection | null;
   sitemap: { id: string; name: string; page_type: string | null; needs_design: boolean; notes: string | null }[];
 }
 
@@ -834,6 +838,8 @@ export interface HomeTriageCard {
   looks_done: { evidence: string; links: { text: string; href: string }[] } | null;
   /** project_setup cards only (and only when a project is linked). */
   project: HomeTriageProject | null;
+  /** What a session changed on this card through the triage-desk lane, newest first (at most 3). The card shows "changed by a session". Absent in older payloads. */
+  session_changes?: { at: string; line: string }[];
 }
 
 /** A released card (tag from-triage) that still has questions waiting for his answer. */

@@ -4,7 +4,9 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth } from '@/lib/auth/middleware';
 import { ApiError, handleApiError } from '@/lib/api/errors';
 import { loadCards } from '@/lib/tasks/triage-card';
-import { requireTriageOwner } from '@/lib/tasks/triage-auth';
+import { requireTriageEditor } from '@/lib/tasks/triage-auth';
+import { isTriageDeskLane, guardDeskShape } from '@/lib/triage-desk/guard';
+import { recordSessionChange } from '@/lib/triage-desk/changes';
 
 const line = (max: number) => z.string().trim().max(max);
 const bodySchema = z
@@ -39,7 +41,7 @@ const bodySchema = z
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const auth = await requireAuth();
-    requireTriageOwner(auth);
+    requireTriageEditor(auth);
     const { id } = await params;
     const body = bodySchema.parse(await request.json());
     const task = await prisma.task.findFirst({ where: { id, is_deleted: false }, select: { id: true, status: true, project: { select: { id: true, status: true } } } });
@@ -47,6 +49,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     if (!task.project) throw new ApiError('Link the card to its project first.', 409, 'no_project');
     if (task.project.status !== 'queue') throw new ApiError('Only a project still in the queue can be reshaped from its card.', 409, 'project_not_queue');
     const projectId = task.project.id;
+    await guardDeskShape(auth, projectId);
     await prisma.$transaction(async (tx) => {
       if (body.phases) {
         const withTasks = await tx.projectPhase.count({ where: { project_id: projectId, tasks: { some: {} } } });
@@ -63,6 +66,9 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
         });
       }
     });
+    if (isTriageDeskLane(auth)) {
+      await recordSessionChange(auth.userId, id, `redrew the shape (${[body.phases ? `${body.phases.length} phases` : null, body.pages ? `${body.pages.length} pages` : null].filter(Boolean).join(', ')})`);
+    }
     const [card] = await loadCards(prisma, [id]);
     return NextResponse.json(card);
   } catch (error) {

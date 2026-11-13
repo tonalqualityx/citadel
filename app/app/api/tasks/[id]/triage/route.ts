@@ -3,10 +3,14 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth } from '@/lib/auth/middleware';
 import { ApiError, handleApiError } from '@/lib/api/errors';
-import { requireTriageOwner } from '@/lib/tasks/triage-auth';
+import { requireTriageEditor, requireTriageOwner } from '@/lib/tasks/triage-auth';
 import { TRIAGE_KINDS } from '@/lib/tasks/triage-kind';
 import { loadCards } from '@/lib/tasks/triage-card';
 import { isDoxLane } from '@/lib/dox/guard';
+import { isTriageDeskLane, guardDeskTriagePatch } from '@/lib/triage-desk/guard';
+import { recordSessionChange } from '@/lib/triage-desk/changes';
+import { estimatePatchForKind } from '@/lib/tasks/triage-estimate';
+import { mayReadDeal } from '@/lib/deals/access';
 
 async function cardOr404(id: string) {
   const [card] = await loadCards(prisma, [id]);
@@ -22,10 +26,15 @@ async function cardOr404(id: string) {
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const auth = await requireAuth();
-    // Dox reads a Triage card (its dates especially) and can never sort one: only GET lets it in.
-    if (!isDoxLane(auth)) requireTriageOwner(auth);
+    // Dox reads a Triage card (its dates especially) and can never sort one: only GET lets it in. The triage desk reads it too and edits it below.
+    if (!isDoxLane(auth) && !isTriageDeskLane(auth)) requireTriageOwner(auth);
     const { id } = await params;
-    return NextResponse.json(await cardOr404(id));
+    const card = await cardOr404(id);
+    // The deal's items carry prices: Dox sees them only inside its project binding (the same rule as the deal read on the project routes).
+    if (isDoxLane(auth) && card.project?.deal_detail && !(await mayReadDeal(auth, _request.headers, { projectId: card.project.project_id }))) {
+      return NextResponse.json({ ...card, project: { ...card.project, deal_detail: null } });
+    }
+    return NextResponse.json(card);
   } catch (error) {
     return handleApiError(error);
   }
@@ -59,13 +68,23 @@ const bodySchema = z
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const auth = await requireAuth();
-    requireTriageOwner(auth);
+    requireTriageEditor(auth);
     const { id } = await params;
-    const body = bodySchema.parse(await request.json());
-    const task = await prisma.task.findFirst({ where: { id, is_deleted: false }, select: { id: true, status: true, project_id: true, triage_kind: true } });
+    const rawBody = await request.json();
+    const body = bodySchema.parse(rawBody);
+    const task = await prisma.task.findFirst({ where: { id, is_deleted: false }, select: { id: true, status: true, project_id: true, triage_kind: true, estimated_minutes: true, energy_estimate: true, mystery_factor: true, battery_impact: true, tags: true } });
     if (!task || task.status !== 'triage') throw new ApiError('That card is not in Triage.', 404, 'not_in_triage');
+    // The triage desk may not change the dates of a project the portal shows.
+    await guardDeskTriagePatch(auth, rawBody, task.project_id);
     const data: Record<string, unknown> = {};
-    if (body.kind !== undefined) data.triage_kind = body.kind;
+    if (body.kind !== undefined) {
+      data.triage_kind = body.kind;
+      // A project setup card defaults to one hour (never over an estimate that is set; a defaulted hour goes when the kind moves away).
+      const est = estimatePatchForKind(task.triage_kind, body.kind, { estimated_minutes: task.estimated_minutes, energy_estimate: task.energy_estimate, mystery_factor: task.mystery_factor, battery_impact: task.battery_impact, tags: task.tags });
+      if (est) {
+        Object.assign(data, est);
+      }
+    }
     if (body.project_id !== undefined) {
       if (body.project_id === null) {
         // Unlinking clears what the link set, so the card never keeps a project's client or site.
@@ -103,6 +122,15 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         });
       }
     });
+    if (isTriageDeskLane(auth)) {
+      const said = [
+        body.kind !== undefined ? `set the kind to ${body.kind ?? 'not sorted'}` : null,
+        body.project_id !== undefined ? (body.project_id === null ? 'unlinked the project' : 'linked a project') : null,
+        body.target_start_date !== undefined ? `set the start date to ${body.target_start_date ?? 'none'}` : null,
+        body.target_launch_date !== undefined ? `set the launch date to ${body.target_launch_date ?? 'none'}` : null,
+      ].filter(Boolean);
+      await recordSessionChange(auth.userId, id, said.join('; '));
+    }
     return NextResponse.json(await cardOr404(id));
   } catch (error) {
     return handleApiError(error);

@@ -69,6 +69,17 @@ function shortUrl(u: string): string {
 }
 
 /** The evidence a session left on a looks-done card, with the web addresses in it as links, in place. */
+/** "Changed by a session": a session edited this card through the triage-desk lane. The newest change, in words. */
+export function SessionChanged({ card }: { card: Pick<HomeTriageCard, 'session_changes'> }) {
+  const latest = card.session_changes?.[0];
+  if (!latest) return null;
+  return (
+    <p className="home-small" data-testid="triage-session-changed">
+      <strong>Changed by a session:</strong> {plain(latest.line)}
+    </p>
+  );
+}
+
 export function LooksDoneEvidence({ looksDone }: { looksDone: NonNullable<HomeTriageCard['looks_done']> }) {
   const text = plain(looksDone.evidence) || 'Marked as done, but no note was left.';
   const nodes: React.ReactNode[] = [];
@@ -121,6 +132,7 @@ function TriageCardItem({ card, onAct, onTalk, busy }: { card: HomeTriageCard } 
         <Link href={card.href}>{plain(card.title)}</Link>
       </h3>
       {card.summary ? <p className="home-tsummary">{plain(card.summary)}</p> : null}
+      <SessionChanged card={card} />
       {card.looks_done ? <LooksDoneEvidence looksDone={card.looks_done} /> : <ReleaseLine card={card} />}
       {card.project ? <TriageProjectBlock project={card.project} variant="compact" /> : null}
       <TriageActions card={card} onAct={onAct} onTalk={onTalk} busy={busy}>

@@ -32,6 +32,41 @@ function dealLink(p: HomeTriageProject): { href: string; label: string } | null 
   return p.deal ? { href: p.deal.href, label: p.deal.name } : null;
 }
 
+function priceWords(v: string | null): string {
+  return v === null ? 'no price' : `$${v}`;
+}
+
+/** What the deal sold, line by line, amounts as Citadel stores them. Read only; empty when the card has no deal detail. */
+export function DealItems({ project }: { project: HomeTriageProject }) {
+  const detail = project.deal_detail;
+  if (!detail || detail.deals.length === 0) return null;
+  return (
+    <div data-testid="triage-deal-items">
+      {detail.tie === 'client_signed_deals' ? <p className="home-small home-muted">{plain(detail.tie_note)}</p> : null}
+      {detail.deals.map((d) => (
+        <div key={d.id}>
+          <p className="home-small">
+            <strong>{plain(d.name)}</strong>
+            {` · ${d.status}`}
+            {d.total_value ? ` · total $${d.total_value}` : ''}
+          </p>
+          <ul>
+            {d.items.commission.map((i) => (
+              <li key={i.id} className="home-small">{`${plain(i.name)}: ${priceWords(i.final_price ?? i.estimated_price)}`}</li>
+            ))}
+            {d.items.charter.map((i) => (
+              <li key={i.id} className="home-small">{`${plain(i.name)}: ${priceWords(i.final_price)} ${i.billing_period}, ${i.duration_months} months, $${i.total_contract_value} in all`}</li>
+            ))}
+            {d.items.keep.map((i) => (
+              <li key={i.id} className="home-small">{`${plain(i.name ?? i.domain_name ?? 'Hosting and care')}: ${priceWords(i.monthly_total)} a month`}</li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /**
  * A project card's block. Compact (on the grid card): the contract state with a link to the deal, the phases as a short list with
  * "Yours" on the ones that need him, and the page count with the first few page names. Full (the card page): the shape with every
@@ -93,6 +128,7 @@ export function TriageProjectBlock({ project, variant }: { project: HomeTriagePr
         <h3>Contract</h3>
         {contract}
         {datesNode}
+        <DealItems project={project} />
       </div>
       <div className="home-blk">
         <h3>Shape of the plan</h3>

@@ -1,4 +1,5 @@
 import type { ApiEndpoint } from './index';
+import { DEAL_RESPONSE_NOTE, DEAL_RESPONSE_SHAPE } from './deal-shape';
 
 export const projectEndpoints: ApiEndpoint[] = [
   {
@@ -55,7 +56,7 @@ export const projectEndpoints: ApiEndpoint[] = [
         summary: 'Create a new project.',
         auth: 'required',
         roles: ['pm', 'admin'],
-        // Dox lane (lib/dox/guard.ts guardDoxProjectCreate): header x-dox-card names a released card (tag from-triage, not in Triage, no project, kind task, reusable_tool, rule_proposal or unsorted); body only name, description, type, client_id, status ready, dates, ordering-only, notes; type internal or the card's client; the card joins the project in the same transaction (one project per card; 403 dox_card_closed). The Dox lane can write to a project only while it is live and an open engagement pass started through the dox lane exists (x-dox-project header, 403 dox_no_pass / dox_project_closed).
+        // Dox lane (lib/dox/guard.ts guardDoxProjectCreate): header x-dox-card names a released card (tag from-triage, not in Triage, no project, ANY kind: a project of any size); body only name, description, type (project, retainer or internal), client_id, status ready, dates, ordering-only, notes; internal or the card's own client; a project_setup card whose release already made its queued project ready has a project, so it cannot get a second one; the card joins the project in the same transaction (one project per card; 403 dox_card_closed). The Dox lane can write to a project only while it is live and an open engagement pass started through the dox lane exists (x-dox-project header, 403 dox_no_pass / dox_project_closed).
         bodySchema: [
           { name: 'name', type: 'string', required: true, description: 'Project name' },
           { name: 'client_id', type: 'uuid', required: true, description: 'Client ID' },
@@ -89,9 +90,10 @@ export const projectEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'GET',
-        summary: 'Get project details with tasks, phases, team, milestones, and calculated budget.',
+        summary: 'Get project details with tasks, phases, team, milestones, and calculated budget.' + DEAL_RESPONSE_NOTE,
         auth: 'required',
         responseExample: {
+          deal: DEAL_RESPONSE_SHAPE,
           id: 'uuid',
           name: 'string',
           description: 'string|null',

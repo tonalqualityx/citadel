@@ -37,6 +37,7 @@ export const LANES = [
   'design-track',
   'design-notes',
   'dox',
+  'triage-desk',
 ] as const;
 
 export type Lane = (typeof LANES)[number];
@@ -47,7 +48,7 @@ export type Lane = (typeof LANES)[number];
  * lib/auth/key-scopes.ts), and a key planted without it is still refused outside the lane instead of running in
  * shadow. The fleet-6 lanes keep shadow mode for their staged rollout, so they are not listed here.
  */
-export const ALWAYS_ENFORCED_LANES: readonly Lane[] = ['design-worker', 'bast-chat', 'design-track', 'design-notes', 'dox'];
+export const ALWAYS_ENFORCED_LANES: readonly Lane[] = ['design-worker', 'bast-chat', 'design-track', 'design-notes', 'dox', 'triage-desk'];
 export type LaneMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 export interface LaneRoute {
@@ -75,6 +76,7 @@ export const LANE_IDENTITY: Record<Lane, 'bast' | 'troubador' | 'oracle' | 'desi
   'design-track': 'bast', // the Bast runner (portal v2, SPEC 6.1a); never the design worker
   'design-notes': 'bast', // the meeting intake's design statements (portal v2, SPEC 8.1); never the design worker
   dox: 'bast', // the office manager (operating model, PLAN-dox-office-manager): runs as the Bast user, stamped as lane dox
+  'triage-desk': 'bast', // a Claude session reading a card's chat and editing the card (PLAN-triage-investigations decision 5): Bast user, stamped as lane triage-desk
 };
 
 export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
@@ -465,6 +467,26 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('GET', '/api/engagement-briefs/:id/snapshot'),
     r('POST', '/api/engagement-briefs/:id/passes'),
     r('PATCH', '/api/engagement-passes/:id'),
+  ],
+  // Triage desk (PLAN-triage-investigations decision 5). Bast user, always enforced. A session reads a task, its comments and questions, the /triage card and the card's
+  // conversation; edits a Triage card (kind, project link, dates, shape); asks, edits (its own) and withdraws questions; adds internal comments; marks looks-done.
+  // lib/triage-desk/guard.ts narrows each write. It can NOT: release, drop or close a card (no status change), answer a question, call chat ops, send, delete,
+  // change what a client reads on a client-visible task, or touch a task that is not in Triage beyond reading it and commenting. GET /api/projects is here only so
+  // a session can find the project id it links a card to.
+  'triage-desk': [
+    r('GET', '/api/auth/me'),
+    r('GET', '/api/tasks/:id'),
+    r('PATCH', '/api/tasks/:id'),
+    r('GET', '/api/tasks/:id/comments'),
+    r('POST', '/api/tasks/:id/comments'),
+    r('GET', '/api/tasks/:id/questions'),
+    r('POST', '/api/tasks/:id/questions'),
+    r('PATCH', '/api/tasks/:id/questions/:qid'),
+    r('GET', '/api/tasks/:id/triage'),
+    r('PATCH', '/api/tasks/:id/triage'),
+    r('PUT', '/api/tasks/:id/triage/shape'),
+    r('GET', '/api/tasks/:id/conversation'),
+    r('GET', '/api/projects'),
   ],
 };
 

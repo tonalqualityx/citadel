@@ -16,6 +16,7 @@
  */
 import { randomUUID } from 'crypto';
 import { z } from 'zod';
+import { estimatePatchForKind } from '@/lib/tasks/triage-estimate';
 import { ApiError } from '@/lib/api/errors';
 import { opSummary, type OpContext, type PreparedOp } from '../actions';
 import { cleanLine, quoted } from '../card-context';
@@ -90,12 +91,17 @@ interface CardRow {
   triage_kind: string | null;
   client_id: string | null;
   site_id: string | null;
+  estimated_minutes: number | null;
+  energy_estimate: number | null;
+  mystery_factor: string;
+  battery_impact: string;
+  tags: string[];
 }
 
 async function loadCard(db: OpDb, id: string): Promise<CardRow> {
   const c = (await db.task.findFirst({
     where: { id, status: 'triage', is_deleted: false },
-    select: { id: true, title: true, project_id: true, triage_kind: true, client_id: true, site_id: true },
+    select: { id: true, title: true, project_id: true, triage_kind: true, client_id: true, site_id: true, estimated_minutes: true, energy_estimate: true, mystery_factor: true, battery_impact: true, tags: true },
   })) as CardRow | null;
   if (!c) throw new ApiError(CARD_GONE, 404, 'card_missing');
   if (c.project_id) throw new ApiError('That card already has a project.', 409, 'card_has_project');
@@ -167,7 +173,7 @@ async function run(ctx: OpContext, input: StartProjectInput, expect: unknown): P
     const card = await loadCard(db, input.card_task_id);
     const linked = await db.task.updateMany({
       where: { id: card.id, status: 'triage', project_id: null, is_deleted: false },
-      data: { project_id: project.id, triage_kind: 'project_setup', client_id: clientId, ...(r.site_id ? { site_id: r.site_id } : {}) },
+      data: { project_id: project.id, triage_kind: 'project_setup', client_id: clientId, ...(r.site_id ? { site_id: r.site_id } : {}), ...((estimatePatchForKind(card.triage_kind, 'project_setup', card) ?? {}) as Record<string, never>) },
     });
     if (linked.count !== 1) throw new ApiError(CHANGED, 409, 'changed_since');
     taskId = card.id;

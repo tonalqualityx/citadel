@@ -49,6 +49,7 @@ import {
   TASK_STATUSES,
 } from './gate-mirror';
 import { isClientVisibleTask } from '@/lib/portal/visibility';
+import { isShownInPortal, renderedFieldsTouched } from '@/lib/portal/client-rendered';
 
 // ---------------------------------------------------------------------------------------------
 // Input types
@@ -314,7 +315,7 @@ export interface WorkerReads {
   not_given: string[];
 }
 
-export type ClientShowRule = 'shares_task' | 'wait_sends' | 'moves_visible_task' | 'project_goes_live' | 'unknown_status' | 'missing_data';
+export type ClientShowRule = 'shares_task' | 'wait_sends' | 'moves_visible_task' | 'edits_visible_task' | 'project_goes_live' | 'unknown_status' | 'missing_data';
 
 export interface ClientShowHit {
   rule: ClientShowRule;
@@ -364,7 +365,7 @@ const READ_TEXT_FIELDS: readonly string[] = ['title', 'description', 'requiremen
 /** Changes to a task that can change what a Bast dependent does or reads. */
 const DEPENDENT_RELEVANT: readonly string[] = ['status', 'approved', 'project_id', 'comments', ...READ_TEXT_FIELDS];
 /** Changes that can change what a client sees. */
-const CLIENT_RELEVANT: readonly string[] = ['client_visible', 'status', 'approved', 'client_id', 'project_id'];
+const CLIENT_RELEVANT: readonly string[] = ['client_visible', 'status', 'approved', 'client_id', 'project_id', 'site_id', 'title', 'description', 'requirements', 'tags'];
 const CLIENT_VISIBILITY_FIELDS = ['client_visible', 'requested_by_contact_id', 'staging_preview_url', 'status', 'approved'] as const;
 /** Fields of a change that are context for the check, never a write. */
 const CONTEXT_KEYS: readonly string[] = ['ordering_only_after'];
@@ -902,10 +903,16 @@ function evaluateClient(acc: Acc, before: ReachTask | null, after: ReachTask, ch
   const visAfter = isClientVisibleTask(after);
   if (visAfter && !visBefore) {
     acc.show('shares_task', 'the task becomes visible in the client portal', changed, { task_id: after.id });
-  } else if (visAfter && before !== null && (changed.includes('client_id') || changed.includes('project_id'))) {
-    acc.show('moves_visible_task', 'a portal-visible task changes client or project', changed.filter((f) => f === 'client_id' || f === 'project_id'), {
+  } else if (before !== null && (visAfter || isShownInPortal(before)) && (changed.includes('client_id') || changed.includes('project_id') || changed.includes('site_id'))) {
+    acc.show('moves_visible_task', 'a portal-visible task changes client, project or site', changed.filter((f) => f === 'client_id' || f === 'project_id' || f === 'site_id'), {
       task_id: after.id,
     });
+  }
+  // A task a client can read today (visible by any portal rule, or in their history) whose text, checklist or portal tags change: what the client reads
+  // changes, so it is the owner's tap, whoever steered the chat. The fields are the list in lib/portal/client-rendered.ts.
+  if (before !== null && isShownInPortal(before)) {
+    const touched = renderedFieldsTouched(changed, { before: before.tags, after: after.tags }).filter((f) => f !== 'client_id' && f !== 'project_id' && f !== 'site_id');
+    if (touched.length > 0) acc.show('edits_visible_task', 'a portal-visible task changes what the client reads', touched, { task_id: after.id });
   }
 }
 

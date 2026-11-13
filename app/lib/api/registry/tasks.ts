@@ -1,4 +1,5 @@
 import type { ApiEndpoint } from './index';
+import { DEAL_RESPONSE_NOTE, DEAL_RESPONSE_SHAPE } from './deal-shape';
 
 export const taskEndpoints: ApiEndpoint[] = [
   {
@@ -140,9 +141,10 @@ export const taskEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'GET',
-        summary: 'Get task detail with project, assignee, time entries, and comments. A task in Triage also carries triage_kind, release_line and release_ready for Mike\'s session and the chat lane only.',
+        summary: 'Get task detail with project, assignee, time entries, and comments. A task in Triage also carries triage_kind, release_line and release_ready for Mike\'s session and the chat lane only.' + DEAL_RESPONSE_NOTE,
         auth: 'required',
         responseExample: {
+          deal: DEAL_RESPONSE_SHAPE,
           id: 'uuid',
           title: 'string',
           description: 'object|null',
@@ -214,7 +216,7 @@ export const taskEndpoints: ApiEndpoint[] = [
       },
       {
         method: 'PATCH',
-        summary: 'Update task fields. Handles status changes, assignment, and focus toggling.',
+        summary: 'Update task fields. Handles status changes, assignment, and focus toggling. Chat lane: a change to the title, description or checklist of a task the client portal shows (requested by a contact, shared, staged, or in the client history), to its client, project or site, or to a tag the portal reads (awaiting-clarification, client-approved, client-sent-back, client-cancelled, marketing-plan, chat-question) answers 202 proposed with proposal_kind client_show and writes nothing until Mike taps (the list is lib/portal/client-rendered.ts). Dox lane: never those fields, and not the status or portal tags of a client-visible task (403 dox_client_closed). Triage-desk lane: only the looks-done tag on a Triage card (tags_add ["triage:looks-done"]); anything else 403 desk_field_closed, and on a task not in Triage 403 desk_not_triage.',
         auth: 'required',
         bodySchema: [
           { name: 'status', type: 'string', required: false, description: 'not_started|in_progress|review|done|blocked|abandoned. Applied alone or together with other fields, through the same transition rules and side effects either way (timestamps, auto-focus on in_progress, activity log, dependent unblocking). A disallowed transition or unknown value returns 400 and writes nothing. An explicit is_focus in the same body wins over the auto-focus.' },
@@ -281,7 +283,7 @@ export const taskEndpoints: ApiEndpoint[] = [
       },
       {
         method: 'POST',
-        summary: 'Add a comment to a task.',
+        summary: 'Add a comment to a task. The triage-desk lane (like Dox) always writes an internal note, stamped actor_lane triage-desk and shown as "A session"; a client-visible comment from it is 403 desk_client_closed.',
         auth: 'required',
         bodySchema: [
           { name: 'content', type: 'string', required: true, description: 'Comment text' },
@@ -336,7 +338,7 @@ export const taskEndpoints: ApiEndpoint[] = [
           { name: 'cause_scope', type: 'string', required: false, description: 'card (default) or project: with project, one question per cause across every task of the project of the card (the setup card included).' },
         ],
         responseExample: { id: 'uuid', task_id: 'uuid', question: 'string', state: 'open', asked_by_lane: 'string|null (dox for the Dox lane)', cause_key: 'string|null', deduped: 'true only when the existing question (open or answered) was returned' },
-        responseNotes: '201 new question, 200 the existing non-withdrawn one for the same cause_key (its answer, if any, is on it). asked_by_lane is stamped from the lane of the key, never from the body. The Dox lane may ask; only Mike session or the chat lane answers.',
+        responseNotes: '201 new question, 200 the existing non-withdrawn one for the same cause_key (its answer, if any, is on it). asked_by_lane is stamped from the lane of the key, never from the body. The Dox lane may ask; only Mike session or the chat lane answers. The triage-desk lane may ask only on a card in Triage (403 desk_not_triage), and edit or withdraw (reason required, 400 desk_reason_required) only questions it asked itself (403 desk_not_yours); it never answers.',
       },
       {
         method: 'GET',
@@ -432,6 +434,30 @@ export const taskEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/tasks/:id/conversation',
+    group: 'tasks',
+    methods: [
+      {
+        method: 'GET',
+        summary: "The conversation Mike has had with the chat about this card, as turns in order. Only the card's own conversation; tool-call detail, costs and status notes are left out.",
+        auth: 'required',
+        queryParams: [
+          { name: 'after', type: 'number', required: false, description: 'Only turns with a seq above this (paging).' },
+          { name: 'limit', type: 'number', required: false, description: 'At most this many turns (default 200, max 500).' },
+        ],
+        responseExample: {
+          task_id: 'uuid',
+          conversation: '{id, status: idle|queued|running|closed, started_at: iso, last_message_at: iso|null}|null',
+          turns: "[{seq: number, who: 'mike'|'bast', at: iso, text: string|null, redacted?: true (the daemon redacted this turn: text is null), not_answered?: true (Mike's message was never picked up)}]",
+          last_seq: 'number',
+          has_more: 'boolean',
+          home_chat: '{included: false, note: string}',
+        },
+        responseNotes: "Mike's session and the enforced triage-desk lane only (403 triage_forbidden for everyone else; 404 for a missing task). A turn the daemon marked redacted (payload.redacted true, or the whole text a bracketed [redacted ...] marker) stays redacted; credential-looking text is removed from the rest. The general home chat is NOT returned: a message there carries the card that was open, not proof it was about this card, and its replies are not tied to a card, so home_chat says so instead of guessing.",
+      },
+    ],
+  },
+  {
     path: '/api/tasks/:id/triage',
     group: 'tasks',
     methods: [
@@ -439,8 +465,8 @@ export const taskEndpoints: ApiEndpoint[] = [
         method: 'GET',
         summary: 'One Triage card as the Triage tab shows it: kind, age, summary, release_line (which now also says the open questions and the site) and release_ready and release_version (from the same function Release runs), open questions, looks done, and for a project_setup card the project block.',
         auth: 'required',
-        responseExample: { task_id: 'uuid', title: 'string', href: 'string', kind: 'project_setup|task|project_addition|reusable_tool|rule_proposal|question_only|null', created_at: 'iso', age_days: 'number', summary: 'string (what is wanted, at most 220 characters)', release_line: 'string', release_version: 'string (hash of everything Release depends on; send it back with triage_release_card)', release_ready: 'boolean', release_block: 'unsorted|no_project|still_quote|project_closed|null', open_questions: 'number', target_start_date: 'YYYY-MM-DD|null (the linked project start_date)', target_launch_date: 'YYYY-MM-DD|null (the linked project target_date)', looks_done: '{evidence: string, links: [{text, href}]}|null', project: 'null | {project_id, name, status, start_date: YYYY-MM-DD|null, target_date: YYYY-MM-DD|null, phases: [{id, name, summary|null, mike_part|null}], mike_parts: [{phase, text}], contract: {status, signed_at|null, version, deal_id, deal_href}|null, deal: {id, name, href}|null, sitemap: [{id, name, page_type|null, needs_design, notes|null}]} (project_setup cards only; never the plan folder, never tasks)' },
-        responseNotes: "Mike's session or the enforced bast-chat lane only: 403 triage_forbidden for everyone else (PM, admin, tech, designer, bot keys, other lanes, Mike's own API key), except that the enforced Dox lane may read (GET only; it never sorts a card). 404 not_in_triage for a task that is not in Triage.",
+        responseExample: { task_id: 'uuid', title: 'string', href: 'string', kind: 'project_setup|task|project_addition|reusable_tool|rule_proposal|question_only|null', created_at: 'iso', age_days: 'number', summary: 'string (what is wanted, at most 220 characters)', release_line: 'string', release_version: 'string (hash of everything Release depends on; send it back with triage_release_card)', release_ready: 'boolean', release_block: 'unsorted|no_project|still_quote|project_closed|null', open_questions: 'number', target_start_date: 'YYYY-MM-DD|null (the linked project start_date)', target_launch_date: 'YYYY-MM-DD|null (the linked project target_date)', looks_done: '{evidence: string, links: [{text, href}]}|null', project: 'null | {project_id, name, status, start_date: YYYY-MM-DD|null, target_date: YYYY-MM-DD|null, phases: [{id, name, summary|null, mike_part|null}], mike_parts: [{phase, text}], contract: {status, signed_at|null, version, deal_id, deal_href}|null, deal: {id, name, href}|null, deal_detail: DealSection|null (the deal with its line items, retainers and how the deal is tied to the project: the `deal` shape of GET /api/projects/:id; null for the Dox lane outside its project binding), sitemap: [{id, name, page_type|null, needs_design, notes|null}]} (project_setup cards only; never the plan folder, never tasks)', session_changes: '[{at: iso, line: string}] (what a session changed through the triage-desk lane, newest first, at most 3; the card shows "changed by a session")' },
+        responseNotes: "Mike's session or the enforced bast-chat lane only: 403 triage_forbidden for everyone else (PM, admin, tech, designer, bot keys, other lanes, Mike's own API key), except that the enforced Dox lane may read (GET only; it never sorts a card) and the enforced triage-desk lane may read. 404 not_in_triage for a task that is not in Triage.",
       },
       {
         method: 'PATCH',
@@ -452,8 +478,8 @@ export const taskEndpoints: ApiEndpoint[] = [
           { name: 'target_start_date', type: 'string', required: false, description: 'YYYY-MM-DD or null: the linked project start_date. Needs a project card (kind project_setup, now or in the same request) with a project: 400 not_project_card, 409 no_project.' },
           { name: 'target_launch_date', type: 'string', required: false, description: 'YYYY-MM-DD or null: the linked project target_date. Same rules as target_start_date.' },
         ],
-        responseExample: { task_id: 'uuid', title: 'string', href: 'string', kind: 'project_setup|task|project_addition|reusable_tool|rule_proposal|question_only|null', created_at: 'iso', age_days: 'number', summary: 'string (what is wanted, at most 220 characters)', release_line: 'string', release_version: 'string (hash of everything Release depends on; send it back with triage_release_card)', release_ready: 'boolean', release_block: 'unsorted|no_project|still_quote|project_closed|null', open_questions: 'number', target_start_date: 'YYYY-MM-DD|null (the linked project start_date)', target_launch_date: 'YYYY-MM-DD|null (the linked project target_date)', looks_done: '{evidence: string, links: [{text, href}]}|null', project: 'null | {project_id, name, status, start_date: YYYY-MM-DD|null, target_date: YYYY-MM-DD|null, phases: [{id, name, summary|null, mike_part|null}], mike_parts: [{phase, text}], contract: {status, signed_at|null, version, deal_id, deal_href}|null, deal: {id, name, href}|null, sitemap: [{id, name, page_type|null, needs_design, notes|null}]} (project_setup cards only; never the plan folder, never tasks)' },
-        responseNotes: 'Mike session or the chat lane only (the Dox lane cannot PATCH). Triage cards only (404 not_in_triage). Release then does what release_line says: project_setup makes its queue project ready and hands the card to Bast tagged kickoff and from-triage; task, project_addition, reusable_tool and rule_proposal move to not_started, assigned to Bast when nobody is, tagged from-triage; question_only closes as done with its questions kept. A card with no kind is refused on release (409 not_sorted); a quote project refuses (409 still_a_quote).',
+        responseExample: { task_id: 'uuid', title: 'string', href: 'string', kind: 'project_setup|task|project_addition|reusable_tool|rule_proposal|question_only|null', created_at: 'iso', age_days: 'number', summary: 'string (what is wanted, at most 220 characters)', release_line: 'string', release_version: 'string (hash of everything Release depends on; send it back with triage_release_card)', release_ready: 'boolean', release_block: 'unsorted|no_project|still_quote|project_closed|null', open_questions: 'number', target_start_date: 'YYYY-MM-DD|null (the linked project start_date)', target_launch_date: 'YYYY-MM-DD|null (the linked project target_date)', looks_done: '{evidence: string, links: [{text, href}]}|null', project: 'null | {project_id, name, status, start_date: YYYY-MM-DD|null, target_date: YYYY-MM-DD|null, phases: [{id, name, summary|null, mike_part|null}], mike_parts: [{phase, text}], contract: {status, signed_at|null, version, deal_id, deal_href}|null, deal: {id, name, href}|null, deal_detail: DealSection|null (the deal with its line items, retainers and how the deal is tied to the project: the `deal` shape of GET /api/projects/:id; null for the Dox lane outside its project binding), sitemap: [{id, name, page_type|null, needs_design, notes|null}]} (project_setup cards only; never the plan folder, never tasks)', session_changes: '[{at: iso, line: string}] (what a session changed through the triage-desk lane, newest first, at most 3; the card shows "changed by a session")' },
+        responseNotes: 'Mike session, the chat lane or the triage-desk lane (the Dox lane cannot PATCH). The triage-desk lane may set kind, project and dates but never the dates of a project the client portal shows (403 desk_client_closed); each of its changes is recorded as a "Changed by a session" note on the card. Triage cards only (404 not_in_triage). Release then does what release_line says: project_setup makes its queue project ready and hands the card to Bast tagged kickoff and from-triage; task, project_addition, reusable_tool and rule_proposal move to not_started, assigned to Bast when nobody is, tagged from-triage; question_only closes as done with its questions kept. A card with no kind is refused on release (409 not_sorted); a quote project refuses (409 still_a_quote).',
       },
     ],
   },
@@ -469,8 +495,8 @@ export const taskEndpoints: ApiEndpoint[] = [
           { name: 'phases', type: 'object', required: false, description: '[{name (max 100), summary? (max 400), mike_part? (max 400, what will be Mike\'s), icon?}], at most 20. Replaces the project\'s phases.' },
           { name: 'pages', type: 'object', required: false, description: '[{name, page_type?, needs_design?, notes?}], at most 80. Replaces the project\'s ProjectPage rows.' },
         ],
-        responseExample: { task_id: 'uuid', title: 'string', href: 'string', kind: 'project_setup|task|project_addition|reusable_tool|rule_proposal|question_only|null', created_at: 'iso', age_days: 'number', summary: 'string (what is wanted, at most 220 characters)', release_line: 'string', release_version: 'string (hash of everything Release depends on; send it back with triage_release_card)', release_ready: 'boolean', release_block: 'unsorted|no_project|still_quote|project_closed|null', open_questions: 'number', target_start_date: 'YYYY-MM-DD|null (the linked project start_date)', target_launch_date: 'YYYY-MM-DD|null (the linked project target_date)', looks_done: '{evidence: string, links: [{text, href}]}|null', project: 'null | {project_id, name, status, start_date: YYYY-MM-DD|null, target_date: YYYY-MM-DD|null, phases: [{id, name, summary|null, mike_part|null}], mike_parts: [{phase, text}], contract: {status, signed_at|null, version, deal_id, deal_href}|null, deal: {id, name, href}|null, sitemap: [{id, name, page_type|null, needs_design, notes|null}]} (project_setup cards only; never the plan folder, never tasks)' },
-        responseNotes: "Mike's session or the enforced bast-chat lane only (403 triage_forbidden). 409 no_project (card not linked), project_not_queue (only a queue project is reshaped from here), phases_have_tasks. A list that is left out is untouched.",
+        responseExample: { task_id: 'uuid', title: 'string', href: 'string', kind: 'project_setup|task|project_addition|reusable_tool|rule_proposal|question_only|null', created_at: 'iso', age_days: 'number', summary: 'string (what is wanted, at most 220 characters)', release_line: 'string', release_version: 'string (hash of everything Release depends on; send it back with triage_release_card)', release_ready: 'boolean', release_block: 'unsorted|no_project|still_quote|project_closed|null', open_questions: 'number', target_start_date: 'YYYY-MM-DD|null (the linked project start_date)', target_launch_date: 'YYYY-MM-DD|null (the linked project target_date)', looks_done: '{evidence: string, links: [{text, href}]}|null', project: 'null | {project_id, name, status, start_date: YYYY-MM-DD|null, target_date: YYYY-MM-DD|null, phases: [{id, name, summary|null, mike_part|null}], mike_parts: [{phase, text}], contract: {status, signed_at|null, version, deal_id, deal_href}|null, deal: {id, name, href}|null, deal_detail: DealSection|null (the deal with its line items, retainers and how the deal is tied to the project: the `deal` shape of GET /api/projects/:id; null for the Dox lane outside its project binding), sitemap: [{id, name, page_type|null, needs_design, notes|null}]} (project_setup cards only; never the plan folder, never tasks)', session_changes: '[{at: iso, line: string}] (what a session changed through the triage-desk lane, newest first, at most 3; the card shows "changed by a session")' },
+        responseNotes: "Mike's session, the enforced bast-chat lane or the enforced triage-desk lane (403 triage_forbidden for everyone else; the triage desk never reshapes a project the portal shows). 409 no_project (card not linked), project_not_queue (only a queue project is reshaped from here), phases_have_tasks. A list that is left out is untouched.",
       },
     ],
   },
