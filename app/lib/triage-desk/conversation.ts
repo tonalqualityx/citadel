@@ -1,7 +1,7 @@
 /**
  * A card's conversation with the chat, for a session to read (GET /api/tasks/:id/conversation).
  *
- * WHAT COMES BACK: the card's own conversation (the one conversation per card per owner, BastChatConversation.task_id), as turns in order: who spoke
+ * WHAT COMES BACK: the card's own conversation (the newest of the card's conversations for the owner, BastChatConversation.task_id; earlier ones were closed by Start fresh), as turns in order: who spoke
  * (`mike` or `bast`), when, and the text. Tool-call detail (action and result events), costs and the machine's status notes are left out: only the
  * text events of the two speakers are turns.
  *
@@ -66,8 +66,10 @@ export async function readCardConversation(taskId: string, opts: { after?: numbe
   const empty: CardConversation = { task_id: taskId, conversation: null, turns: [], last_seq: after, has_more: false, home_chat: { included: false, note: HOME_CHAT_NOTE } };
   const settings = await db.bastChatSettings.findUnique({ where: { id: 1 }, select: { owner_user_id: true } });
   if (!settings?.owner_user_id) return empty;
-  const conv = await db.bastChatConversation.findUnique({
-    where: { owner_id_task_id: { owner_id: settings.owner_user_id, task_id: taskId } },
+  // A card can have several conversations over time ("Start fresh"); the one in play is the newest (the same rule as lib/bast-chat/events.ts).
+  const conv = await db.bastChatConversation.findFirst({
+    where: { owner_id: settings.owner_user_id, task_id: taskId },
+    orderBy: { created_at: 'desc' },
     select: { id: true, status: true, created_at: true, last_message_at: true },
   });
   if (!conv) return empty;
