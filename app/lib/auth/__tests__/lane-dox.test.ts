@@ -50,6 +50,7 @@ const ALLOWED: [string, string][] = [
   ['GET', '/api/projects/7f1c/engagement-snapshot'],
   ['POST', '/api/projects/7f1c/engagement-brief'],
   ['PATCH', '/api/projects/7f1c'],
+  ['PATCH', '/api/projects/7f1c/sitemap'],
   ['GET', '/api/tasks'],
   ['GET', '/api/tasks/7f1c'],
   ['POST', '/api/tasks'],

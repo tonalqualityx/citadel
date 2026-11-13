@@ -8,6 +8,8 @@ import { loadCards } from '@/lib/tasks/triage-card';
 import { requireTriageEditor } from '@/lib/tasks/triage-auth';
 import { actorOf, recordTriageChange, recordProjectChange } from '@/lib/tasks/triage-rev';
 import { guardDeskShape } from '@/lib/triage-desk/guard';
+import { isTriageDeskLaneValue } from '@/lib/triage-desk/identity';
+import { assertSitemapOpen, mergePagesByName, recordSitemapChanges } from '@/lib/projects/sitemap';
 
 const line = (max: number) => z.string().trim().max(max);
 const bodySchema = z
@@ -35,8 +37,8 @@ const bodySchema = z
 /**
  * PUT /api/tasks/:id/triage/shape   { phases?: [{name, summary?, mike_part?, icon?}], pages?: [{name, page_type?, needs_design?, notes?}] }
  * The chat drafts the shape of a project before release: replaces the phases and/or the sitemap of the project this Triage card is linked
- * to. Only while that project is still in `queue` (a live project is never reshaped from here) and only while no task sits in a phase
- * (phases with tasks are never dropped). A list that is sent replaces the old one; a list that is left out is untouched.
+ * to. In `queue` a list that is sent replaces the old one (phases with tasks are never dropped). On a project already under way, `pages` is merged by name
+ * (see lib/projects/sitemap.ts) and `phases` is refused. A list that is left out is untouched.
  * Mike's session or the chat lane only. Returns the card.
  */
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -48,9 +50,20 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     const task = await prisma.task.findFirst({ where: { id, is_deleted: false }, select: { id: true, status: true, project: { select: { id: true, status: true } } } });
     if (!task || task.status !== 'triage') throw new ApiError('That card is not in Triage.', 404, 'not_in_triage');
     if (!task.project) throw new ApiError('Link the card to its project first.', 409, 'no_project');
-    if (task.project.status !== 'queue') throw new ApiError('Only a project still in the queue can be reshaped from its card.', 409, 'project_not_queue');
     const projectId = task.project.id;
     const actor = await actorOf(auth);
+    if (task.project.status !== 'queue') {
+      // A project under way: the sent pages are merged by name (new added, same names updated, missing dropped); its phases are never redrawn here.
+      if (body.phases) throw new ApiError("A project that is already under way keeps its phases; only its pages can be changed from here.", 409, 'project_not_queue');
+      if (isTriageDeskLaneValue(auth.lane)) throw new ApiError('Only a project still in the queue can be reshaped by a session.', 409, 'project_not_queue');
+      assertSitemapOpen(task.project.status);
+      await prisma.$transaction(async (tx) => {
+        const r = await mergePagesByName(tx, projectId, body.pages ?? []);
+        await recordSitemapChanges(tx, projectId, r.lines, actor);
+      });
+      const [live] = await loadCards(prisma, [id]);
+      return NextResponse.json(live ? await cardForCaller(auth, request.headers, live) : live);
+    }
     await guardDeskShape(auth, projectId);
     await prisma.$transaction(async (tx) => {
       if (body.phases) {
