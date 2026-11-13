@@ -17,7 +17,7 @@ vi.mock('next/headers', () => ({
 
 import { prisma } from '@/lib/db/prisma';
 import { SCRATCH } from '@/lib/engine/__tests__/seed';
-import { verifyRefreshToken, verifyAccessToken, signRefreshToken } from '@/lib/auth/jwt';
+import { verifyRefreshToken, verifyAccessToken, signRefreshToken, hashRefreshToken } from '@/lib/auth/jwt';
 import { POST as loginRoute } from '@/app/api/auth/login/route';
 import { POST as refreshRoute } from '@/app/api/auth/refresh/route';
 import { POST as logoutRoute } from '@/app/api/auth/logout/route';
@@ -84,7 +84,7 @@ describe.skipIf(!SCRATCH)('refresh is bound to one session per sign-in (real dat
     expect(sa).toMatch(/^[0-9a-f-]{36}$/);
     expect(sa).not.toBe(sb);
     expect(await prisma.session.count({ where: { user_id: userId } })).toBe(2);
-    expect((await prisma.session.findUnique({ where: { id: sa } }))!.refresh_token).toBe(val(a, 'refresh_token'));
+    expect((await prisma.session.findUnique({ where: { id: sa } }))!.refresh_token).toBe(hashRefreshToken(val(a, 'refresh_token')));
   });
 
   it("login deletes only the user's EXPIRED rows, never live ones or another user's", async () => {
@@ -198,7 +198,7 @@ describe.skipIf(!SCRATCH)('refresh is bound to one session per sign-in (real dat
     expect(res.headers.getSetCookie()).toEqual([]);
     expect((await cont(forged)).headers.get('location')).toBe('/login');
     // neither row was touched
-    expect((await rowOf(val(theirs, 'refresh_token')))!.refresh_token).toBe(val(theirs, 'refresh_token'));
+    expect((await rowOf(val(theirs, 'refresh_token')))!.refresh_token).toBe(hashRefreshToken(val(theirs, 'refresh_token')));
     expect((await refresh(val(mine, 'refresh_token'))).status).toBe(200);
   });
 
