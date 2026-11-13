@@ -16,7 +16,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const home = data?.preferences?.home_view === 'home';
 
   return (
-    <div className="min-h-screen bg-background-light">
+    <div className="min-h-screen bg-background-light" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
       <Sidebar collapsed={home} />
       <div className={cn(!home && 'lg:pl-60')}>
         <Header homeChrome={home} />

@@ -37,7 +37,7 @@ export function Header({ homeChrome = false }: { homeChrome?: boolean } = {}) {
   }
 
   return (
-    <header className="sticky top-0 z-40 flex h-14 shrink-0 items-center gap-x-4 border-b border-border-warm bg-surface px-4 shadow-sm sm:gap-x-6 sm:px-6 lg:px-8">
+    <header style={{ paddingTop: 'env(safe-area-inset-top)', height: 'calc(3.5rem + env(safe-area-inset-top))' }} className="sticky top-0 z-40 flex h-14 shrink-0 items-center gap-x-4 border-b border-border-warm bg-surface px-4 shadow-sm sm:gap-x-6 sm:px-6 lg:px-8">
       {/* Mobile menu button */}
       <button
         onClick={() => setShowMobileMenu(true)}

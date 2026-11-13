@@ -157,7 +157,7 @@ export function MobileNav({ open, onClose, anyWidth = false }: MobileNavProps) {
       {/* Drawer */}
       <div className={cn('fixed inset-y-0 left-0 z-50 flex w-[min(85vw,18rem)] flex-col bg-background-light shadow-xl animate-in slide-in-from-left duration-200', !anyWidth && 'lg:hidden')}>
         {/* Header */}
-        <div className="flex shrink-0 items-center justify-between h-14 px-4 border-b border-border-warm">
+        <div className="flex shrink-0 items-center justify-between h-14 px-4 border-b border-border-warm" style={{ paddingTop: 'env(safe-area-inset-top)', height: 'calc(3.5rem + env(safe-area-inset-top))' }}>
           <span className="text-lg font-bold text-text-main">Menu</span>
           <button
             onClick={onClose}
