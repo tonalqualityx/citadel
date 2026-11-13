@@ -98,8 +98,11 @@ export function renderedFieldsTouched(
  * Every PROJECT column or child row the portal renders, read from lib/portal/project-detail.ts, app/api/portal/home and app/api/portal/projects:
  * name, status (as a label), target_date, completed_date, and the phase names (the phase track). start_date is not rendered, but it is a date
  * the owner sets with the launch date, so it is guarded with them. A lane that must not change what a client reads refuses these on a project the
- * portal shows (isProjectShownInPortal); the chat lane's status change is already a tap (lib/bast-chat/ops/project.ts), its date change through a
- * Triage card is refused here and left to the owner's own session.
+ * portal shows (isProjectShownInPortal); the chat lane's status change is already a tap (lib/bast-chat/ops/project.ts).
+ * DATES are the one exception: the chat lane (through a Triage card) and the Dox lane (through its project PATCH) may set start_date and target_date
+ * on any project, the portal's included, but only with a `date_source` (the deal, the SOW, a client email, or Mike's words). Without one the answer is
+ * 422 date_source_required. Each changed date is recorded as a change line with old value, new value and source (lib/tasks/date-changes.ts), which the
+ * Plan tab's Dates section shows. The owner's own session needs no source; the triage-desk lane still may not touch a portal project's dates.
  */
 export const CLIENT_RENDERED_PROJECT_FIELDS: readonly string[] = ['name', 'status', 'start_date', 'target_date', 'completed_date', 'phases'];
 /** The portal's own rule (lib/portal/access.ts projectAccessScope): hidden statuses, or visibility set to hidden. */

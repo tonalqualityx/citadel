@@ -6013,6 +6013,8 @@ model TriageChange {
   by         String   @db.VarChar(60)
   by_user_id String?  @db.Uuid
   by_lane    String?  @db.VarChar(40)
+  /// Structured detail of a change line, when it has some (a project date change: field, from, to, source). Not shown as a line.
+  detail     Json?
   created_at DateTime @default(now())
 
   @@index([task_id, created_at])

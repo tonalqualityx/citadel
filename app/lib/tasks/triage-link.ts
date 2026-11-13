@@ -9,7 +9,7 @@ import { ApiError } from '@/lib/api/errors';
 import type { AuthPayload } from '@/lib/auth/middleware';
 import { isTriageDeskLane } from '@/lib/triage-desk/guard';
 import { isChatLane } from './questions';
-import { isProjectShownInPortal } from '@/lib/portal/client-rendered';
+import { DATE_SOURCE_MESSAGE, type DateSource } from './plan-schema';
 
 type Db = Pick<PrismaClient, 'task' | 'project'>;
 
@@ -28,14 +28,11 @@ export async function assertLinkableProject(db: Db, cardId: string, cardClientId
 }
 
 /**
- * PATCH /api/tasks/:id/triage dates as the chat lane: the launch and start dates are the project's own, and the launch date is what the client's
- * portal shows. On a project the portal shows, the chat does not change them (the owner does, from his own session): a change a client will read
- * is the owner's, not a side effect of editing a card. A project the portal hides (quote, queue, suspended, cancelled, or hidden) is free.
+ * PATCH /api/tasks/:id/triage dates as the chat lane: the launch and start dates are the project's own. The chat may set them on any project, the one
+ * the portal shows included, but only with the source of the date (the deal, the SOW, a client email, or Mike's words); the route records each changed
+ * date with that source (lib/tasks/date-changes.ts). Without a source the answer is 422. The owner's own session needs no source.
  */
-export async function guardChatProjectDates(db: Pick<PrismaClient, 'project'>, auth: Parameters<typeof isChatLane>[0], datesGiven: boolean, projectId: string | null): Promise<void> {
-  if (!datesGiven || !projectId || !isChatLane(auth)) return;
-  const p = await db.project.findFirst({ where: { id: projectId, is_deleted: false }, select: { status: true, portal_visibility: true } });
-  if (p && isProjectShownInPortal(p)) {
-    throw new ApiError("A client can see this project in their portal, so its dates are changed by Mike from his own session, not through the chat.", 403, 'chat_client_visible_project');
-  }
+export function guardChatProjectDates(auth: Parameters<typeof isChatLane>[0], datesGiven: boolean, source: DateSource | undefined): void {
+  if (!datesGiven || !isChatLane(auth)) return;
+  if (!source) throw new ApiError(DATE_SOURCE_MESSAGE, 422, 'date_source_required');
 }

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as React from 'react';
 
 const m = vi.hoisted(() => ({ plan: undefined as unknown, loading: false, remove: vi.fn(), markWrong: vi.fn() }));
@@ -44,7 +44,7 @@ describe('Plan tab', () => {
     }
     expect(screen.queryByTestId('plan-item')).toBeNull();
     // sections in the fixed order
-    const heads = Array.from(document.querySelectorAll('h3')).map((h) => h.textContent);
+    const heads = Array.from(document.querySelectorAll('h3')).map((h) => (h.textContent ?? '').replace(/^[\u25b8\u25be]\s*/, ''));
     expect(heads).toEqual(['Requirements', 'Dates', 'Team', 'Billing model', 'Work to note', 'Risks', 'Examples', 'Decisions']);
   });
 
@@ -271,5 +271,81 @@ describe('Plan tab', () => {
     m.plan = null;
     const { container } = render(<PlanTab taskId="t2" />);
     expect(container.textContent).toBe('');
+  });
+});
+
+describe('Plan tab: collapsible sections and date sources', () => {
+  const KEY = 'citadel.plan.collapsed';
+  const store: Record<string, string> = {};
+  beforeEach(() => {
+    for (const k of Object.keys(store)) delete store[k];
+    // this test environment's own localStorage is not a working Storage, so give the page a plain one
+    vi.stubGlobal('localStorage', { getItem: (k: string) => store[k] ?? null, setItem: (k: string, v: string) => { store[k] = v; }, removeItem: (k: string) => { delete store[k]; } });
+  });
+  afterEach(() => vi.unstubAllGlobals());
+  const withReq = () => plan({ requirements: [req('One'), req('Two', { marked_wrong: true })] });
+
+  it('every section header is a button with aria-expanded and aria-controls, all open by default', () => {
+    render(<PlanView plan={plan()} />);
+    for (const t of ['requirements', 'dates', 'team', 'billing', 'planned-tasks', 'risks', 'examples', 'decisions']) {
+      const b = screen.getByTestId(`plan-${t}-toggle`);
+      expect(b.getAttribute('aria-expanded')).toBe('true');
+      expect(document.getElementById(b.getAttribute('aria-controls') as string)).not.toBeNull();
+    }
+  });
+
+  it('collapsing hides the body, keeps the title and count, and shows how many lines are marked wrong', () => {
+    render(<PlanView plan={withReq()} />);
+    const sec = screen.getByTestId('plan-requirements');
+    expect(within(sec).queryByTestId('plan-requirements-fix')).toBeNull();
+    fireEvent.click(screen.getByTestId('plan-requirements-toggle'));
+    expect(screen.getByTestId('plan-requirements-toggle').getAttribute('aria-expanded')).toBe('false');
+    expect(document.getElementById('plan-requirements-body')?.hidden).toBe(true);
+    expect(sec.textContent).toContain('Requirements');
+    expect(sec.textContent).toContain('2');
+    expect(within(sec).getByTestId('plan-requirements-fix').textContent).toBe('1 to fix');
+    fireEvent.click(screen.getByTestId('plan-requirements-toggle'));
+    expect(document.getElementById('plan-requirements-body')?.hidden).toBe(false);
+    expect(within(sec).queryByTestId('plan-requirements-fix')).toBeNull();
+  });
+
+  it('remembers the state per browser under one key and restores it on the next render', () => {
+    const first = render(<PlanView plan={withReq()} />);
+    fireEvent.click(screen.getByTestId('plan-risks-toggle'));
+    expect(JSON.parse(store[KEY])).toEqual(['plan-risks']);
+    first.unmount();
+    render(<PlanView plan={withReq()} />);
+    expect(screen.getByTestId('plan-risks-toggle').getAttribute('aria-expanded')).toBe('false');
+    expect(screen.getByTestId('plan-requirements-toggle').getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('Collapse all / Expand all', () => {
+    render(<PlanView plan={withReq()} />);
+    fireEvent.click(screen.getByTestId('plan-collapse-all'));
+    expect(screen.getByTestId('plan-collapse-all').textContent).toBe('Expand all');
+    expect(screen.getAllByRole('button', { expanded: false }).length).toBe(8);
+    fireEvent.click(screen.getByTestId('plan-collapse-all'));
+    expect(screen.getByTestId('plan-collapse-all').textContent).toBe('Collapse all');
+    expect(screen.queryAllByRole('button', { expanded: false }).length).toBe(0);
+  });
+
+  it('renders and toggles when storage throws', () => {
+    const boom = () => {
+      throw new Error('blocked');
+    };
+    vi.stubGlobal('localStorage', { getItem: boom, setItem: boom, removeItem: boom });
+    render(<PlanView plan={withReq()} />);
+    expect(screen.getByTestId('plan-requirements-toggle').getAttribute('aria-expanded')).toBe('true');
+    fireEvent.click(screen.getByTestId('plan-requirements-toggle'));
+    expect(screen.getByTestId('plan-requirements-toggle').getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('dates: shows the recorded source under the project date, and the sourced change lines', () => {
+    const project = { project_id: 'p1', name: 'P', status: 'queue', start_date: null, target_date: '2027-05-05', mike_parts: [], phases: [], sitemap: [], deal: null,
+      date_sources: { start: null, launch: { kind: 'sow' as const, label: 'Signed SOW v2', dated: '2026-11-02', at: '2026-11-13T12:00:00Z', by: 'the chat' } },
+      date_changes: [{ line: 'Launch moved from Mar 1, 2027 to May 5, 2027, from Signed SOW v2', at: '2026-11-13T12:00:00Z', by: 'the chat' }] };
+    render(<PlanView plan={plan({}, { project })} />);
+    expect(screen.getByTestId('plan-date-source').textContent).toBe('From Signed SOW v2 · Nov 2, 2026');
+    expect(screen.getByTestId('plan-date-changes').textContent).toContain('Launch moved from Mar 1, 2027 to May 5, 2027, from Signed SOW v2');
   });
 });
