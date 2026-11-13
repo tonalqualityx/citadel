@@ -579,8 +579,11 @@ export function useBastChat({ open, enabled = true }: { open: boolean; enabled?:
   const newChat = useCallback(async () => {
     setError(null);
     // In a card's conversation this starts a fresh conversation ON THE SAME CARD; in the general chat it is what it always was.
-    await startConversation(live.current.taskId, live.current.taskId !== null);
-  }, [startConversation]);
+    const card = live.current.taskId;
+    const id = await startConversation(card, card !== null);
+    // A card keeps its earlier conversations' actions (Undo): read them now, not at the next slow poll.
+    if (id && card !== null) void pollOnce();
+  }, [startConversation, pollOnce]);
 
   const leaveCardConversation = useCallback(async () => {
     setError(null);
