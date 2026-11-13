@@ -254,6 +254,30 @@ describe('Bast chat shell: history', () => {
     await waitFor(() => expect(document.activeElement).toBe(button));
     back.mockRestore();
   });
+  it('Escape closes it even when the focus is on the page, but not while another dialog is open', async () => {
+    mq.coarse = true; // nothing is focused after opening on a phone
+    responder = ownerResponder();
+    const back = vi.spyOn(window.history, 'back').mockImplementation(() => {});
+    render(app());
+    await openIt();
+    await screen.findByTestId('bast-chat-sheet');
+    const other = document.createElement('div');
+    other.setAttribute('role', 'dialog');
+    document.body.appendChild(other);
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    expect(screen.queryByTestId('bast-chat-sheet')).toBeTruthy();
+    other.remove();
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByTestId('bast-chat-sheet')).toBeNull());
+    back.mockRestore();
+  });
+  it('touch: the box is 16px so iOS does not zoom on focus', async () => {
+    mq.coarse = true;
+    responder = ownerResponder();
+    render(app(null));
+    await openIt();
+    expect((await screen.findByTestId('bast-chat-input')).style.fontSize).toBe('16px');
+  });
   it('the split never touches history', async () => {
     mq.split = true;
     responder = ownerResponder();
@@ -439,5 +463,38 @@ describe('Bast chat shell: full-screen layout follows the visual viewport', () =
     await openIt();
     const sheet = await screen.findByTestId('bast-chat-sheet');
     expect(sheet.style.height).toBe('100dvh');
+  });
+});
+
+describe('Bast chat shell: a slow read of the general chat never lands in a card conversation', () => {
+  it('drops a feed answer that arrives after the switch', async () => {
+    const triage: OpenCardInput = { key: `task:${U}`, title: 'Idea about invoices', type: 'task', task_id: U, tile: 'triage', own_conversation: true };
+    let releaseGeneral: () => void = () => {};
+    const gate = new Promise<void>((r) => (releaseGeneral = r));
+    responder = ownerResponder();
+    const base = (globalThis.fetch as unknown as typeof fetch);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url.includes('/conversations/c1/feed')) {
+          await gate;
+          return { status: 200, ok: true, json: async () => ({ conversation: { id: 'c1', status: 'idle' }, events: [{ seq: 1, role: 'assistant', kind: 'text', payload: { text: 'GENERAL TURN' } }], actions: [], worker: online }) } as Response;
+        }
+        if (url.endsWith('/conversations') && init?.method === 'POST') return { status: 201, ok: true, json: async () => ({ id: 'card-conv' }) } as Response;
+        if (url.includes('/conversations/card-conv/feed')) return { status: 200, ok: true, json: async () => ({ conversation: { id: 'card-conv', status: 'idle' }, events: [], actions: [], worker: online }) } as Response;
+        return base(url, init);
+      }),
+    );
+    function Talker() {
+      const shell = useBastChatShell();
+      return <button onClick={() => { shell.openChat(); shell.talkAbout(triage); }}>go</button>;
+    }
+    render(<BastChatProvider><Page card={null} /><Talker /></BastChatProvider>);
+    await screen.findByTestId('bast-chat-button');
+    fireEvent.click(screen.getByText('go'));
+    await waitFor(() => expect(screen.getByTestId('bast-chat-title').textContent).toBe('Idea about invoices'));
+    releaseGeneral();
+    await act(async () => { await new Promise((r) => setTimeout(r, 30)); });
+    expect(screen.queryByText('GENERAL TURN')).toBeNull();
   });
 });

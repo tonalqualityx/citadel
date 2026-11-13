@@ -174,8 +174,12 @@ export function BastChatProvider({ children }: { children: React.ReactNode }) {
     if (read(BAST_DOCK_OPEN_KEY) === 'open' && window.matchMedia?.(SPLIT_QUERY).matches) setOpen(true);
   }, [offered]);
 
+  const pageY = React.useRef(0);
+  const prevMode = React.useRef<ChatMode>('closed');
   const setOpenPersist = React.useCallback(
     (next: boolean) => {
+      // Read where the page is before anything changes: a split makes the document too short to keep its scroll position.
+      if (next && prevMode.current === 'closed') pageY.current = window.scrollY;
       setOpen(next);
       if (next || split) write(BAST_DOCK_OPEN_KEY, next ? 'open' : 'closed');
     },
@@ -209,21 +213,31 @@ export function BastChatProvider({ children }: { children: React.ReactNode }) {
       window.history.back();
     }
   }, [mode]);
+  // Going back through history can make the router scroll the page to the top; put the page back where it was.
+  const restoreSoon = React.useCallback(() => {
+    for (const ms of [0, 80, 250]) {
+      setTimeout(() => {
+        if (prevMode.current === 'closed') scrollWindow(pageY.current);
+      }, ms);
+    }
+  }, []);
   React.useEffect(() => {
     const onPop = () => {
       if (suppressPop.current > 0) {
         suppressPop.current -= 1;
+        restoreSoon();
         return;
       }
       if (pushed.current) {
         pushed.current = false;
         focusLauncher.current = true;
         setOpen(false);
+        restoreSoon();
       }
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
-  }, []);
+  }, [restoreSoon]);
   // Following a link inside the chat to another page closes the sheet; the history entry stays where the link left it.
   const lastPath = React.useRef(pathname);
   React.useEffect(() => {
@@ -236,8 +250,6 @@ export function BastChatProvider({ children }: { children: React.ReactNode }) {
   }, [pathname]);
 
   // ---- scroll: the page scrolls in the window while the chat is closed; the sheet locks it, the split moves it into the column ----
-  const pageY = React.useRef(0);
-  const prevMode = React.useRef<ChatMode>('closed');
   React.useEffect(() => {
     const onWindow = () => {
       if (prevMode.current === 'closed') pageY.current = window.scrollY;
@@ -257,7 +269,6 @@ export function BastChatProvider({ children }: { children: React.ReactNode }) {
     const prev = prevMode.current;
     if (prev === mode) return;
     prevMode.current = mode;
-    if (prev === 'closed') pageY.current = window.scrollY;
     if (mode === 'full') lockBody(pageY.current);
     if (prev === 'full') unlockBody();
     if (mode === 'split') {
@@ -267,6 +278,24 @@ export function BastChatProvider({ children }: { children: React.ReactNode }) {
     }
   }, [mode]);
   React.useEffect(() => () => unlockBody(), []);
+
+  // Escape closes the chat from anywhere (on a phone the focus is not in the box), unless a dialog or menu of the page is
+  // open on top. defaultPrevented is not checked: layers elsewhere in the app cancel Escape in the capture phase.
+  React.useEffect(() => {
+    if (mode === 'closed') return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      // Closed Radix drawers stay in the page (data-state="closed"); only an open one counts.
+      const other = document.querySelector(
+        '[role="dialog"]:not([data-testid="bast-chat-sheet"]):not([data-state="closed"]):not([hidden]), [role="alertdialog"]:not([data-state="closed"]), [role="menu"]:not([data-state="closed"]), [role="listbox"]:not([data-state="closed"])',
+      );
+      if (other) return;
+      e.preventDefault();
+      closeChat();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [mode, closeChat]);
 
   // ---- the open page's card, and the card whose own conversation is shown ----
   const lastCardChat = React.useRef(cardChat);
@@ -499,15 +528,6 @@ function ChatBody({ layout, onClose }: { layout: 'full' | 'split'; onClose: () =
   );
 }
 
-function escToClose(onClose: () => void) {
-  return (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape' && !e.defaultPrevented) {
-      e.preventDefault();
-      onClose();
-    }
-  };
-}
-
 /** Phone and portrait tablet: the chat is the whole screen, above the sticky header, sized to what the keyboard leaves visible. */
 function FullSheet({ onClose, surfaceRef }: { onClose: () => void; surfaceRef: React.MutableRefObject<HTMLElement | null> }) {
   const { box: vv, baseline } = useVisualViewport(true);
@@ -526,7 +546,6 @@ function FullSheet({ onClose, surfaceRef }: { onClose: () => void; surfaceRef: R
       role="dialog"
       aria-modal="true"
       aria-label="Chat with Bast"
-      onKeyDown={escToClose(onClose)}
       style={{
         position: 'fixed',
         top: 0,
@@ -569,7 +588,6 @@ export function BastChatSplitColumn() {
         data-testid="bast-chat-split"
         data-layout="split"
         aria-label="Chat with Bast"
-        onKeyDown={escToClose(close)}
         style={{
           margin: 0,
           minWidth: 0,

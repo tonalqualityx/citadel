@@ -397,6 +397,8 @@ export function useBastChat({ open, enabled = true }: { open: boolean; enabled?:
     const id = live.current.conversationId;
     if (!id) return;
     const r = await chatFetch<ChatFeed>('GET', `/conversations/${encodeURIComponent(id)}/feed?after=${live.current.maxSeq}`);
+    // The conversation was switched while this read was in flight (a card's own chat opened): its turns are not this one's.
+    if (live.current.conversationId !== id) return;
     if (r.status === 403 || r.status === 404) {
       // Either the conversation is gone or the chat is not for this person: the status answers which.
       live.current.conversationId = null;
