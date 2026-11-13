@@ -76,10 +76,22 @@ function DockInner({ card: cardInput, openSignal = 0 }: BastChatDockProps) {
     focusInput.current = true;
     setOpen(true);
     write(BAST_DOCK_OPEN_KEY, 'open');
+    // Triage's Talk about this on one idea: show that card's own conversation (reopened when it exists).
+    if (cardInput?.own_conversation && cardInput.task_id) {
+      setCardChat({ task_id: cardInput.task_id, title: cardInput.title });
+      void chat.openCardConversation(cardInput.task_id);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- runs on the signal only; the card and chat are read as they are at that moment
   }, [openSignal]);
 
   const [draft, setDraft] = React.useState('');
-  const card = React.useMemo(() => cardFromInput(cardInput), [cardInput]);
+  // The card whose own conversation is shown. It outlasts the card Mike clicks next, until he goes back to the general chat.
+  const [cardChat, setCardChat] = React.useState<{ task_id: string; title: string } | null>(null);
+  const inCardChat = cardChat !== null && chat.cardTaskId === cardChat.task_id;
+  const card = React.useMemo(
+    () => cardFromInput(inCardChat ? { key: `task:${cardChat.task_id}`, title: cardChat.title, type: 'task', task_id: cardChat.task_id, tile: 'triage' } : cardInput),
+    [cardInput, inCardChat, cardChat],
+  );
   const cardKey = card?.key ?? null;
   // Dropping the "About" line lasts until another card opens.
   const [dropped, setDropped] = React.useState<string | null>(null);
@@ -215,6 +227,11 @@ function DockInner({ card: cardInput, openSignal = 0 }: BastChatDockProps) {
         <BastChatPanel
           chat={chat}
           card={card}
+          cardChatTitle={inCardChat ? cardChat.title : null}
+          onLeaveCardChat={() => {
+            setCardChat(null);
+            void chat.leaveCardConversation();
+          }}
           aboutDropped={aboutDropped}
           onDropAbout={() => setDropped(cardKey)}
           draft={draft}

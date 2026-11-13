@@ -10,6 +10,9 @@ import { MAX_MESSAGE_CHARS, type TimelineMessage, type UseBastChat } from '@/lib
 export interface BastChatPanelProps {
   chat: UseBastChat;
   card: BastChatCard | null;
+  /** The conversation shown belongs to one card (title here): the box says so and offers the way back to the general chat. */
+  cardChatTitle?: string | null;
+  onLeaveCardChat?: () => void;
   /** Mike dropped the "About" line for this card. */
   aboutDropped: boolean;
   onDropAbout: () => void;
@@ -60,10 +63,10 @@ function MessageRow({ m, onResend }: { m: TimelineMessage; onResend: (m: Timelin
 }
 
 /** The conversation, the machine's state, the "About" line and the box. Presentational: all fetching is in the hook. */
-export function BastChatPanel({ chat, card, aboutDropped, onDropAbout, draft, setDraft }: BastChatPanelProps) {
+export function BastChatPanel({ chat, card, cardChatTitle = null, onLeaveCardChat, aboutDropped, onDropAbout, draft, setDraft }: BastChatPanelProps) {
   const scroller = React.useRef<HTMLDivElement | null>(null);
   const stick = React.useRef(true);
-  const aboutCard = card && !aboutDropped ? card : null;
+  const aboutCard = card && (cardChatTitle !== null || !aboutDropped) ? card : null;
 
   React.useEffect(() => {
     const el = scroller.current;
@@ -149,7 +152,14 @@ export function BastChatPanel({ chat, card, aboutDropped, onDropAbout, draft, se
           {chat.error}
         </p>
       ) : null}
-      {aboutCard ? (
+      {cardChatTitle !== null ? (
+        <p className="home-small home-muted" data-testid="card-chat-line" style={{ display: 'flex', gap: 8, alignItems: 'center', minWidth: 0 }}>
+          <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Talking about: {cardChatTitle}</span>
+          <button type="button" className="home-linkbtn" onClick={onLeaveCardChat} style={{ flex: 'none' }}>
+            Back to the general chat
+          </button>
+        </p>
+      ) : aboutCard ? (
         <p className="home-small home-muted" data-testid="about-line" style={{ display: 'flex', gap: 6, alignItems: 'center', minWidth: 0 }}>
           <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>About: {aboutCard.title}</span>
           <button

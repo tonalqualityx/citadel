@@ -49,6 +49,8 @@ export interface OpRun {
   result: Record<string, OpJson | null>;
   /** False when Undo is refused (a finished wait cannot be reopened). Then the record has no undo window. */
   undoable: boolean;
+  /** Length of the undo window in hours when it is not the chat's usual one (Triage's Release and Drop keep 72 hours). */
+  undo_hours?: number;
   /** Side effects that must wait until the write has committed (a team notice). */
   afterCommit?: () => Promise<void>;
 }

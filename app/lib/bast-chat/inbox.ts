@@ -15,6 +15,7 @@ import type { PrismaClient } from '@prisma/client';
 import { prisma as defaultDb } from '@/lib/db/prisma';
 import { allocateSeq, closeIdleConversations, EXPIRED_TEXT, STOP_CODE, takeChatNotes } from './events';
 import { contextForWorker } from './card-context';
+import { everyWord } from './plain';
 import { getSettings, MAX_TURNS_PER_ANSWER } from './settings';
 import { getUsage, usageLeft } from './usage';
 
@@ -33,8 +34,17 @@ export interface InboxSettingsView {
   usd_left: number;
 }
 
+/** The card a card-conversation is about (operating model S4): title and body, cut and plain. Untrusted text; the daemon wraps it as data. */
+export interface InboxCard {
+  task_id: string;
+  title: string;
+  body: string;
+}
+export const CARD_BODY_MAX = 6000;
+export const CARD_TITLE_INBOX_MAX = 300;
+
 export interface InboxView {
-  messages: { conversation_id: string; seq: number; client_ref?: string; text: string; context: { screen?: string; tile?: string; kind: string; id?: string }; notes: { code: string; line: string }[] }[];
+  messages: { conversation_id: string; seq: number; client_ref?: string; text: string; context: { screen?: string; tile?: string; kind: string; id?: string }; notes: { code: string; line: string }[]; card?: InboxCard }[];
   stops: { conversation_id: string }[];
   settings: InboxSettingsView;
 }
@@ -109,8 +119,16 @@ export async function buildInbox(now: Date = new Date(), db: PrismaClient = defa
     where: { role: 'mike', kind: 'text', delivered_at: null, expired_at: null, conversation: { status: { not: 'closed' }, owner_id: owner! } },
     orderBy: [{ created_at: 'asc' }, { seq: 'asc' }],
     take: INBOX_MAX_MESSAGES,
-    select: { conversation_id: true, seq: true, client_ref: true, payload: true, context: true },
+    select: { conversation_id: true, seq: true, client_ref: true, payload: true, context: true, conversation: { select: { task_id: true } } },
   });
+  // The card of each card conversation, read now (title and body as they are at this moment), once per conversation.
+  const cardBy = new Map<string, InboxCard | null>();
+  const taskByConv = new Map(rows.map((r) => [r.conversation_id, r.conversation.task_id] as const));
+  for (const [convId, taskId] of taskByConv) {
+    if (!taskId) continue;
+    const t = await db.task.findFirst({ where: { id: taskId, is_deleted: false }, select: { id: true, title: true, description: true } });
+    cardBy.set(convId, t ? { task_id: t.id, title: t.title.slice(0, CARD_TITLE_INBOX_MAX), body: everyWord(t.description).join('\n').slice(0, CARD_BODY_MAX) } : null);
+  }
   const notesBy = new Map<string, { code: string; line: string }[]>();
   for (const id of [...new Set(rows.map((r) => r.conversation_id))]) {
     notesBy.set(id, (await takeChatNotes(id, now, db)).map((n) => ({ code: n.code, line: n.text })));
@@ -125,6 +143,7 @@ export async function buildInbox(now: Date = new Date(), db: PrismaClient = defa
       text: String((r.payload as { text?: unknown } | null)?.text ?? ''),
       context: contextForWorker(r.context),
       notes,
+      ...(cardBy.get(r.conversation_id) ? { card: cardBy.get(r.conversation_id)! } : {}),
     };
   });
 

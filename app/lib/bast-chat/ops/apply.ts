@@ -48,7 +48,7 @@ export async function applyChatOp(a: {
         before: run.before,
         after: run.after,
         status: 'applied',
-        undo_until: run.undoable ? new Date(now.getTime() + UNDO_WINDOW_HOURS * 3600 * 1000) : null,
+        undo_until: run.undoable ? new Date(now.getTime() + (run.undo_hours ?? UNDO_WINDOW_HOURS) * 3600 * 1000) : null,
       },
       select: { id: true, undo_until: true },
     });

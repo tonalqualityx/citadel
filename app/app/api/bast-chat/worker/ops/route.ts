@@ -8,6 +8,7 @@ import { ownedConversation } from '@/lib/bast-chat/events';
 import { getSettings } from '@/lib/bast-chat/settings';
 import { getRunnableOp, OP_NAMES } from '@/lib/bast-chat/ops';
 import { applyChatOp } from '@/lib/bast-chat/ops/apply';
+import { assertCardConversationOp } from '@/lib/bast-chat/card-conversation';
 
 const bodySchema = z.object({ conversation_id: z.string().uuid(), op: z.string().min(1).max(40), input: z.record(z.string(), z.unknown()) }).strict();
 
@@ -36,6 +37,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (!owner || !owner.is_active || owner.role !== 'admin') throw new ApiError('The chat owner is not available.', 409, 'owner_unavailable');
 
     if (!isChatUuid(conv.id)) throw new ApiError('Chat not found', 404, 'not_found');
+    assertCardConversationOp(conv.task_id, op.name, body.input);
 
     const r = await applyChatOp({ ownerId, conversationId: conv.id, op, rawInput: body.input, dailyWriteCap: settings.daily_write_cap, now: new Date(), db: prisma });
     if (r.kind === 'proposed') {

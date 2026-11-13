@@ -227,3 +227,60 @@ describe('helpers', () => {
     expect(undoOpen({ ...a, status: 'undone' }, 0)).toBe(false);
   });
 });
+
+describe('useBastChat, one conversation per card', () => {
+  const T = '7aa4a01a-1111-4222-8333-944445555666';
+  const feedFor = (id: string) => ({ conversation: { id, status: 'idle' }, events: [], live_text: null, live_action: null, worker: online, actions: [] });
+  it('opens the card conversation by task id, and the status poll never swaps it for the general chat', async () => {
+    handler = (url, init) => {
+      if (url.endsWith('/status')) return { status: 200, body: { ...status, conversation_id: 'general' } };
+      if (url.endsWith('/conversations') && init?.method === 'POST') return { status: 200, body: { id: 'card1', reopened: true } };
+      // The card's feed fails once (the status is then read again, as the hook always does), the general one works.
+      if (url.includes('/feed')) return url.includes('card1') ? { status: 404 } : { status: 200, body: feedFor('general') };
+      return { status: 500 };
+    };
+    const { result } = renderHook(() => useBastChat({ open: true }));
+    await waitFor(() => expect(result.current.availability).toBe('available'));
+    let ok = false;
+    await act(async () => {
+      ok = await result.current.openCardConversation(T);
+    });
+    expect(ok).toBe(true);
+    expect(calls.find((c) => c.method === 'POST' && c.url.endsWith('/conversations'))!.body).toEqual({ task_id: T });
+    expect(result.current.cardTaskId).toBe(T);
+    // Another status read (the poll does this) must not pull the general conversation back.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    const afterOpen = calls.slice(calls.findIndex((c) => c.method === 'POST' && c.url.endsWith('/conversations')) + 1);
+    expect(afterOpen.some((c) => c.url.includes('/card1/feed'))).toBe(true);
+    expect(afterOpen.some((c) => c.url.endsWith('/status'))).toBe(true); // read again after the 404, and still not adopted
+    expect(afterOpen.filter((c) => c.url.includes('/feed')).every((c) => !c.url.includes('/general/'))).toBe(true);
+    expect(result.current.cardTaskId).toBe(T);
+  });
+  it('a message sent in a card conversation goes to that conversation, and leaving shows the general chat again', async () => {
+    handler = (url, init) => {
+      if (url.endsWith('/status')) return { status: 200, body: { ...status, conversation_id: 'general' } };
+      if (url.endsWith('/conversations') && init?.method === 'POST') return { status: 201, body: { id: 'card1', reopened: false } };
+      if (url.endsWith('/messages')) return { status: 201, body: { seq: 1 } };
+      if (url.includes('/feed')) return { status: 200, body: feedFor('x') };
+      return { status: 500 };
+    };
+    const { result } = renderHook(() => useBastChat({ open: true }));
+    await waitFor(() => expect(result.current.availability).toBe('available'));
+    await act(async () => {
+      await result.current.openCardConversation(T);
+    });
+    await act(async () => {
+      await result.current.send('release it', null);
+    });
+    expect(calls.some((c) => c.url === '/api/bast-chat/conversations/card1/messages')).toBe(true);
+    await act(async () => {
+      await result.current.leaveCardConversation();
+    });
+    expect(result.current.cardTaskId).toBeNull();
+    // Leaving starts nothing: no second POST to /conversations.
+    expect(calls.filter((c) => c.method === 'POST' && c.url.endsWith('/conversations'))).toHaveLength(1);
+  });
+});
+

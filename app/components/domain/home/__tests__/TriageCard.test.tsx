@@ -73,4 +73,17 @@ describe('triage talk seam', () => {
     openTriageConversation(card, open);
     expect(open).toHaveBeenCalledWith(card);
   });
+  it('one idea gets its own conversation: the card is handed on marked as such', () => {
+    const t = tasks(1)[0];
+    const card = triageTalkCard(group(), t);
+    const open = vi.fn();
+    openTriageConversation(card, open);
+    expect(open).toHaveBeenCalledWith({ ...card, own_conversation: true });
+    expect(open.mock.calls[0][0].task_id).toBe(t.task_id);
+  });
+  it('a task id that is not a uuid never gets its own conversation', () => {
+    const open = vi.fn();
+    openTriageConversation({ key: 'task:x', title: 'x', task_id: 'not-a-uuid', tile: 'triage' }, open);
+    expect(open.mock.calls[0][0].own_conversation).toBeUndefined();
+  });
 });
