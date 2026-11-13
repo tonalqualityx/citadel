@@ -361,6 +361,7 @@ export function useBastChat({ open, enabled = true }: { open: boolean; enabled?:
     live.current.availability = availability;
   });
   const inflight = useRef(false);
+  const rerun = useRef(false);
 
   const hide = useCallback(() => {
     live.current.availability = 'unavailable';
@@ -436,7 +437,13 @@ export function useBastChat({ open, enabled = true }: { open: boolean; enabled?:
   }, [readStatus]);
 
   const pollOnce = useCallback(async (): Promise<void> => {
-    if (inflight.current || live.current.availability === 'unavailable') return;
+    if (live.current.availability === 'unavailable') return;
+    if (inflight.current) {
+      // A read is already running (maybe for the conversation that was just left): read again as soon as it ends,
+      // so a card's own conversation shows now and not at the next slow poll.
+      rerun.current = true;
+      return;
+    }
     inflight.current = true;
     try {
       const l = live.current;
@@ -448,6 +455,10 @@ export function useBastChat({ open, enabled = true }: { open: boolean; enabled?:
       if (l2.conversationId && (l2.open || busy2)) await readFeed();
     } finally {
       inflight.current = false;
+      if (rerun.current) {
+        rerun.current = false;
+        void pollOnce();
+      }
     }
   }, [readFeed, readStatus]);
 
