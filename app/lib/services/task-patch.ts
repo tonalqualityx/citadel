@@ -111,6 +111,7 @@ const updateTaskSchema = z.object({
   no_time_needed: z.boolean().optional(),
   // Bast triage: classification + provenance + staging approval
   tags: z.array(z.string().max(50)).optional(),
+  plan_item_ids: z.array(z.string().uuid()).max(50).optional(),
   source: z.enum(['portal', 'email', 'internal']).optional(),
   source_ref: z.string().max(255).optional().nullable(),
   requested_by_contact_id: z.string().uuid().optional().nullable(),
@@ -784,6 +785,7 @@ export async function patchTask(input: PatchTaskInput) {
 
   // Bast triage: classification + provenance + staging approval
   if (data.tags !== undefined) updateData.tags = data.tags;
+  if (data.plan_item_ids !== undefined) updateData.plan_item_ids = [...new Set(data.plan_item_ids)];
   // Triage entry/exit: remember and restore client_visible (an explicit client_visible in the body is ignored while in triage).
   {
     const patch = triageVisibilityPatch(existingTask, statusChange, (updateData.tags as string[] | undefined) ?? existingTask.tags);

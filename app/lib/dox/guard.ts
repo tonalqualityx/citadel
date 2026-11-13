@@ -36,8 +36,13 @@ export const DOX_CARD_HEADER = 'x-dox-card';
  */
 export const DOX_REMOVABLE_TAGS = ['cockpit-owned', PM_RELEASE_TAG, ASKED_DOX_TAG] as const;
 export const DOX_ADDABLE_TAGS = [LOOKS_DONE_TAG] as const;
-/** The only tags a task Dox creates may carry: `from-dox` and `setup:<card id>` (ties a created task to the setup card it came from). */
+/**
+ * The only tags a task Dox creates may carry: `from-dox`, `setup:<card id>` (ties a created task to the setup card it came from), and the two
+ * marks of the tasks setup always makes: `billing` (Addendum 4) and `project-report` (Addendum 8). Neither is read by anything in Citadel today;
+ * Dox's gap check finds the billing and report tasks by them.
+ */
 export const FROM_DOX_TAG = 'from-dox';
+export const DOX_MARK_TAGS = ['billing', 'project-report'] as const;
 export const SETUP_TAG_PREFIX = 'setup:';
 /** A project is live (writable) in these statuses. */
 export const DOX_LIVE_PROJECT_STATUSES = ['ready', 'in_progress', 'review'] as const;
@@ -90,13 +95,22 @@ export interface PlayProject {
   name: string;
 }
 
-/** The open Dox pass for a project (or null). Started through the dox lane, not finished, not older than DOX_PASS_MAX_AGE_MS. */
-export async function openDoxPass(db: Db, projectId: string, now: Date = new Date()): Promise<{ id: string } | null> {
+/**
+ * The open Dox pass for a project (or null). Started through the dox lane, not finished, not older than DOX_PASS_MAX_AGE_MS. `live: true` counts only a
+ * pass whose mode is live (a write needs one); without it a dry pass counts too (a quote project's snapshot may be read under either).
+ */
+export async function openDoxPass(db: Db, projectId: string, now: Date = new Date(), opts: { live?: boolean } = {}): Promise<{ id: string; mode: string } | null> {
   const brief = await db.engagementBrief.findUnique({ where: { project_id: projectId }, select: { id: true } });
   if (!brief) return null;
   const rows = await db.engagementPass.findMany({
-    where: { brief_id: brief.id, finished_at: null, started_at: { gte: new Date(now.getTime() - DOX_PASS_MAX_AGE_MS) }, lane: { contains: DOX_LANE } },
-    select: { id: true, lane: true },
+    where: {
+      brief_id: brief.id,
+      finished_at: null,
+      started_at: { gte: new Date(now.getTime() - DOX_PASS_MAX_AGE_MS) },
+      lane: { contains: DOX_LANE },
+      ...(opts.live ? { mode: 'live' } : {}),
+    },
+    select: { id: true, lane: true, mode: true },
     take: 10,
   });
   return rows.find((r) => isDoxLaneValue(r.lane)) ?? null;
@@ -115,8 +129,11 @@ export async function requireProjectInPlay(headers: Hdrs, expect?: string | null
   if (!(DOX_LIVE_PROJECT_STATUSES as readonly string[]).includes(project.status)) {
     return refuse(`Dox does not write to a project that is ${project.status}: only ready, in progress or in review.`, 'dox_project_closed');
   }
-  if (!(await openDoxPass(db, project.id))) {
-    return refuse('Start a pass on this project first (POST /api/engagement-briefs/:id/passes): Dox writes only while a pass it started is open.', 'dox_no_pass');
+  if (!(await openDoxPass(db, project.id, new Date(), { live: true }))) {
+    if (await openDoxPass(db, project.id)) {
+      return refuse('The open pass on this project is dry: a dry pass writes nothing. Start a live pass to write.', 'dox_pass_dry');
+    }
+    return refuse('Start a live pass on this project first (POST /api/engagement-briefs/:id/passes): Dox writes only while a live pass it started is open.', 'dox_no_pass');
   }
   return project as PlayProject;
 }
@@ -125,14 +142,14 @@ export async function requireProjectInPlay(headers: Hdrs, expect?: string | null
 
 const POST_TASK_FIELDS = new Set([
   'title', 'description', 'status', 'priority', 'project_id', 'phase_id', 'phase', 'assignee_id', 'function_id', 'due_date',
-  'tags', 'blocked_by_ids', 'energy_estimate', 'mystery_factor', 'battery_impact', 'sop_id', 'notes', 'requirements', 'sort_order',
+  'tags', 'blocked_by_ids', 'energy_estimate', 'mystery_factor', 'battery_impact', 'sop_id', 'notes', 'requirements', 'sort_order', 'plan_item_ids',
 ]);
 /**
  * phase_id is not here on purpose: the task patch schema has no phase_id (it was silently dropped), and widening that shared schema for every
  * caller is not this lane's call. A phase is set when the task is created (POST validates it belongs to the project); moving a task to another
  * phase is refused with a clear message (dox_field_closed) rather than ignored.
  */
-const PATCH_TASK_FIELDS = new Set(['assignee_id', 'due_date', 'blocked_by_ids', 'phase', 'tags_add', 'tags_remove', 'status']);
+const PATCH_TASK_FIELDS = new Set(['assignee_id', 'due_date', 'blocked_by_ids', 'phase', 'tags_add', 'tags_remove', 'status', 'plan_item_ids']);
 
 export interface DoxTaskHead {
   id?: string;
@@ -149,14 +166,14 @@ export interface DoxTaskHead {
   client_approved_at?: Date | string | null;
 }
 
-/** The tags a created task may carry: nothing outside `from-dox` and `setup:<uuid>`. Returns the list to store. Pure. */
+/** The tags a created task may carry: nothing outside the allow-list above. Returns the list to store. Pure. */
 export function checkCreateTags(tags: unknown): string[] {
   if (tags === undefined || tags === null) return [];
   if (!Array.isArray(tags) || !tags.every((t) => typeof t === 'string')) return badBody('tags is a list of strings.');
   const out: string[] = [];
   for (const t of tags as string[]) {
-    const ok = t === FROM_DOX_TAG || (t.startsWith(SETUP_TAG_PREFIX) && UUID_RE.test(t.slice(SETUP_TAG_PREFIX.length)));
-    if (!ok) return refuse(`Dox cannot put the tag "${t}" on a new task: only ${FROM_DOX_TAG} and ${SETUP_TAG_PREFIX}<card id>.`, 'dox_tag_closed');
+    const ok = t === FROM_DOX_TAG || (DOX_MARK_TAGS as readonly string[]).includes(t) || (t.startsWith(SETUP_TAG_PREFIX) && UUID_RE.test(t.slice(SETUP_TAG_PREFIX.length)));
+    if (!ok) return refuse(`Dox cannot put the tag "${t}" on a new task: only ${FROM_DOX_TAG}, ${DOX_MARK_TAGS.join(', ')} and ${SETUP_TAG_PREFIX}<card id>.`, 'dox_tag_closed');
     if (!out.includes(t)) out.push(t);
   }
   return out;
@@ -209,6 +226,21 @@ async function requirePhaseInProject(db: Db, phaseId: unknown, projectId: string
   if (n !== 1) refuse('That phase is not a phase of this project.', 'dox_outside_project');
 }
 
+/**
+ * plan_item_ids: the requirements a task serves. A list of ids (at most 50), each a TaskPlanItem of the setup card of the project in play (the project's
+ * card of kind project_setup). An id from any other card, or from another project, is refused. Returns the de-duplicated list.
+ */
+async function checkPlanItemIds(db: Db, raw: unknown, projectId: string): Promise<string[]> {
+  if (!Array.isArray(raw) || raw.length > 50 || !raw.every((i) => typeof i === 'string' && UUID_RE.test(i))) return badBody('plan_item_ids is a list of plan item ids (50 at most).');
+  const ids = [...new Set((raw as string[]).map((i) => i.toLowerCase()))];
+  if (ids.length === 0) return [];
+  const found = await db.taskPlanItem.count({
+    where: { id: { in: ids }, task: { project_id: projectId, triage_kind: 'project_setup', is_deleted: false } },
+  });
+  if (found !== ids.length) refuse('A plan item named in plan_item_ids must be a line of this project\'s setup card.', 'dox_plan_item_closed');
+  return ids;
+}
+
 /** POST /api/tasks as Dox: a new task on the project in play, status not_started, never Triage. Returns the body to use. */
 export async function guardDoxTaskCreate(auth: LaneAuth, headers: Hdrs, rawBody: unknown, db: Db = prisma): Promise<Record<string, unknown>> {
   if (!isDoxLane(auth)) return rawBody as Record<string, unknown>;
@@ -234,7 +266,8 @@ export async function guardDoxTaskCreate(auth: LaneAuth, headers: Hdrs, rawBody:
     await requireBlockersInProject(db, ids as string[], project.id);
   }
   if (assign.toBast && !tags.includes(FROM_DOX_TAG)) tags.push(FROM_DOX_TAG);
-  return { ...body, status: 'not_started', tags };
+  const planItems = body.plan_item_ids === undefined ? {} : { plan_item_ids: await checkPlanItemIds(db, body.plan_item_ids, project.id) };
+  return { ...body, ...planItems, status: 'not_started', tags };
 }
 
 /** True when a bot-held task's hold is dead: no live linked session (the snapshot's own rule) and no movement (task update or comment) for 48 hours. */
@@ -293,6 +326,11 @@ export async function guardDoxTaskPatch(auth: LaneAuth, headers: Hdrs, rawBody: 
     await requireProjectInPlay(headers, existing.project_id, db);
   } else if (!existing.tags.includes(FROM_TRIAGE_TAG)) {
     refuse('That task is outside what Dox sets up.', 'dox_outside_project');
+  }
+
+  if (body.plan_item_ids !== undefined) {
+    if (!existing.project_id) refuse('A card with no project has no setup card to link to.', 'dox_outside_project');
+    body.plan_item_ids = await checkPlanItemIds(db, body.plan_item_ids, existing.project_id!);
   }
 
   let assignToBast = false;
@@ -488,5 +526,54 @@ export async function guardDoxSnapshotRead(auth: LaneAuth, projectId: string, db
   const p = await db.project.findFirst({ where: { id: projectId, is_deleted: false }, select: { status: true } });
   if (p?.status === 'quote' && !(await openDoxPass(db, projectId))) {
     refuse('A project in the quote stage carries prices: Dox reads it only while a pass is open on it.', 'dox_quote_closed');
+  }
+}
+
+// ---------------------------------------------------------------- passes
+
+export const PASS_KINDS = ['setup', 'sweep', 'report'] as const;
+export type PassKind = (typeof PASS_KINDS)[number];
+/** The tag on the report task Dox creates at setup (Addendum 8). */
+export const REPORT_TASK_TAG = 'project-report';
+
+/**
+ * POST /api/engagement-briefs/:id/passes as the Dox lane: may this pass start in this mode and kind? Returns nothing; refuses with 409.
+ *   - a dry pass: any brief that is dry or live (an off brief is refused by the route before this).
+ *   - a live pass on a live brief: any kind (sweeps follow the brief's owner_mode).
+ *   - a live `setup` or `report` pass on a DRY brief: only while the project holds the released card it is for, assigned to Dox. For setup that is a
+ *     card released from Triage (tag from-triage, not in Triage, not finished); for report it is the unblocked report task (tag project-report, not_started).
+ *     The owner's release is the yes; a live pass of any other kind, or with no kind, still needs a live brief.
+ * A no-op for any caller that does not carry the Dox lane.
+ */
+export async function guardDoxPassStart(
+  auth: LaneAuth,
+  brief: { project_id: string | null; owner_mode: string },
+  body: { mode: string; kind?: string | null },
+  db: Db = prisma,
+): Promise<void> {
+  if (!isDoxLane(auth)) return;
+  if (body.mode !== 'live' || brief.owner_mode === 'live') return;
+  const notLive = () => new ApiError('This brief is not in live mode.', 409, 'brief_not_live');
+  if (body.kind !== 'setup' && body.kind !== 'report') throw notLive();
+  if (!brief.project_id) throw notLive();
+  const card = await db.task.findFirst({
+    where: {
+      project_id: brief.project_id,
+      is_deleted: false,
+      assignee_id: DOX_USER_ID,
+      ...(body.kind === 'setup'
+        ? { tags: { has: FROM_TRIAGE_TAG }, status: { in: ['not_started', 'in_progress'] } }
+        : { tags: { has: REPORT_TASK_TAG }, status: 'not_started' }),
+    },
+    select: { id: true },
+  });
+  if (!card) {
+    throw new ApiError(
+      body.kind === 'setup'
+        ? 'A live setup pass on a dry brief needs a card released from Triage and assigned to Dox on this project.'
+        : 'A live report pass on a dry brief needs the unblocked project report task assigned to Dox on this project.',
+      409,
+      'brief_not_live',
+    );
   }
 }

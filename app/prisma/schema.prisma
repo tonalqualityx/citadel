@@ -1300,6 +1300,8 @@ model Task {
   // needs-info, awaiting-client-approval, ...) AND classification namespaces (stack:eleventy,
   // kind:content, ...).
   tags                    String[]       @default([]) @db.VarChar(50)
+  /// The plan requirements (TaskPlanItem ids of the project's setup card) this task serves. Set by Dox at setup; read by his gap check. No foreign key: a plan line can be rewritten.
+  plan_item_ids           String[]       @default([]) @db.Uuid
   source                  TaskSource     @default(internal)
   source_ref              String?        @db.VarChar(255) // email message-id / portal submission id
   requested_by_contact_id String?        @db.Uuid
@@ -4460,6 +4462,8 @@ model EngagementPass {
   error       String?   @db.Text
   /// The lane of the key that started the pass (null for a signed-in session). Dox's writes need an open pass started by the dox lane.
   lane        String?   @db.VarChar(40)
+  /// What the pass is for: setup, sweep or report (null for a pass that did not say). A setup or report pass may be live while its brief is dry.
+  kind        String?   @db.VarChar(10)
 
   @@index([brief_id, started_at])
   @@map("engagement_passes")

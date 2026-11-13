@@ -107,6 +107,7 @@ export const taskEndpoints: ApiEndpoint[] = [
           { name: 'reviewer_id', type: 'uuid', required: false, description: 'Reviewer user ID' },
           { name: 'sop_id', type: 'uuid', required: false, description: 'Associated SOP' },
           { name: 'tags', type: 'string[]', required: false, description: 'Triage-state + stack:/kind: classification tags (each ≤50 chars)' },
+          { name: 'plan_item_ids', type: 'string[]', required: false, description: 'The plan requirements this task serves (TaskPlanItem ids of the project setup card, 50 at most). Returned on every task read. The Dox lane\'s ids must be lines of the project\'s setup card (403 dox_plan_item_closed). Also accepted on PATCH.' },
           { name: 'source', type: 'string', required: false, description: 'Provenance: portal | email | internal (default internal)' },
           { name: 'source_ref', type: 'string', required: false, description: 'Origin reference (message-id / portal-id)' },
           { name: 'source_key', type: 'string', required: false, description: 'Work stage D: `email:<conversation key>` or `session:<external id>`, the source this task is for (max 320). When open work already carries it (an open task, a live project, or a done one that finished after the source latest activity) the answer is 200 {already_tracked: true, task, project, target_key, name, href, state} and NOTHING is created. A source_ref or source_rfc on a source=email task is checked the same way. A security-tagged request is never answered that way.' },
