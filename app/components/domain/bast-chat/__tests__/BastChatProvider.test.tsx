@@ -330,7 +330,7 @@ describe('Bast chat shell: a card page and its conversation', () => {
     responder = cardResponder;
     render(app(triage));
     await openIt();
-    await waitFor(() => expect(screen.getByTestId('bast-chat-title').textContent).toBe('Idea about invoices'));
+    await waitFor(() => expect(screen.getByTestId('bast-chat-title').textContent).toBe('Dox · Idea about invoices'));
     const btn = screen.getByRole('button', { name: 'Start fresh' });
     expect(btn.getAttribute('title')).toMatch(/about this card/);
     expect(screen.queryByRole('button', { name: 'New chat' })).toBeNull();
@@ -340,7 +340,7 @@ describe('Bast chat shell: a card page and its conversation', () => {
     const post = calls.find((c) => c.method === 'POST' && c.url.endsWith('/conversations'))!;
     expect(post.body).toEqual({ task_id: U, fresh: true });
     // still about the same card
-    expect(screen.getByTestId('bast-chat-title').textContent).toBe('Idea about invoices');
+    expect(screen.getByTestId('bast-chat-title').textContent).toBe('Dox · Idea about invoices');
   });
   it('the general chat keeps New chat, posting an empty body', async () => {
     mq.split = true;
