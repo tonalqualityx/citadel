@@ -17,6 +17,7 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth, type AuthPayload } from '@/lib/auth/middleware';
 import { SCRATCH } from '@/lib/engine/__tests__/seed';
 import { BAST_USER_ID, MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
+import { DOX_USER_ID } from '@/lib/dox/identity';
 import { homeActSchema, runHomeAct, runHomeUndo } from '@/lib/home/act';
 import { loadCards } from '@/lib/tasks/triage-card';
 import { loadTriage } from '@/lib/tasks/triage';
@@ -86,7 +87,7 @@ describe.skipIf(!SCRATCH)('triage review fixes (real database)', () => {
       questions: Object.fromEntries([...tt.questions].sort((a, b) => a.id.localeCompare(b.id)).map((q) => [q.id, q.state])),
     };
   };
-  const nameOf = (uid: string | null) => (uid === BAST_USER_ID ? 'Bast' : uid === null ? null : 'Tess');
+  const nameOf = (uid: string | null) => (uid === BAST_USER_ID ? 'Bast' : uid === DOX_USER_ID ? 'Dox' : uid === null ? null : 'Tess');
 
   beforeAll(async () => {
     savedHold = process.env[HOLD_ENV];
@@ -220,12 +221,8 @@ describe.skipIf(!SCRATCH)('triage review fixes (real database)', () => {
   });
 
   // 4 + 7 ------------------------------------------------------------------------------------------------------------
-  describe.each([
-    ['hold on (default)', true],
-    ['hold off', false],
-  ])('4 and 7. the release line against the database, 288 cases, %s', (_name, hold) => {
+  describe('4 and 7. the release line against the database, 288 cases', () => {
     it('every claim in the sentence matches the database after release, and Undo restores everything', async () => {
-      if (!hold) process.env[HOLD_ENV] = 'off';
       const problems: string[] = [];
       let i = 0;
       let n = 0;
@@ -274,7 +271,7 @@ describe.skipIf(!SCRATCH)('triage review fixes (real database)', () => {
               if (!done) {
                 if (kind === 'project_setup') {
                   if (!startsProject) bad('setup sentence not recognised');
-                  claimedAssignee = 'Bast';
+                  claimedAssignee = 'Dox';
                   claimedTags.push('kickoff', 'from-triage');
                 } else {
                   const m = /[Hh]ands (?:this|it) to (\w+?)(?: to do)?\./.exec(line);
@@ -290,13 +287,9 @@ describe.skipIf(!SCRATCH)('triage review fixes (real database)', () => {
               if (claimedAssignee !== undefined && nameOf(after.assignee_id) !== claimedAssignee) bad(`assignee ${nameOf(after.assignee_id)} != ${claimedAssignee}`);
               if (done && after.assignee_id !== before.assignee_id) bad('done but assignee changed');
               for (const t of claimedTags) if (!after.tags.includes(t)) bad(`missing tag ${t}`);
-              // the worker hold: the tag is there exactly when the card ends with Bast and the hold is on, and the line says it waits
-              const endsBast = !done && after.assignee_id === BAST_USER_ID;
-              if (after.tags.includes('needs-pm-release') !== (hold && endsBast) && !before.tags.includes('needs-pm-release')) bad(`needs-pm-release ${after.tags.includes('needs-pm-release')} but hold=${hold} endsBast=${endsBast}`);
-              const heldClaim = /Nothing begins until Dox picks it up\./.test(line);
-              if (heldClaim !== (hold && endsBast)) bad('the held-for-Dox sentence does not match the hold');
-              if (heldClaim) claimedTags.push('needs-pm-release');
-              if (/ to do\./.test(line) && (hold || !endsBast)) bad('promises work to do while held or on a person');
+              // no hold any more: release never adds needs-pm-release and never says the card waits
+              if (after.tags.includes('needs-pm-release') && !before.tags.includes('needs-pm-release')) bad('needs-pm-release added by release');
+              if (/Nothing begins until|picks it up| to do\./.test(line)) bad('the old hold or to-do sentence is back');
               if (/Releasing approves the wording on this card\./.test(line) !== (kind === 'rule_proposal' && !done)) bad('approves-wording sentence does not match the kind');
               // the site
               const onSite = /The work is on (.+?)\.(?: |$)/.exec(line);
@@ -343,47 +336,34 @@ describe.skipIf(!SCRATCH)('triage review fixes (real database)', () => {
   });
 
   // 5 ----------------------------------------------------------------------------------------------------------------
-  describe('5. a chat release that ends with a card assigned to Bast', () => {
+  describe('5. a chat release no longer ends with a card assigned to Bast, so it starts no Bast session', () => {
     const ctx = () => ({ db: prisma as never, ownerId: MIKE_USER_ID, now: NOW });
     const prepare = async (id: string) => homeOp.prepare(ctx(), { action: 'triage_release_card', task_ids: [id], release_version: (await card(id)).release_version }, 'chat');
 
-    it('Mike or agent text: acts at once (no tap)', async () => {
-      const id = await mk('chat-internal', { triage_kind: 'task', source: 'internal' });
-      expect((await prepare(id)).reach.needs_tap).toBe(false);
-      const s = await mk('chat-session', { triage_kind: 'task', source: 'session', created_by_id: BAST_USER_ID });
-      expect((await prepare(s)).reach.needs_tap).toBe(false);
-    });
-
-    it('client mail text (email source, portal, requesting contact, linked email ask, client comment): needs the one tap', async () => {
+    it('every sorted kind, with or without client text, acts at once: the card goes to Dox, not to the worker', async () => {
+      const internal = await mk('chat-internal', { triage_kind: 'task', source: 'internal' });
+      expect((await prepare(internal)).reach.needs_tap).toBe(false);
       const email = await mk('chat-email', { triage_kind: 'task', source: 'email' });
       const r = await prepare(email);
-      expect(r.reach.needs_tap).toBe(true);
-      expect(r.reach.starts[0]).toMatchObject({ rule: 'hand_to_bast', task_id: email });
-      expect((await prepare(await mk('chat-portal', { triage_kind: 'task', source: 'portal' }))).reach.needs_tap).toBe(true);
-      const contact = await prisma.clientContact.create({ data: { client_id: clientId, name: 'Cee', email: `cee-${tag}@example.test` } as never });
-      expect((await prepare(await mk('chat-contact', { triage_kind: 'task', requested_by_contact_id: contact.id }))).reach.needs_tap).toBe(true);
-      const withComment = await mk('chat-comment', { triage_kind: 'project_setup', project_id: await mkProject('ready'), client_id: clientId });
-      await prisma.comment.create({ data: { task_id: withComment, user_id: BAST_USER_ID, author_contact_id: contact.id, content: 'from the client' } as never });
-      expect((await prepare(withComment)).reach.needs_tap).toBe(true);
-      await prisma.comment.deleteMany({ where: { task_id: withComment } });
-      await prisma.clientContact.delete({ where: { id: contact.id } });
-    });
-
-    it('client text but the card ends with a person, or is closed as done: no tap (nothing starts the worker)', async () => {
+      expect(r.reach.needs_tap).toBe(false);
+      expect(r.reach.starts).toEqual([]);
+      expect((await prepare(await mk('chat-portal', { triage_kind: 'task', source: 'portal' }))).reach.needs_tap).toBe(false);
       const person = await mk('chat-person', { triage_kind: 'task', source: 'email', assignee_id: techId });
       expect((await prepare(person)).reach.needs_tap).toBe(false);
       const closed = await mk('chat-closed', { triage_kind: 'question_only', source: 'email' });
       expect((await prepare(closed)).reach.needs_tap).toBe(false);
     });
 
-    it('the same rule holds for the older group release and Release plan, and with the worker hold off', async () => {
-      process.env[HOLD_ENV] = 'off';
+    it('the older group release and Release plan hand sorted cards to Dox too (no tap); an unsorted card already with Bast still needs the tap when it has client text', async () => {
       const p = await mkProject('queue');
       const a = await mk('chat-plan-a', { triage_kind: 'task', source: 'email', project_id: p, client_id: clientId });
       const legacy = await homeOp.prepare(ctx(), { action: 'triage_release', task_ids: [a] }, 'chat');
-      expect(legacy.reach.needs_tap).toBe(true);
+      expect(legacy.reach.needs_tap).toBe(false);
       const plan = await homeOp.prepare(ctx(), { action: 'triage_release_plan', group_key: `project:${p}` }, 'chat');
-      expect(plan.reach.needs_tap).toBe(true);
+      expect(plan.reach.needs_tap).toBe(false);
+      const unsorted = await mk('chat-unsorted', { triage_kind: null, source: 'email', assignee_id: BAST_USER_ID });
+      const old = await homeOp.prepare(ctx(), { action: 'triage_release', task_ids: [unsorted] }, 'chat');
+      expect(old.reach.needs_tap).toBe(true);
       const other = await homeOp.prepare(ctx(), { action: 'triage_drop', task_ids: [a] }, 'chat');
       expect(other.reach.needs_tap).toBe(false);
     });

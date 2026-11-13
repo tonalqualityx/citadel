@@ -73,6 +73,8 @@ const ALLOWED: [string, string][] = [
   ['GET', '/api/engagement-briefs/7f1c/snapshot'],
   ['POST', '/api/engagement-briefs/7f1c/passes'],
   ['PATCH', '/api/engagement-passes/7f1c'],
+  ['GET', '/api/oracle/projects/refresh-requests'],
+  ['PUT', '/api/oracle/projects/7f1c/next-step/write'],
 ];
 
 const DENIED: [string, string][] = [
@@ -142,7 +144,7 @@ describe('lane dox', () => {
   it('no allowed route is a DELETE, and no write reaches an answer, approval, outbox or portal path', () => {
     for (const r of LANE_ROUTES.dox) {
       expect(r.method).not.toBe('DELETE');
-      if (r.method === 'PUT') expect(r.pattern).toBe('/api/tasks/:id/plan/:section'); // the plan is the one PUT Dox has
+      if (r.method === 'PUT') expect(['/api/tasks/:id/plan/:section', '/api/oracle/projects/:id/next-step/write']).toContain(r.pattern); // the plan and the next-step line are the two PUTs Dox has
       if (r.method !== 'GET') expect(r.pattern).not.toMatch(/answer|approval|outbox|portal|notice|triage|live|staged|notify|send/);
     }
   });

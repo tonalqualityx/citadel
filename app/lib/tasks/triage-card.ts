@@ -10,7 +10,7 @@ import type { PrismaClient } from '@prisma/client';
 import { BAST_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import type { HomeAskedAfterRelease, HomeTriageCard, HomeTriageProject } from '@/lib/home/types';
 import { LOOKS_DONE_PREFIX, LOOKS_DONE_TAG, evidenceOf, evidenceParts } from './looks-done';
-import { FROM_TRIAGE_TAG, planRelease, pmReleaseHold, type TriageKindName } from './triage-kind';
+import { FROM_TRIAGE_TAG, planRelease, type TriageKindName } from './triage-kind';
 import { releaseVersion } from './triage-version';
 import { openQuestionCounts } from './questions';
 import { recentChanges } from './triage-rev';
@@ -160,7 +160,6 @@ export async function loadCards(db: Db, taskIds: string[], now: Date = new Date(
   });
   const ids = tasks.map((t) => t.id);
   const openQs = await openQuestionRows(db, ids);
-  const hold = pmReleaseHold();
   const [qCounts, summaries, evidence] = await Promise.all([openQuestionCounts(db, ids), summariesFor(db, ids), evidenceFor(db, tasks.filter((t) => t.tags.includes(LOOKS_DONE_TAG)).map((t) => t.id))]);
   const setupProjectIds = Array.from(new Set(tasks.filter((t) => t.triage_kind === 'project_setup' && t.project).map((t) => t.project!.id)));
   const blocks = await projectBlocks(db, setupProjectIds);
@@ -177,7 +176,6 @@ export async function loadCards(db: Db, taskIds: string[], now: Date = new Date(
       noted_items: planRows.filter((r) => r.task_id === t.id && r.section === 'planned_tasks' && countsAsNoted(r)).length,
       open_go: questionSplit(openQs.get(t.id)).go,
       open_wait: questionSplit(openQs.get(t.id)).wait,
-      pm_hold: hold,
     });
     const marked = t.tags.includes(LOOKS_DONE_TAG);
     const ev = marked ? (evidence.get(t.id)?.evidence ?? '') : null;

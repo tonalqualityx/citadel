@@ -85,6 +85,8 @@ const EXPECTED = [
   'PATCH /api/tasks/:id/triage',
   'PUT /api/tasks/:id/triage/shape',
   'PATCH /api/projects/:id/sitemap',
+  'POST /api/projects/:id/engagement-brief',
+  'PATCH /api/engagement-briefs/:id',
   'GET /api/tasks/:id/plan',
   'PUT /api/tasks/:id/plan/:section',
   'PATCH /api/tasks/:id/plan/:section',
@@ -204,7 +206,7 @@ beforeEach(() => {
 });
 
 describe('lane bast-chat: the list', () => {
-  it('holds exactly the 64 entries of the plan, and nothing else', () => {
+  it('holds exactly the 66 entries of the plan (the sitemap PATCH, the brief POST and PATCH of Dox slice 2b), and nothing else', () => {
     expect(LANE_ROUTES['bast-chat'].map((r) => `${r.method} ${r.pattern}`)).toEqual(EXPECTED);
   });
 
@@ -217,7 +219,7 @@ describe('lane bast-chat: the list', () => {
     const writes = LANE_ROUTES['bast-chat'].filter((r) => r.method !== 'GET');
     expect(writes.some((r) => r.method === 'DELETE')).toBe(false);
     for (const r of writes) {
-      const ok = r.pattern.startsWith('/api/bast-chat/worker/') || r.pattern === '/api/tasks' || r.pattern === '/api/tasks/:id' || r.pattern === '/api/tasks/:id/checklist' || r.pattern.startsWith('/api/tasks/:id/questions') || r.pattern === '/api/tasks/:id/triage' || r.pattern === '/api/tasks/:id/triage/shape' || r.pattern === '/api/projects/:id/sitemap' || r.pattern.startsWith('/api/tasks/:id/plan') || r.pattern === '/api/work/attach' || r.pattern === '/api/oracle/clocks';
+      const ok = r.pattern === '/api/projects/:id/sitemap' || r.pattern.startsWith('/api/bast-chat/worker/') || r.pattern === '/api/tasks' || r.pattern === '/api/tasks/:id' || r.pattern === '/api/tasks/:id/checklist' || r.pattern.startsWith('/api/tasks/:id/questions') || r.pattern === '/api/tasks/:id/triage' || r.pattern === '/api/tasks/:id/triage/shape' || r.pattern.startsWith('/api/tasks/:id/plan') || r.pattern === '/api/projects/:id/engagement-brief' || r.pattern === '/api/engagement-briefs/:id' || r.pattern === '/api/work/attach' || r.pattern === '/api/oracle/clocks';
       expect(ok, `${r.method} ${r.pattern}`).toBe(true);
     }
   });

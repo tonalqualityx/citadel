@@ -91,7 +91,7 @@ describe.skipIf(!SCRATCH)('triage card routes (real database)', () => {
     expect(res.status).toBe(200);
     let body = await res.json();
     expect(body).toMatchObject({ task_id: card, kind: 'task', release_ready: true });
-    expect(body.release_line).toMatch(/^Hands this to Bast/);
+    expect(body.release_line).toMatch(/^Hands this to Dox/);
     authMock.mockResolvedValue(chatLane());
     res = await patch(card, { kind: 'question_only' });
     body = await res.json();
@@ -179,7 +179,7 @@ describe.skipIf(!SCRATCH)('triage card routes (real database)', () => {
       authMock.mockResolvedValue(actor);
       const body = await (await getTask(req(`http://localhost/api/tasks/${card}`, 'GET'), params(card))).json();
       expect(body).toMatchObject({ triage_kind: 'task', release_ready: true });
-      expect(body.release_line).toMatch(/^Hands this to Bast/);
+      expect(body.release_line).toMatch(/^Hands this to Dox/);
     }
     for (const actor of [as('pm'), bot(), mikeKey()]) {
       authMock.mockResolvedValue(actor);

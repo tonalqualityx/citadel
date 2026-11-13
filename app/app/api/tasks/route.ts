@@ -85,6 +85,8 @@ const createTaskSchema = z.object({
   charter_id: z.string().uuid().optional().nullable(),
   // Bast triage: classification + provenance
   tags: z.array(z.string().max(50)).optional(),
+  // The plan requirements this task serves (TaskPlanItem ids of the project's setup card; the Dox lane's ids are checked in lib/dox/guard.ts).
+  plan_item_ids: z.array(z.string().uuid()).max(50).optional(),
   source: z.enum(['portal', 'email', 'internal']).optional(),
   source_ref: z.string().max(255).optional().nullable(),
   // Work stage A: the RFC Message-ID of the email behind an email-sourced task. Not stored on the task; it only finds the
@@ -589,6 +591,7 @@ export async function POST(request: NextRequest) {
           : undefined,
         // Bast triage: classification + provenance
         tags: data.tags ?? undefined,
+        plan_item_ids: data.plan_item_ids ?? undefined,
         source: data.source,
         source_ref: data.source_ref,
         requested_by_contact_id: data.requested_by_contact_id,

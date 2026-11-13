@@ -23,6 +23,7 @@
 
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { ApiError } from '@/lib/api/errors';
+import { DOX_USER_ID } from '@/lib/dox/identity';
 import { BAST_USER_ID, MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import { patchTask } from '@/lib/services/task-patch';
 import { ownerActor } from '@/lib/home/reconcile/actor';
@@ -36,7 +37,7 @@ import { LOOKS_DONE_TAG } from './looks-done';
 import { markHomeActionUndone } from '@/lib/home/state';
 import { readWorkCloseRecord, undoWorkClose, type WorkCloseRecord } from '@/lib/work/ask-closure';
 import { stageALines } from '@/lib/work/finished-store';
-import { RELEASE_REFUSALS, planRelease, pmReleaseHold, type ReleasePlan, type TriageKindName } from './triage-kind';
+import { RELEASE_REFUSALS, planRelease, type ReleasePlan, type TriageKindName } from './triage-kind';
 import { HELD_NEEDS_MIKE_MARK, HELD_TAG, NEEDS_MIKE_TAG, openQuestionCounts } from './questions';
 
 export const TRIAGE_PASS_PREFIX = 'triage-pass:';
@@ -282,7 +283,6 @@ function releasePlanOf(row: Row, requireKind: boolean, open: { if_nobody_action:
     site: row.site ? { id: row.site.id, name: row.site.name } : null,
     open_go: split.go,
     open_wait: split.wait,
-    pm_hold: pmReleaseHold(),
     kind: row.triage_kind as TriageKindName | null,
     assignee_id: row.assignee_id,
     assignee_name: row.assignee?.name ?? null,
@@ -356,10 +356,10 @@ async function run(
     const questionTags = waitCount > 0 ? [...(row.tags.includes(HELD_TAG) ? [] : [HELD_TAG]), ...(addNeeds ? [NEEDS_MIKE_TAG, HELD_NEEDS_MIKE_MARK] : [])] : [];
     const kindTags = (fx?.add_tags ?? []).filter((t) => !row.tags.includes(t));
     const addTags = [...kindTags, ...questionTags];
-    const setBast = !!fx && fx.assign_bast && row.assignee_id !== BAST_USER_ID;
+    const setDox = !!fx && fx.assign_dox && row.assignee_id !== DOX_USER_ID;
     const after = await moveOne(db, userId, row, target, {
       ...(addTags.length > 0 ? { tags: [...row.tags, ...addTags] } : {}),
-      ...(setBast ? { assignee_id: BAST_USER_ID } : {}),
+      ...(setDox ? { assignee_id: DOX_USER_ID } : {}),
     });
     if (!after) {
       skipped += 1;
@@ -380,7 +380,7 @@ async function run(
       updated_after: after.toISOString(),
       ...(defaulted.length > 0 ? { defaulted_question_ids: defaulted } : {}),
       ...(addTags.length > 0 ? { tags_added: addTags } : {}),
-      ...(setBast ? { assignee_before: row.assignee_id } : {}),
+      ...(setDox ? { assignee_before: row.assignee_id } : {}),
       ...(target === 'done' ? { was_closed: true } : {}),
     });
     details.push(`${row.title} /tasks/${row.id}`);
@@ -465,8 +465,8 @@ export async function releaseBastCards(
   for (const row of rows) {
     const rp = releasePlanOf(row, req.action === 'triage_release_card');
     if (rp) {
-      if (!rp.ready || !rp.effects || rp.effects.to_status === 'done') continue;
-      if (rp.effects.assign_bast || row.assignee_id === BAST_USER_ID) ending.push(row);
+      // A sorted release hands the card to Dox (or leaves it with a person): none ends assigned to Bast.
+      continue;
     } else if (row.assignee_id === BAST_USER_ID && row.project?.status !== 'quote') ending.push(row);
   }
   const clientText = await clientTextTaskIds(db, ending.map((r) => r.id));

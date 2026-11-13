@@ -18,7 +18,7 @@ export interface Fx {
   mkProject(name: string, extra?: Record<string, unknown>): Promise<string>;
   mkTask(title: string, extra?: Record<string, unknown>): Promise<string>;
   mkStaff(name: string, role?: 'pm' | 'admin' | 'tech'): Promise<string>;
-  /** Make sure the project has a brief, and start a pass on it (Dox's "I am working on this project now" record). Returns the pass id. */
+  /** Make sure the project has a brief, and start a LIVE pass on it (Dox's "I am working on this project now" record; a dry pass writes nothing). Pass {mode: 'dry'} in extra for a dry one. Returns the pass id. */
   openPass(projectId: string, lane?: string | null, extra?: Record<string, unknown>): Promise<string>;
   cleanup(): Promise<void>;
 }
@@ -51,7 +51,7 @@ export async function makeFixture(prefix: string): Promise<Fx> {
     },
     async openPass(projectId, lane = 'dox', extra = {}) {
       const brief = (await prisma.engagementBrief.findUnique({ where: { project_id: projectId } })) ?? (await prisma.engagementBrief.create({ data: { project_id: projectId, label: `${tag} brief`, cadence: 'auto', owner_mode: 'dry', allowed_actions: [] } }));
-      const pass = await prisma.engagementPass.create({ data: { brief_id: brief.id, mode: 'dry', lane, ...extra } as never });
+      const pass = await prisma.engagementPass.create({ data: { brief_id: brief.id, mode: 'live', lane, ...extra } as never });
       return pass.id;
     },
     async cleanup() {
