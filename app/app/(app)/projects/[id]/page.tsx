@@ -3,8 +3,6 @@
 import * as React from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { useQuery } from '@tanstack/react-query';
-import { apiClient } from '@/lib/api/client';
 import {
   ArrowLeft,
   Edit,
@@ -84,6 +82,7 @@ import { ProjectWorkloadTab } from '@/components/domain/projects/project-workloa
 import { ProjectTimeTab } from '@/components/domain/projects/project-time-tab';
 import { MilestoneList } from '@/components/domain/projects/milestone-list';
 import { ResourceLinks } from '@/components/domain/projects/resource-links';
+import { ProjectPlanLink } from '@/components/domain/projects/project-plan-link';
 import { DriveFolderField } from '@/components/domain/clients/drive-folder-field';
 import { ProjectTeamTab } from '@/components/domain/projects/project-team-tab';
 import { ProjectBriefTab } from '@/components/domain/projects/project-brief-tab';
@@ -113,28 +112,6 @@ import {
   actionsColumn,
 } from '@/components/ui/task-list-columns';
 import type { Task } from '@/lib/hooks/use-tasks';
-
-/** A link to the project's plan (the Plan tab of its setup card), shown only when the project has one this person may read. */
-function ProjectPlanLink({ projectId }: { projectId: string }) {
-  const { data } = useQuery({
-    queryKey: ['project-plan-link', projectId],
-    queryFn: async () => {
-      try {
-        return await apiClient.get<{ href: string; plan_lines: number }>(`/projects/${projectId}/plan`);
-      } catch {
-        return null;
-      }
-    },
-    staleTime: 30_000,
-    retry: 0,
-  });
-  if (!data) return null;
-  return (
-    <Link href={data.href} className="flex items-center gap-1 hover:text-primary" data-testid="project-plan-link">
-      Plan{data.plan_lines > 0 ? ` (${data.plan_lines})` : ''}
-    </Link>
-  );
-}
 
 export default function ProjectDetailPage() {
   const params = useParams();

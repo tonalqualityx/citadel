@@ -33,7 +33,8 @@ import { ApiError, AuthError, handleApiError } from '@/lib/api/errors';
 const authMock = requireAuth as Mock;
 const NOW = new Date();
 const OPTS = { now: NOW, timezone: 'America/New_York', date: NOW.toISOString().slice(0, 10) };
-const idp = (id: string, section?: string) => ({ params: Promise.resolve(section ? { id, section } : { id }) });
+const idp = (id: string) => ({ params: Promise.resolve({ id }) });
+const sp = (id: string, section: string) => ({ params: Promise.resolve({ id, section }) });
 const req = (body?: unknown, headers: Record<string, string> = {}) =>
   new NextRequest('http://localhost/api/x', { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body), headers });
 const bodyReq = (method: string, body: unknown) => new NextRequest('http://localhost/api/x', { method, body: JSON.stringify(body) });
@@ -82,12 +83,12 @@ describe.skipIf(!SCRATCH)('triage plan (real database)', () => {
   };
   const put = async (id: string, section: string, items: unknown[], who: AuthPayload = chat(), headers: Record<string, string> = {}, description?: string) => {
     as(who);
-    const res = await putSection(req({ items, ...(description ? { description } : {}) }, headers), idp(id, section));
+    const res = await putSection(req({ items, ...(description ? { description } : {}) }, headers), sp(id, section));
     return { status: res.status, body: (await res.json()) as any };
   };
   const patch = async (id: string, section: string, body: unknown, who: AuthPayload = chat(), headers: Record<string, string> = {}) => {
     as(who);
-    const res = await patchSection(req(body, headers), idp(id, section));
+    const res = await patchSection(req(body, headers), sp(id, section));
     return { status: res.status, body: (await res.json()) as any };
   };
   const rev = async (id: string) => (await prisma.task.findUniqueOrThrow({ where: { id } })).triage_rev;
@@ -269,7 +270,7 @@ describe.skipIf(!SCRATCH)('triage plan (real database)', () => {
       const t = await mkTask('portal', { client_id: clientId, client_visible: true });
       authMock.mockRejectedValue(new AuthError('Unauthorized', 401));
       expect((await getPlan(req(), idp(t))).status).toBe(401);
-      expect((await putSection(req({ items: [] }), idp(t, 'requirements'))).status).toBe(401);
+      expect((await putSection(req({ items: [] }), sp(t, 'requirements'))).status).toBe(401);
       const root = process.cwd();
       const walk = (d: string): string[] =>
         readdirSync(d).flatMap((n) => {
