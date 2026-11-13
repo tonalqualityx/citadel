@@ -310,6 +310,22 @@ export const bastChatEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/bast-chat/worker/conversations/:id/redact',
+    group: 'bast-chat',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Chat daemon: redact one stored turn (the owner pasted connection details such as a pull key or a password)',
+        auth: 'required',
+        roles: WORKER,
+        queryParams: [idParam],
+        bodySchema: [{ name: 'seq', type: 'number', required: true, description: 'The turn to redact (a text event of this conversation)' }],
+        responseExample: { seq: 'number', redacted: 'true' },
+        responseNotes: 'Strict body. The turn text becomes "[connection info received]" and payload.redacted is set, so the card conversation read returns the turn as redacted with no text. The original words are replaced, not kept. 404 no such turn, 400 not a text turn.',
+      },
+    ],
+  },
+  {
     path: '/api/bast-chat/worker/actions',
     group: 'bast-chat',
     methods: [

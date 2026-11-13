@@ -141,15 +141,15 @@ export function describeRelease(fx: ReleaseEffects): string {
 }
 
 /**
- * The sentence about what Dox does with the plan. Only when the card is actually held for Dox (it ends with Bast and the worker hold is on): a card that
+ * The sentence about what Dox does with the plan, when the plan notes something. Only when the card is actually held for Dox (it ends with Bast and the worker hold is on): a card that
  * lands on a person, or a release with the hold off, says nothing about Dox. The plan is not a task list: Dox builds the routine tasks from the shape and the
  * sitemap, and sets up the few things noted in the plan.
  */
 export function doxBuildsSentence(fx: ReleaseEffects, noted: number): string {
-  if (!fx.held_for_dox || fx.closes_card) return '';
+  if (!fx.held_for_dox || fx.closes_card || noted === 0) return '';
   const things = `${noted} ${plural(noted, 'thing', 'things')}`;
-  if (fx.kind === 'project_setup') return ` ${PM_NAME} builds the tasks from the shape and the sitemap${noted > 0 ? `, including the ${things} noted in the plan` : ''}.`;
-  return noted > 0 ? ` ${PM_NAME} sets up the ${things} noted in the plan.` : '';
+  if (fx.kind === 'project_setup') return ` ${PM_NAME} builds the tasks from the shape and the sitemap, including the ${things} noted in the plan.`;
+  return ` ${PM_NAME} sets up the ${things} noted in the plan.`;
 }
 
 /** The technical lines for the Details disclosure on the card page. */

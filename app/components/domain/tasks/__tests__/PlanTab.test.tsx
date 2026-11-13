@@ -45,7 +45,7 @@ describe('Plan tab', () => {
     expect(screen.queryByTestId('plan-item')).toBeNull();
     // sections in the fixed order
     const heads = Array.from(document.querySelectorAll('h3')).map((h) => h.textContent);
-    expect(heads).toEqual(['Requirements', 'Dates', 'Team', 'Billing model', 'Planned tasks', 'Risks', 'Examples', 'Decisions']);
+    expect(heads).toEqual(['Requirements', 'Dates', 'Team', 'Billing model', 'Work to note', 'Risks', 'Examples', 'Decisions']);
   });
 
   it('the top line says when the plan last changed and by whom', () => {
@@ -169,24 +169,35 @@ describe('Plan tab', () => {
     expect(within(screen.getByTestId('plan-sitemap')).getByText(/Home/)).toBeTruthy();
   });
 
-  it('planned tasks: a numbered list with who and when in small type, "after 3" for dependencies, a link once Dox created the task, dropped collapsed', () => {
-    const a = item({ title: 'Build the header', for: { kind: 'bast' }, depends_on: [], source: SRC, mark: 'original' });
-    const b = item({ title: 'Design the home page', for: { name: 'Lisa', org: 'Freelance designer' }, depends_on: [], when: 'before design handoff', source: SRC, mark: 'original' });
-    const c = item({ title: 'Build the footer', for: { user_id: 'u1' }, for_name: 'Ken Ortiz', depends_on: [a.id, b.id], when: '2026-12-04', done_when: 'Footer matches the design', source: SRC, mark: 'original', task_id: 'task-9' });
-    const d = item({ title: 'Blog import', for: { kind: 'dox_decides' }, depends_on: [], source: SRC, mark: 'dropped', changed_by: 'Ed, Nov 9' });
+  it('work to note: title, a one-line note, who and when in small type, no numbers and no "after", a link once a task exists, dropped collapsed, a quiet line past 8 items', () => {
+    const a = item({ title: 'Set up staging early', note: 'Two day lead time', for: { kind: 'bast' }, when: 'before design handoff', source: SRC, mark: 'original' });
+    const b = item({ title: 'Design the home page', for: { name: 'Lisa', org: 'Freelance designer' }, when: '2026-12-04', source: SRC, mark: 'original' });
+    const c = item({ title: 'Build the footer', for: { user_id: 'u1' }, for_name: 'Ken Ortiz', depends_on: ['x'], source: SRC, mark: 'original', task_id: 'task-9' });
+    const d = item({ title: 'Blog import', for: { kind: 'dox_decides' }, source: SRC, mark: 'dropped', changed_by: 'Ed, Nov 9' });
     render(<PlanView plan={plan({ planned_tasks: [a, b, c, d] })} />);
     const sec = screen.getByTestId('plan-planned-tasks');
     const rows = within(sec).getAllByTestId('plan-item');
-    expect(within(rows[0]).getByTestId('plan-task-num').textContent).toBe('1.');
-    expect(within(rows[0]).getByTestId('plan-task-meta').textContent).toBe('For Bast');
-    expect(within(rows[1]).getByTestId('plan-task-meta').textContent).toBe('For Lisa, Freelance designer · when before design handoff');
-    expect(within(rows[2]).getByTestId('plan-task-meta').textContent).toBe('For Ken Ortiz · when 2026-12-04 · after 1, 2');
-    expect(rows[2].textContent).toContain('Done when Footer matches the design');
+    expect(within(rows[0]).getByTestId('plan-task-meta').textContent).toBe('For Bast \u00b7 before design handoff');
+    expect(rows[0].textContent).toContain('Two day lead time');
+    expect(within(rows[1]).getByTestId('plan-task-meta').textContent).toBe('For Lisa, Freelance designer \u00b7 Dec 4');
+    expect(within(rows[2]).getByTestId('plan-task-meta').textContent).toBe('For Ken Ortiz');
+    expect(sec.textContent).not.toMatch(/after \d|when before|\d\./);
     expect(within(rows[2]).getByTestId('plan-task-link').getAttribute('href')).toBe('/tasks/task-9');
     const dropped = within(sec).getByTestId('plan-dropped-planned_tasks') as HTMLDetailsElement;
     expect(dropped.open).toBe(false);
-    expect(within(dropped).getByTestId('plan-task-num').textContent).toBe('4.');
     expect(within(dropped).getByTestId('plan-task-meta').textContent).toBe('For Dox decides');
+    expect(screen.queryByTestId('plan-long')).toBeNull();
+  });
+
+  it('more than 8 noted items shows the quiet "getting long" line', () => {
+    const many = Array.from({ length: 9 }, (_, k) => item({ title: `Thing ${k}`, source: SRC, mark: 'original' }));
+    render(<PlanView plan={plan({ planned_tasks: many })} />);
+    expect(screen.getByTestId('plan-long').textContent).toBe('This is getting long: routine work belongs to the shape');
+  });
+
+  it('a project card says what Dox builds from, without listing tasks', () => {
+    render(<PlanView plan={plan({ planned_tasks: [item({ title: 'One', source: SRC, mark: 'original' }), item({ title: 'Two', source: SRC, mark: 'original', task_id: 't' })] }, { project: { project_id: 'p', name: 'P', status: 'queue', start_date: null, target_date: null, mike_parts: [], phases: [{ id: 'a', name: 'Design', summary: null, mike_part: null }, { id: 'b', name: 'Build', summary: null, mike_part: null }], sitemap: [{ id: 's', name: 'Home', page_type: null, needs_design: false, notes: null }], deal: null } })} />);
+    expect(screen.getByTestId('plan-shape-line').textContent).toBe('Shape: Design, Build. 1 page. Dox builds the tasks from the shape and the sitemap at setup. 1 thing to note.');
   });
 
   it('risks: uncovered ones first with a "Not covered" mark, covered ones say what covers them', () => {

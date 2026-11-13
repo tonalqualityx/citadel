@@ -114,8 +114,8 @@ describe('the home card plan line', () => {
     expect(planLine({ ...base, other_items: 2 })).toBe('Plan: started');
     expect(planLine({ ...base, requirements: 1, dates: [{ label: 'Launch', date: '2027-03-02' }] })).toBe('Plan: 1 requirement, launch Mar 2');
     expect(planLine({ ...base, billing_kind: 'internal', other_items: 1 })).toBe('Plan: not billed');
-    expect(planLine({ ...base, requirements: 12, project_launch: '2027-01-19', billing_kind: 'milestones', planned_tasks: 14, other_items: 30 })).toBe('Plan: 12 requirements, launch Jan 19, milestones billing, 14 planned tasks');
-    expect(planLine({ ...base, planned_tasks: 1, other_items: 1 })).toBe('Plan: 1 planned task');
+    expect(planLine({ ...base, requirements: 12, project_launch: '2027-01-19', billing_kind: 'milestones', pages: 9, other_items: 30 })).toBe('Plan: 12 requirements, 9 pages, launch Jan 19, milestones billing');
+    expect(planLine({ ...base, pages: 1, other_items: 1 })).toBe('Plan: 1 page');
     expect(planLine({ ...base, billing_kind: 'unknown', other_items: 1 })).toBe('Plan: started');
     expect(shortDay('2027-01-19')).toBe('Jan 19');
   });

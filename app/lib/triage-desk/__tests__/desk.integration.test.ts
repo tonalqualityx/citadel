@@ -15,12 +15,10 @@ vi.mock('@/lib/triage-desk/conversation', async (orig) => {
   const m = await orig<typeof import('@/lib/triage-desk/conversation')>();
   return { ...m, readCardConversation: (id: string, opts: { after?: number; limit?: number }, db?: never) => m.readCardConversation(id, opts, db ?? (routeDb.current as never)) };
 });
-vi.mock('@/lib/tasks/triage-rev-hook', () => ({ bumpTriageRev: vi.fn(async () => undefined) }));
 
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth, type AuthPayload } from '@/lib/auth/middleware';
 import { SCRATCH } from '@/lib/engine/__tests__/seed';
-import { bumpTriageRev } from '@/lib/tasks/triage-rev-hook';
 import { GET as getTask, PATCH as patchTask, DELETE as deleteTask } from '@/app/api/tasks/[id]/route';
 import { GET as getTriage, PATCH as patchTriage } from '@/app/api/tasks/[id]/triage/route';
 import { PUT as putShape } from '@/app/api/tasks/[id]/triage/shape/route';
@@ -69,7 +67,6 @@ describe.skipIf(!SCRATCH)('the triage-desk lane (real database)', () => {
     sharedTask = await fx.mkTask('Shared with the client', { status: 'not_started', client_id: fx.clientId, project_id: liveProject, client_visible: true });
   });
   beforeEach(() => {
-    (bumpTriageRev as Mock).mockClear();
   });
   afterAll(async () => {
     await prisma.bastChatEvent.deleteMany({ where: { conversation_id: { in: convIds } } });
@@ -83,7 +80,8 @@ describe.skipIf(!SCRATCH)('the triage-desk lane (real database)', () => {
   });
 
   const taskRow = (id: string) => prisma.task.findUniqueOrThrow({ where: { id } });
-  const sessionNotes = (id: string) => prisma.comment.findMany({ where: { task_id: id, content: { startsWith: 'Changed by a session: ' } }, orderBy: { created_at: 'asc' } });
+  // The change lines the SERVER wrote for the desk (TriageChange rows); a desk change is never a comment.
+  const sessionNotes = (id: string) => prisma.triageChange.findMany({ where: { task_id: id, by_lane: 'triage-desk' }, orderBy: { created_at: 'asc' } }).then((rows) => rows.map((r) => ({ ...r, content: r.line })));
 
   describe('reads', () => {
     it('reads a task, its comments, its questions and the /triage card payload', async () => {
@@ -95,7 +93,7 @@ describe.skipIf(!SCRATCH)('the triage-desk lane (real database)', () => {
       const c = await json(await getTriage(call(undefined, 'GET'), idParams(card)));
       expect(c.status).toBe(200);
       expect(c.body.task_id).toBe(card);
-      expect(c.body.session_changes).toEqual([]);
+      expect(c.body.recent_changes).toEqual([]);
     });
   });
 
@@ -220,10 +218,11 @@ describe.skipIf(!SCRATCH)('the triage-desk lane (real database)', () => {
       expect([row.triage_kind, row.project_id, row.status]).toEqual(['project_setup', queueProject, 'triage']);
       const notes = await sessionNotes(card);
       expect(notes).toHaveLength(1);
-      expect(notes[0]).toMatchObject({ actor_lane: 'triage-desk', is_internal: true, client_visible: false, user_id: BOT_ID });
-      expect(notes[0].content).toMatch(/set the kind to project_setup; linked a project/);
-      expect(bumpTriageRev).toHaveBeenCalledWith(card, 'session', expect.stringContaining('set the kind to project_setup'));
-      expect(r.body.session_changes[0].line).toMatch(/project_setup/);
+      expect(notes[0]).toMatchObject({ by: 'a session', by_lane: 'triage-desk' });
+      expect(notes[0].line).toBe('Kind and Project link changed by a session');
+      expect(row.triage_rev).toBe(1);
+      expect(r.body.recent_changes[0]).toMatchObject({ by: 'a session', line: 'Kind and Project link changed by a session' });
+      expect(await prisma.comment.count({ where: { task_id: card, content: { startsWith: 'Changed by a session' } } })).toBe(0);
     });
 
     it('sets the dates of a project the portal hides (queue)', async () => {
@@ -247,7 +246,7 @@ describe.skipIf(!SCRATCH)('the triage-desk lane (real database)', () => {
       const ok = await json(await putShape(call({ phases: [{ name: 'Design', mike_part: 'Pick one option' }], pages: [{ name: 'Home' }] }, 'PUT'), idParams(card)));
       expect(ok.status, JSON.stringify(ok.body)).toBe(200);
       expect(await prisma.projectPhase.count({ where: { project_id: queueProject } })).toBe(1);
-      expect((await sessionNotes(card)).some((n) => /redrew the shape/.test(n.content))).toBe(true);
+      expect((await sessionNotes(card)).some((n) => /Shape redrawn by a session/.test(n.content))).toBe(true);
       const live = await fx.mkTask('Card, live project', { status: 'triage', triage_kind: 'project_setup', project_id: liveProject });
       const no = await json(await putShape(call({ pages: [{ name: 'Home' }] }, 'PUT'), idParams(live)));
       expect(no.status).toBe(409);
@@ -259,7 +258,7 @@ describe.skipIf(!SCRATCH)('the triage-desk lane (real database)', () => {
       const ok = await json(await patchTask(call({ tags_add: ['triage:looks-done'] }, 'PATCH'), idParams(card2)));
       expect(ok.status, JSON.stringify(ok.body)).toBe(200);
       expect((await taskRow(card2)).tags).toContain('triage:looks-done');
-      expect((await sessionNotes(card2)).map((n) => n.content)).toEqual(['Changed by a session: marked the card looks-done']);
+      expect((await sessionNotes(card2)).map((n) => n.content)).toEqual(['marked the card looks-done by a session']);
       expect((await taskRow(card2)).status).toBe('triage');
     });
 
@@ -282,7 +281,6 @@ describe.skipIf(!SCRATCH)('the triage-desk lane (real database)', () => {
       const row = await taskRow(c);
       expect([row.status, row.title, row.client_visible, row.tags]).toEqual(['triage', `${fx.tag} Untouchable card`, false, []]);
       expect(await sessionNotes(c)).toEqual([]);
-      expect(bumpTriageRev).not.toHaveBeenCalled();
     });
 
     it('cannot touch a task that is not in Triage: not a status, not a tag, not looks-done', async () => {
@@ -329,9 +327,9 @@ describe.skipIf(!SCRATCH)('the triage-desk lane (real database)', () => {
       expect(gone.body.state).toBe('withdrawn');
       expect(gone.body.withdrawn_reason).toBe('The thread answered it.');
       const lines = (await sessionNotes(card)).map((n) => n.content);
-      expect(lines.some((l) => /asked a question: Ten pages or twelve\?/.test(l))).toBe(true);
-      expect(lines.some((l) => /edited a question/.test(l))).toBe(true);
-      expect(lines.some((l) => /withdrew a question \(The thread answered it\.\)/.test(l))).toBe(true);
+      expect(lines.some((l) => /Question added by a session/.test(l))).toBe(true);
+      expect(lines.some((l) => /Question changed by a session/.test(l))).toBe(true);
+      expect(lines.some((l) => /Question withdrawn by a session/.test(l))).toBe(true);
     });
 
     it('cannot edit or withdraw a question somebody else asked, cannot answer one, cannot ask on a task outside Triage', async () => {
