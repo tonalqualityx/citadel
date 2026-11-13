@@ -31,6 +31,7 @@ export const ASKED_AFTER_RELEASE_HEADING = 'Asked after release';
 export const ASKED_AFTER_RELEASE_HINT = 'Released cards that now have a question for you.';
 export const LOOKS_DONE_BADGE = 'Looks done';
 export const ON_RELEASE = 'On release:';
+export const DETAILS_LABEL = 'Details';
 export const RELEASE_OFF_UNSORTED = 'Bast has not sorted this yet. Talk about it and Bast will propose what it is.';
 export const RELEASE_OFF_PREFIX = 'Release is off.';
 

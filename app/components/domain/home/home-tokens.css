@@ -59,6 +59,14 @@
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
+/* The floating Ask Bast button sits bottom-right (16px in, up to 48px wide on a phone). The home screen always scrolls clear of it. */
+[data-home].home { padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
+/* On a phone the button is a compact round icon, and a Triage card keeps its actions out of the button's column. */
+@media (max-width: 639px) {
+  [data-home] .home-launcher { width: 48px; height: 48px; min-height: 48px; padding: 0; justify-content: center; }
+  [data-home] .home-launcher .home-launcher-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  [data-home] .home-tcard .home-tactions { padding-right: 48px; }
+}
 /* The app shell pads its content 24px; on a phone the gutter is 16px. */
 @media (max-width: 639px) {
   [data-home] { margin-inline: -8px; }
@@ -200,6 +208,8 @@
 [data-home] .home-tevidence { border-left: 3px solid var(--accent-text); padding-left: 10px; display: flex; flex-direction: column; gap: 4px; }
 [data-home] .home-tactions { margin-top: 2px; }
 [data-home] .home-tactions .home-btn { min-height: 44px; }
+[data-home] .home-tdetails summary { cursor: pointer; color: var(--text-muted); }
+[data-home] .home-tdetails ul { margin-top: 4px; color: var(--text-secondary); }
 [data-home] .home-tnote { color: var(--text-primary); background: var(--accent-subtle); border-left: 3px solid var(--accent-text); padding: 6px 10px; border-radius: 4px; }
 [data-home] .home-tquestions { border-top: 1px solid var(--border); padding-top: 10px; cursor: default; }
 [data-home] .home-tproject { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--border); padding-top: 10px; }

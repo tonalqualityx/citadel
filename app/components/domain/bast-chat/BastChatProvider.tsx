@@ -441,7 +441,7 @@ const Launcher = React.forwardRef<HTMLButtonElement, { unread: boolean; hidden: 
         ref={ref}
         type="button"
         data-testid="bast-chat-button"
-        className="home-btn"
+        className="home-btn home-launcher"
         data-filled="true"
         aria-expanded={!hidden}
         aria-controls="bast-chat-region"
@@ -459,7 +459,7 @@ const Launcher = React.forwardRef<HTMLButtonElement, { unread: boolean; hidden: 
         }}
       >
         <MessageSquare className="h-4 w-4" aria-hidden="true" />
-        Ask Bast
+        <span className="home-launcher-label">Ask Bast</span>
         {unread ? <span data-testid="bast-chat-unread" aria-hidden="true">{'•'}</span> : null}
       </button>
     </span>

@@ -21,7 +21,8 @@ const card = (n: number, over: Partial<HomeTriageCard> = {}): HomeTriageCard => 
   created_at: '2026-11-01T00:00:00Z',
   age_days: 5,
   summary: 'Make the footer links bigger.',
-  release_line: 'Moves to Not started, assigned to Bast, tagged from-triage.',
+  release_line: 'Hands this to Bast to do.',
+  release_details: ['Status: Not started', 'Assigned to Bast', 'Tags added: from-triage'],
   release_version: `v${n}`,
   release_ready: true,
   release_block: null,
@@ -65,6 +66,9 @@ describe('TriageBoard', () => {
     expect(within(el).getByRole('link', { name: 'Idea 1' }).getAttribute('href')).toBe('/tasks/1');
     expect(within(el).getByText('Make the footer links bigger.')).toBeTruthy();
     expect(within(el).getByTestId('release-line').textContent).toBe(`On release: ${c.release_line}`);
+    // System words (status, tags) never appear on the tab card, and there is no Details disclosure there.
+    expect(el.textContent).not.toMatch(/not_started|Not started|from-triage|kickoff|needs-pm-release/);
+    expect(within(el).queryByTestId('release-details')).toBeNull();
     expect(within(el).getByRole('button', { name: 'Release' }).getAttribute('data-filled')).toBe('true');
     fireEvent.click(within(el).getByRole('button', { name: 'Release' }));
     await waitFor(() => expect(onAct).toHaveBeenCalledWith({ action: 'triage_release_card', task_ids: [c.task_id], release_version: 'v1' }));

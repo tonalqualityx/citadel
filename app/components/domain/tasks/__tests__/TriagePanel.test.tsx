@@ -24,7 +24,8 @@ const base: HomeTriageCard = {
   created_at: '2026-11-01T00:00:00Z',
   age_days: 5,
   summary: '',
-  release_line: 'Moves to Not started, assigned to Bast.',
+  release_line: 'Hands this to Bast to do.',
+  release_details: ['Status: Not started', 'Assigned to Bast', 'Tags added: from-triage'],
   release_version: 'v1',
   release_ready: true,
   release_block: null,
@@ -51,7 +52,12 @@ describe('TriagePanel', () => {
     wrap(<TriagePanel taskId={ID} />);
     const p = screen.getByTestId('triage-panel');
     expect(within(p).getByText('Single task')).toBeTruthy();
-    expect(within(p).getByTestId('release-line').textContent).toBe('On release: Moves to Not started, assigned to Bast.');
+    expect(within(p).getByTestId('release-line').textContent).toBe('On release: Hands this to Bast to do.');
+    // The technical detail lives behind a Details disclosure on the page panel only.
+    const details = within(p).getByTestId('release-details');
+    expect(within(details).getByText('Details')).toBeTruthy();
+    expect(details.textContent).toContain('Tags added: from-triage');
+    expect(p.querySelector('[data-testid="release-line"]')!.textContent).not.toContain('from-triage');
     fireEvent.click(within(p).getByRole('button', { name: 'Release' }));
     await waitFor(() => expect(m.act).toHaveBeenCalledWith({ action: 'triage_release_card', task_ids: [ID], release_version: 'v1' }));
     fireEvent.click(within(p).getByRole('button', { name: 'Drop' }));
@@ -66,7 +72,7 @@ describe('TriagePanel', () => {
   });
 
   it('a not-sorted card has Release disabled with the reason', () => {
-    m.card = { ...base, kind: null, release_ready: false, release_block: 'unsorted', release_line: 'Not sorted yet' };
+    m.card = { ...base, kind: null, release_ready: false, release_block: 'unsorted', release_line: 'Not sorted yet', release_details: [] };
     wrap(<TriagePanel taskId={ID} />);
     expect((screen.getByRole('button', { name: 'Release' }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText('Not sorted yet', { selector: '.home-tkind' })).toBeTruthy();

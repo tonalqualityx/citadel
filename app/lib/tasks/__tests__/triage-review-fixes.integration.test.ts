@@ -154,7 +154,7 @@ describe.skipIf(!SCRATCH)('triage review fixes (real database)', () => {
     expect(await snap(id)).toMatchObject({ site_id: null, client_id: clientId, project_id: pB });
     expect((await triagePatch(req(`http://localhost/api/tasks/${id}/triage`, 'PATCH', { project_id: null }), params(id))).status).toBe(200);
     expect(await snap(id)).toMatchObject({ site_id: null, client_id: null, project_id: null });
-    expect((await card(id)).release_line).toContain('No site: internal work.');
+    expect((await card(id)).release_line).not.toMatch(/The work is on|internal/);
   });
 
   // 3 ----------------------------------------------------------------------------------------------------------------
@@ -265,17 +265,26 @@ describe.skipIf(!SCRATCH)('triage review fixes (real database)', () => {
                 continue;
               }
               // ---- claims ----
-              const done = /^Closes the card as done/.test(line);
+              const done = /^Closes this card\./.test(line);
+              if (/not_started|kickoff|needs-pm-release|from-triage|tagged|lane/i.test(line)) bad('system word in the sentence');
+              // who it lands on, from the phrase: "Hands this to X", "hands it to X", or the project setup (Bast, with Dox setting it up)
               const claimedTags: string[] = [];
               let claimedAssignee: string | undefined;
+              const startsProject = /^Starts the project: Dox sets up /.test(line) || /^Hands the setup of .+ to Dox, who creates and assigns every task\./.test(line);
               if (!done) {
-                const m = /assigned to (\w+), tagged ([^.]+)\./.exec(line);
-                if (!m) {
-                  bad('line not parsed');
-                  continue;
+                if (kind === 'project_setup') {
+                  if (!startsProject) bad('setup sentence not recognised');
+                  claimedAssignee = 'Bast';
+                  claimedTags.push('kickoff', 'from-triage');
+                } else {
+                  const m = /[Hh]ands (?:this|it) to (\w+?)(?: to do)?\./.exec(line);
+                  if (!m) {
+                    bad('line not parsed');
+                    continue;
+                  }
+                  claimedAssignee = m[1];
+                  claimedTags.push('from-triage');
                 }
-                claimedAssignee = m[1];
-                claimedTags.push(...m[2].split(/, | and /));
               }
               if (after.status !== (done ? 'done' : 'not_started')) bad(`status ${after.status}`);
               if (claimedAssignee !== undefined && nameOf(after.assignee_id) !== claimedAssignee) bad(`assignee ${nameOf(after.assignee_id)} != ${claimedAssignee}`);
@@ -284,24 +293,27 @@ describe.skipIf(!SCRATCH)('triage review fixes (real database)', () => {
               // the worker hold: the tag is there exactly when the card ends with Bast and the hold is on, and the line says it waits
               const endsBast = !done && after.assignee_id === BAST_USER_ID;
               if (after.tags.includes('needs-pm-release') !== (hold && endsBast) && !before.tags.includes('needs-pm-release')) bad(`needs-pm-release ${after.tags.includes('needs-pm-release')} but hold=${hold} endsBast=${endsBast}`);
-              if (/waits for the office manager to pick it up/.test(line) !== (hold && endsBast)) bad('line about the office manager does not match the hold');
-              if (/refines the plan and creates every task/.test(line) && hold) bad('promises immediate work while held');
+              const heldClaim = /Nothing begins until Dox picks it up\./.test(line);
+              if (heldClaim !== (hold && endsBast)) bad('the held-for-Dox sentence does not match the hold');
+              if (heldClaim) claimedTags.push('needs-pm-release');
+              if (/ to do\./.test(line) && (hold || !endsBast)) bad('promises work to do while held or on a person');
+              if (/Releasing approves the wording on this card\./.test(line) !== (kind === 'rule_proposal' && !done)) bad('approves-wording sentence does not match the kind');
               // the site
-              const onSite = /The work will be on (.+?)\./.exec(line);
+              const onSite = /The work is on (.+?)\.(?: |$)/.exec(line);
               if (!done) {
                 if (siteId && !(onSite && onSite[1] === `${tag} second site`)) bad('site not named');
-                if (!siteId && !/No site: internal work\./.test(line)) bad('no-site sentence missing');
+                if (!siteId && (onSite || /site|internal/i.test(line))) bad('a card with no site says something about a site');
                 if (after.site_id !== before.site_id) bad('site changed');
-              } else if (onSite || /No site/.test(line)) bad('closed card claims a site');
+              } else if (onSite || /site/i.test(line)) bad('closed card claims a site');
               // the questions
               const openBefore = Object.entries(before.questions).filter(([, s]) => s === 'open').map(([q]) => q);
               const goClaim = /(\d+) open questions? goes? ahead with the recommendation/.exec(line);
-              const waitClaim = /(\d+) will wait for you, and the card is flagged for you/.exec(line);
+              const waitClaim = /(\d+) open questions? waits? for you; the card stays flagged for you/.exec(line);
               const defaulted = Object.values(after.questions).filter((s) => s === 'defaulted').length;
               const stillOpen = Object.values(after.questions).filter((s) => s === 'open').length;
               if (done) {
                 if (stillOpen !== openBefore.length) bad('closed card changed its questions');
-                const stay = /its (\d+) open questions? stays?/.exec(line);
+                const stay = /(\d+) open questions? stays? unanswered\./.exec(line);
                 if (openBefore.length > 0 && !(stay && Number(stay[1]) === openBefore.length)) bad('closed card line does not say its open questions stay');
               } else {
                 if ((goClaim ? Number(goClaim[1]) : 0) !== defaulted) bad(`questions that go ahead: line ${goClaim?.[1] ?? 0}, database ${defaulted}`);
@@ -315,7 +327,7 @@ describe.skipIf(!SCRATCH)('triage review fixes (real database)', () => {
               if (added.length) bad(`unclaimed tags added: ${added.join(',')}`);
               const removed = before.tags.filter((t) => !after.tags.includes(t));
               if (removed.length) bad(`tags removed: ${removed.join(',')}`);
-              const readyClaim = /^Makes .+ ready/.test(line);
+              const readyClaim = /^Starts the project:/.test(line);
               if (readyClaim && after.project_status !== 'ready') bad('project not ready');
               if (!readyClaim && after.project_status !== before.project_status) bad('project status changed unclaimed');
               if (after.client_id !== before.client_id) bad('client changed');

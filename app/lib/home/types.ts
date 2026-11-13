@@ -785,6 +785,8 @@ export interface HomeTriageCard {
   summary: string;
   /** "On release" sentence, built from the same function Release runs. */
   release_line: string;
+  /** The technical detail behind the line (status, tags). Shown only behind "Details" on the card page, never on the tab card. */
+  release_details: string[];
   /** False when Release would be refused (kind null, project missing or still a quote). release_line then says why. */
   /** Everything Release depends on, hashed. triage_release_card must send the one the owner read; a mismatch answers 409 card_changed. */
   release_version: string;

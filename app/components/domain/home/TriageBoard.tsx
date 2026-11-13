@@ -9,6 +9,7 @@ import { TaskQuestions } from '@/components/domain/tasks/questions/TaskQuestions
 import {
   ASKED_AFTER_RELEASE_HEADING,
   ASKED_AFTER_RELEASE_HINT,
+  DETAILS_LABEL,
   LOOKS_DONE_BADGE,
   ON_RELEASE,
   RELEASE_OFF_PREFIX,
@@ -33,13 +34,25 @@ export interface TriageBoardProps {
 }
 
 /** The "On release" line, or why Release is off. Shared with the card page panel. */
-export function ReleaseLine({ card }: { card: HomeTriageCard }) {
+export function ReleaseLine({ card, showDetails = false }: { card: HomeTriageCard; showDetails?: boolean }) {
   if (card.looks_done) return null;
   if (card.release_ready) {
     return (
-      <p className="home-small home-trelease" data-testid="release-line">
-        <strong>{ON_RELEASE}</strong> {plain(card.release_line)}
-      </p>
+      <>
+        <p className="home-small home-trelease" data-testid="release-line">
+          <strong>{ON_RELEASE}</strong> {plain(card.release_line)}
+        </p>
+        {showDetails && card.release_details?.length > 0 ? (
+          <details className="home-small home-tdetails" data-testid="release-details">
+            <summary>{DETAILS_LABEL}</summary>
+            <ul>
+              {card.release_details.map((d) => (
+                <li key={d}>{d}</li>
+              ))}
+            </ul>
+          </details>
+        ) : null}
+      </>
     );
   }
   return (

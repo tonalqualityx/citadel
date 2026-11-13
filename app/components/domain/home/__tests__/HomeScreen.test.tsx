@@ -295,7 +295,7 @@ describe('HomeScreen', () => {
   });
   it('Triage: a tab after need-you-now with the count, a grid of cards when picked, the old section is gone, and no tab for anyone else', async () => {
     const res = mkRes();
-    const card = { task_id: 't1', title: 'Idea A', href: '/tasks/t1', kind: 'task' as const, created_at: '2026-11-01T00:00:00Z', age_days: 12, summary: 'Do the thing', release_line: 'Moves to Not started, assigned to Bast.', release_version: 'v1', release_ready: true, release_block: null, open_questions: 0, looks_done: null, project: null };
+    const card = { task_id: 't1', title: 'Idea A', href: '/tasks/t1', kind: 'task' as const, created_at: '2026-11-01T00:00:00Z', age_days: 12, summary: 'Do the thing', release_line: 'Hands this to Bast to do.', release_details: [], release_version: 'v1', release_ready: true, release_block: null, open_questions: 0, looks_done: null, project: null };
     res.triage = { count: 1, open_questions: 0, groups: [], cards: [card], asked_after_release: [] };
     h.home = { data: res, isLoading: false, isError: false, refetch: vi.fn() };
     h.act.mockResolvedValue({});

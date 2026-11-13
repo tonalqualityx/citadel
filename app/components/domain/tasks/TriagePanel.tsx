@@ -40,7 +40,7 @@ export function TriagePanel({ taskId, enabled = true }: { taskId: string; enable
           </span>
           {age ? <span className="home-tage">{age}</span> : null}
         </div>
-        {card.looks_done ? <LooksDoneEvidence looksDone={card.looks_done} /> : <ReleaseLine card={card} />}
+        {card.looks_done ? <LooksDoneEvidence looksDone={card.looks_done} /> : <ReleaseLine card={card} showDetails />}
         {card.project ? <TriageProjectBlock project={card.project} variant="full" /> : null}
         <TriageActions
           card={card}

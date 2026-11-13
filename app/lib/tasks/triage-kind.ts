@@ -1,8 +1,8 @@
 /**
  * What Release does to a Triage card, decided in ONE place (Triage tab plan, decision 3).
  *
- * `planRelease` takes a card's kind, assignee and project and returns the effects Release will apply AND the sentence that
- * describes them. The sentence is built from the effects, and `release()` in triage.ts applies exactly those effects, so the
+ * `planRelease` takes a card's kind, assignee and project and returns the effects Release will apply (as data) AND the sentence
+ * that describes them. The sentence is built from the effects by describeRelease, and `release()` in triage.ts applies exactly those effects, so the
  * "On release" line can never promise something the action does not do. Pure: no database, no React.
  *
  *   project_setup                                     project queue -> ready, card -> not_started, assigned to Bast, tags kickoff + from-triage
@@ -58,14 +58,35 @@ export interface ReleaseEffects {
   add_tags: string[];
   /** The card's project goes queue -> ready. */
   project_to_ready: boolean;
+  // ---- what matters to the owner, as data; the sentence is built from these and nothing else ----
+  kind: TriageKindName;
+  /** Who the card ends with: 'Bast' or a person's name. Null when the card is closed. */
+  lands_on: string | null;
+  lands_on_bast: boolean;
+  /** The project the card belongs to (setup, or an addition). Null otherwise. */
+  project_name: string | null;
+  /** project_setup only: the project is made ready and set up by the office manager (Dox), who creates and assigns every task. */
+  starts_project: boolean;
+  /** The card waits until Dox picks it up (the worker hold, on a card that ends with Bast). */
+  held_for_dox: boolean;
+  /** The card is closed as done, its questions and answers kept. */
+  closes_card: boolean;
+  /** rule_proposal: releasing is the owner approving the wording on the card (no other change). */
+  approves_wording: boolean;
+  /** The client site the work is on. Null = none, and the sentence says nothing. */
+  site_name: string | null;
+  /** Open questions: go ahead with the recommendation, wait for him (card flagged), or stay as they are (closed card). */
+  questions: { go: number; wait: number; stay: number };
 }
 
 export interface ReleasePlan {
   /** False when Release would be refused. The line then says why. */
   ready: boolean;
   block: ReleaseBlock | null;
-  /** The plain sentence for the card ("On release: ..."). */
+  /** The plain sentence for the card ("On release: ..."), built from `effects` by describeRelease. */
   line: string;
+  /** The technical detail (status, tags, project status) for the card page's Details disclosure. Never shown on the tab card. */
+  details: string[];
   /** Null when blocked. */
   effects: ReleaseEffects | null;
 }
@@ -82,73 +103,112 @@ export const NOT_SORTED_LINE = 'Not sorted yet';
 
 const words = (status: string) => status.replace(/_/g, ' ');
 
-function listOf(items: string[]): string {
-  if (items.length <= 1) return items.join('');
-  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
-}
+export const PM_NAME = 'Dox';
 
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
 
-/** The sentence part about open questions, '' when there are none. */
-function questionsClause(go: number, wait: number): string {
+/** The sentence for the owner. Every phrase comes from one field of `effects`, so a test can check each one both ways. */
+export function describeRelease(fx: ReleaseEffects): string {
   const parts: string[] = [];
-  if (go > 0) parts.push(`${go} open ${plural(go, 'question goes', 'questions go')} ahead with the recommendation.`);
-  if (wait > 0) parts.push(`${wait} will wait for you, and the card is flagged for you until ${plural(wait, 'it is', 'they are')} answered.`);
-  return parts.length > 0 ? ` ${parts.join(' ')}` : '';
+  if (fx.closes_card) {
+    parts.push('Closes this card. The questions and your answers stay on it.');
+    if (fx.questions.stay > 0) parts.push(`${fx.questions.stay} open ${plural(fx.questions.stay, 'question stays', 'questions stay')} unanswered.`);
+    return parts.join(' ');
+  }
+  if (fx.kind === 'project_setup') {
+    parts.push(
+      fx.starts_project
+        ? `Starts the project: ${PM_NAME} sets up ${fx.project_name}, creating and assigning every task.`
+        : `Hands the setup of ${fx.project_name} to ${PM_NAME}, who creates and assigns every task.`,
+    );
+  } else {
+    const to = fx.lands_on_bast ? 'Bast' : (fx.lands_on ?? 'its assignee');
+    const tail = fx.held_for_dox || !fx.lands_on_bast ? '.' : ' to do.';
+    if (fx.project_name) parts.push(`Adds this to ${fx.project_name} and hands it to ${to}${tail}`);
+    else parts.push(`Hands this to ${to}${tail}`);
+  }
+  if (fx.held_for_dox) parts.push(`Nothing begins until ${PM_NAME} picks it up.`);
+  if (fx.approves_wording) parts.push('Releasing approves the wording on this card.');
+  if (fx.site_name) parts.push(`The work is on ${fx.site_name}.`);
+  if (fx.questions.go > 0) parts.push(`${fx.questions.go} open ${plural(fx.questions.go, 'question goes', 'questions go')} ahead with the recommendation.`);
+  if (fx.questions.wait > 0) parts.push(`${fx.questions.wait} open ${plural(fx.questions.wait, 'question waits', 'questions wait')} for you; the card stays flagged for you until you answer.`);
+  return parts.join(' ');
 }
 
-export const WAITS_FOR_PM_SENTENCE = 'It waits for the office manager to pick it up.';
+/** The technical lines for the Details disclosure on the card page. */
+function detailsOf(fx: ReleaseEffects, project: { name: string; status: string } | null): string[] {
+  const out = [`Status: ${fx.to_status === 'done' ? 'Done' : 'Not started'}`];
+  if (fx.assign_bast) out.push('Assigned to Bast');
+  else if (fx.lands_on) out.push(`Stays with ${fx.lands_on}`);
+  if (fx.add_tags.length > 0) out.push(`Tags added: ${fx.add_tags.join(', ')}`);
+  if (fx.project_to_ready && project) out.push(`${project.name} goes from queue to ready`);
+  return out;
+}
 
 export function planRelease(input: ReleaseInput): ReleasePlan {
   const { kind, project } = input;
   const go = input.open_go ?? 0;
   const wait = input.open_wait ?? 0;
-  const blocked = (block: ReleaseBlock, line: string): ReleasePlan => ({ ready: false, block, line, effects: null });
+  const blocked = (block: ReleaseBlock, line: string): ReleasePlan => ({ ready: false, block, line, details: [], effects: null });
   if (kind === null) return blocked('unsorted', NOT_SORTED_LINE);
+  const hold = input.pm_hold === true;
+  const finish = (effects: ReleaseEffects): ReleasePlan => ({ ready: true, block: null, line: describeRelease(effects), details: detailsOf(effects, project), effects });
+  const common = { kind, approves_wording: false, starts_project: false, project_name: null, site_name: input.site?.name ?? null };
 
   if (kind === 'question_only') {
-    const open = go + wait;
-    return {
-      ready: true,
-      block: null,
-      line: `Closes the card as done. The questions and answers stay on it${open > 0 ? `, and ${open === 1 ? 'its 1 open question stays' : `its ${open} open questions stay`} unanswered` : ''}.`,
-      effects: { to_status: 'done', assign_bast: false, add_tags: [], project_to_ready: false },
-    };
+    return finish({
+      ...common,
+      to_status: 'done',
+      assign_bast: false,
+      add_tags: [],
+      project_to_ready: false,
+      lands_on: null,
+      lands_on_bast: false,
+      held_for_dox: false,
+      closes_card: true,
+      site_name: null,
+      questions: { go: 0, wait: 0, stay: go + wait },
+    });
   }
-
-  const siteClause = input.site ? ` The work will be on ${input.site.name}.` : ' No site: internal work.';
-  const hold = input.pm_hold === true;
 
   if (kind === 'project_setup') {
     if (!project) return blocked('no_project', 'Needs its project linked before it can be released.');
     if (project.status === 'quote') return blocked('still_quote', `${project.name} is still a quote, so release is refused.`);
     if (['cancelled', 'done', 'suspended'].includes(project.status)) return blocked('project_closed', `${project.name} is ${words(project.status)}, so release is refused.`);
     const toReady = project.status === 'queue';
-    const lead = toReady ? `Makes ${project.name} ready and hands the setup to Bast` : `Hands the setup to Bast (${project.name} is already ${words(project.status)})`;
-    const tags = [KICKOFF_TAG, FROM_TRIAGE_TAG, ...(hold ? [PM_RELEASE_TAG] : [])];
-    const body = hold
-      ? `${lead}. The card moves to Not started, assigned to Bast, tagged ${listOf(tags)}. ${WAITS_FOR_PM_SENTENCE}`
-      : `${lead}, who refines the plan and creates every task. The card moves to Not started, assigned to Bast, tagged ${listOf(tags)}.`;
-    return {
-      ready: true,
-      block: null,
-      line: `${body}${siteClause}${questionsClause(go, wait)}`,
-      effects: { to_status: 'not_started', assign_bast: true, add_tags: tags, project_to_ready: toReady },
-    };
+    return finish({
+      ...common,
+      to_status: 'not_started',
+      assign_bast: true,
+      add_tags: [KICKOFF_TAG, FROM_TRIAGE_TAG, ...(hold ? [PM_RELEASE_TAG] : [])],
+      project_to_ready: toReady,
+      lands_on: 'Bast',
+      lands_on_bast: true,
+      project_name: project.name,
+      starts_project: toReady,
+      held_for_dox: hold,
+      closes_card: false,
+      questions: { go, wait, stay: 0 },
+    });
   }
 
   // task, project_addition, reusable_tool, rule_proposal: the old rule holds, a task on a quote project is never released.
   if (project?.status === 'quote') return blocked('still_quote', `${project.name} is still a quote, so release is refused.`);
   const assignBast = input.assignee_id === null;
   const endsBast = assignBast || input.assignee_id === input.bast_id;
-  const who = endsBast ? 'Bast' : (input.assignee_name ?? 'its assignee');
-  const where = kind === 'project_addition' && project ? ` on ${project.name}` : '';
-  const tags = [FROM_TRIAGE_TAG, ...(hold && endsBast ? [PM_RELEASE_TAG] : [])];
-  const waits = hold && endsBast ? ` ${WAITS_FOR_PM_SENTENCE}` : '';
-  return {
-    ready: true,
-    block: null,
-    line: `Moves to Not started${where}, assigned to ${who}, tagged ${listOf(tags)}.${waits}${siteClause}${questionsClause(go, wait)}`,
-    effects: { to_status: 'not_started', assign_bast: assignBast, add_tags: tags, project_to_ready: false },
-  };
+  const heldForDox = hold && endsBast;
+  return finish({
+    ...common,
+    to_status: 'not_started',
+    assign_bast: assignBast,
+    add_tags: [FROM_TRIAGE_TAG, ...(heldForDox ? [PM_RELEASE_TAG] : [])],
+    project_to_ready: false,
+    lands_on: endsBast ? 'Bast' : (input.assignee_name ?? 'its assignee'),
+    lands_on_bast: endsBast,
+    project_name: kind === 'project_addition' && project ? project.name : null,
+    held_for_dox: heldForDox,
+    closes_card: false,
+    approves_wording: kind === 'rule_proposal',
+    questions: { go, wait, stay: 0 },
+  });
 }
