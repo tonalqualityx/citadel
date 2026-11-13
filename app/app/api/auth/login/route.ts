@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
+import { randomUUID } from 'crypto';
 import { prisma } from '@/lib/db/prisma';
-import { signAccessToken, signRefreshToken, createOrUpdateSession, KEEP_SIGNED_IN_DAYS } from '@/lib/auth/jwt';
+import { signAccessToken, signRefreshToken, createSession, KEEP_SIGNED_IN_DAYS } from '@/lib/auth/jwt';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { authRateLimit } from '@/lib/api/rate-limit';
 
@@ -45,10 +46,10 @@ export async function POST(request: NextRequest) {
 
     const keep = keep_signed_in === true;
     const accessToken = await signAccessToken(tokenPayload);
-    const refreshToken = await signRefreshToken(keep ? { ...tokenPayload, keep: true } : tokenPayload);
-
-    // Store session (creates new or updates existing for this user)
-    await createOrUpdateSession(user.id, refreshToken, keep ? KEEP_SIGNED_IN_DAYS : undefined);
+    // One new session row per sign-in (per device); its id rides in the refresh token as `sid`.
+    const sessionId = randomUUID();
+    const refreshToken = await signRefreshToken({ ...tokenPayload, sid: sessionId, ...(keep ? { keep: true } : {}) });
+    await createSession(user.id, sessionId, refreshToken, keep ? KEEP_SIGNED_IN_DAYS : undefined);
 
     // Update last login
     await prisma.user.update({

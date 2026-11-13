@@ -19,6 +19,12 @@ export interface TokenPayload extends JWTPayload {
    * signed token, so it cannot be added or changed without JWT_REFRESH_SECRET.
    */
   keep?: boolean;
+  /**
+   * Refresh tokens only: the id of the one session row (one per sign-in, so one per device) this
+   * token belongs to. Refresh finds that row by this id, so signing out and signing in again can
+   * never revive an older device's token. Part of the signed token.
+   */
+  sid?: string;
   /** The API key row id when via is 'api_key'. */
   apiKeyId?: string;
 }
@@ -27,7 +33,8 @@ export async function signAccessToken(payload: Omit<TokenPayload, 'iat' | 'exp'>
   return new SignJWT(payload)
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
-    .setExpirationTime(process.env.JWT_ACCESS_EXPIRY || '1h')
+    // 15 minutes, the same as the access cookie, so a copied access token does not outlive its cookie.
+    .setExpirationTime(process.env.JWT_ACCESS_EXPIRY || '15m')
     .sign(JWT_SECRET);
 }
 
@@ -54,41 +61,24 @@ export async function verifyRefreshToken(token: string): Promise<TokenPayload> {
   return payload as TokenPayload;
 }
 
-export async function createOrUpdateSession(
+/**
+ * Sign-in: one NEW session row per sign-in (id = the `sid` carried in the refresh token), so each
+ * device has its own row. The user's expired rows are removed at the same time; their live rows
+ * (other devices) stay.
+ */
+export async function createSession(
   userId: string,
+  sessionId: string,
   refreshToken: string,
   days: number = DEFAULT_REFRESH_DAYS
 ): Promise<void> {
-  let expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + days);
-
-  // Upsert: create new session or update existing one for this user
-  // This allows multiple tabs to share the same session
-  const existingSession = await prisma.session.findFirst({
-    where: { user_id: userId },
-  });
-
-  if (existingSession) {
-    // One session row per user is shared by all devices: never shorten it, so a default sign-in
-    // elsewhere cannot cut a "keep me signed in" device short. With no long session this is the
-    // same as always (the stored expiry is never later than now + 7 days).
-    if (existingSession.expires_at > expiresAt) expiresAt = existingSession.expires_at;
-    await prisma.session.update({
-      where: { id: existingSession.id },
-      data: {
-        refresh_token: refreshToken,
-        expires_at: expiresAt,
-      },
-    });
-  } else {
-    await prisma.session.create({
-      data: {
-        user_id: userId,
-        refresh_token: refreshToken,
-        expires_at: expiresAt,
-      },
-    });
-  }
+  const expiresAt = new Date(Date.now() + days * 86400 * 1000);
+  await prisma.$transaction([
+    prisma.session.deleteMany({ where: { user_id: userId, expires_at: { lt: new Date() } } }),
+    prisma.session.create({
+      data: { id: sessionId, user_id: userId, refresh_token: refreshToken, expires_at: expiresAt },
+    }),
+  ]);
 }
 
 export async function deleteUserSessions(userId: string): Promise<void> {
@@ -97,17 +87,10 @@ export async function deleteUserSessions(userId: string): Promise<void> {
   });
 }
 
-export async function findSessionByUser(userId: string) {
-  return prisma.session.findFirst({
-    where: { user_id: userId },
-    include: { user: true },
-  });
-}
-
-// Legacy function for backwards compatibility during transition
-export async function findSession(refreshToken: string) {
+/** The session row a refresh token's `sid` names, with its user. Null when there is no such row. */
+export async function findSessionById(sessionId: string) {
   return prisma.session.findUnique({
-    where: { refresh_token: refreshToken },
+    where: { id: sessionId },
     include: { user: true },
   });
 }

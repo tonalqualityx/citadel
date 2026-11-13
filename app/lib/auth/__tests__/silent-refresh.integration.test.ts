@@ -28,7 +28,7 @@ vi.mock('next/navigation', () => ({
 
 import { prisma } from '@/lib/db/prisma';
 import { SCRATCH } from '@/lib/engine/__tests__/seed';
-import { signAccessToken, signRefreshToken, createOrUpdateSession, deleteUserSessions } from '@/lib/auth/jwt';
+import { signAccessToken, signRefreshToken, createSession, deleteUserSessions } from '@/lib/auth/jwt';
 import { GET as continueRoute } from '@/app/api/auth/continue/route';
 import { POST as refreshRoute } from '@/app/api/auth/refresh/route';
 import { GET as meRoute } from '@/app/api/auth/me/route';
@@ -55,16 +55,17 @@ const layoutTarget = async () => {
 describe.skipIf(!SCRATCH)('silent refresh on a cold open (real database)', () => {
   const tag = crypto.randomBytes(3).toString('hex');
   const roles = ['admin', 'pm', 'tech', 'designer'] as const;
-  const users: Record<string, { id: string; email: string; refresh: string }> = {};
+  const users: Record<string, { id: string; email: string; refresh: string; sid: string }> = {};
 
   beforeAll(async () => {
     for (const role of roles) {
       const u = await prisma.user.create({
         data: { email: `sr-${role}-${tag}@example.test`, password_hash: 'x', name: `SR ${role}`, role },
       });
-      const refresh = await signRefreshToken({ userId: u.id, email: u.email, role });
-      await createOrUpdateSession(u.id, refresh);
-      users[role] = { id: u.id, email: u.email, refresh };
+      const sid = crypto.randomUUID();
+      const refresh = await signRefreshToken({ userId: u.id, email: u.email, role, sid });
+      await createSession(u.id, sid, refresh);
+      users[role] = { id: u.id, email: u.email, refresh, sid };
     }
   });
   afterAll(async () => {
@@ -95,7 +96,7 @@ describe.skipIf(!SCRATCH)('silent refresh on a cold open (real database)', () =>
     const { verifyAccessToken } = await import('@/lib/auth/jwt');
     expect((await verifyAccessToken(access!)).role).toBe(role);
     // The session row now holds the new refresh token (same as POST /api/auth/refresh).
-    const row = await prisma.session.findFirst({ where: { user_id: users[role].id } });
+    const row = await prisma.session.findUnique({ where: { id: users[role].sid } });
     expect(row?.refresh_token).toBe(cookieValue(res, 'refresh_token'));
     users[role].refresh = cookieValue(res, 'refresh_token')!;
   });
@@ -114,7 +115,7 @@ describe.skipIf(!SCRATCH)('silent refresh on a cold open (real database)', () =>
 
   it('expired refresh token goes to /login with nothing set', async () => {
     const { SignJWT } = await import('jose');
-    const old = await new SignJWT({ userId: users.admin.id, email: users.admin.email, role: 'admin' })
+    const old = await new SignJWT({ userId: users.admin.id, email: users.admin.email, role: 'admin', sid: users.admin.sid })
       .setProtectedHeader({ alg: 'HS256' })
       .setIssuedAt(Math.floor(Date.now() / 1000) - 1000)
       .setExpirationTime(Math.floor(Date.now() / 1000) - 10)
@@ -136,7 +137,7 @@ describe.skipIf(!SCRATCH)('silent refresh on a cold open (real database)', () =>
     const res = await cont('/dashboard', { refresh_token: u.refresh });
     expect(res.headers.get('location')).toBe('/login');
     expect(setNames(res)).toEqual([]);
-    await createOrUpdateSession(u.id, u.refresh); // restore for later tests
+    await createSession(u.id, u.sid, u.refresh); // restore for later tests
   });
 
   it('inactive user goes to /login', async () => {

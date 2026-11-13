@@ -81,7 +81,8 @@ describe.skipIf(!SCRATCH)('Keep me signed in on this device (real database)', ()
     expect(await lifetime(val(res, 'refresh_token'))).toBe(30 * DAY);
     expect((await verifyRefreshToken(val(res, 'refresh_token'))).keep).toBe(true);
     expect((await verifyAccessToken(val(res, 'access_token')) as { keep?: boolean }).keep).toBeUndefined();
-    const row = await prisma.session.findFirst({ where: { user_id: userId } });
+    const sid = (await verifyRefreshToken(val(res, 'refresh_token'))).sid!;
+    const row = await prisma.session.findUnique({ where: { id: sid } });
     expect(row!.expires_at.getTime() - Date.now()).toBeGreaterThan(29 * DAY * 1000);
   });
 
@@ -115,12 +116,16 @@ describe.skipIf(!SCRATCH)('Keep me signed in on this device (real database)', ()
     expect(maxAge(c, 'refresh_token')).toBe(7 * DAY);
   });
 
-  it('a default sign-in elsewhere does not shorten a kept device', async () => {
+  it('a default sign-in elsewhere does not shorten a kept device (each device has its own row)', async () => {
     const kept = await login(email, { keep_signed_in: true }, '10.0.5.1');
-    await login(email, {}, '10.0.5.2');
-    const row = await prisma.session.findFirst({ where: { user_id: userId } });
-    expect(row!.expires_at.getTime() - Date.now()).toBeGreaterThan(29 * DAY * 1000);
-    expect(kept.status).toBe(200);
+    const other = await login(email, {}, '10.0.5.2');
+    const keptSid = (await verifyRefreshToken(val(kept, 'refresh_token'))).sid!;
+    const otherSid = (await verifyRefreshToken(val(other, 'refresh_token'))).sid!;
+    expect(keptSid).not.toBe(otherSid);
+    const keptRow = await prisma.session.findUnique({ where: { id: keptSid } });
+    const otherRow = await prisma.session.findUnique({ where: { id: otherSid } });
+    expect(keptRow!.expires_at.getTime() - Date.now()).toBeGreaterThan(29 * DAY * 1000);
+    expect(otherRow!.expires_at.getTime() - Date.now()).toBeLessThan(8 * DAY * 1000);
   });
 
   describe('cannot be obtained by tampering', () => {
@@ -140,7 +145,7 @@ describe.skipIf(!SCRATCH)('Keep me signed in on this device (real database)', ()
 
     it('a refresh token with keep added by hand is refused (bad signature), nothing is set', async () => {
       const { SignJWT } = await import('jose');
-      const forged = await new SignJWT({ userId, email, role: 'tech', keep: true })
+      const forged = await new SignJWT({ userId, email, role: 'tech', keep: true, sid: crypto.randomUUID() })
         .setProtectedHeader({ alg: 'HS256' })
         .setIssuedAt()
         .setExpirationTime('90d')
@@ -152,9 +157,8 @@ describe.skipIf(!SCRATCH)('Keep me signed in on this device (real database)', ()
       expect(c.headers.getSetCookie()).toEqual([]);
       mocks.jar = { refresh_token: forged };
       {
-        // (a bad signature is a 500 from handleApiError today, as before this change; what matters is no cookies)
         const r = await refreshRoute();
-        expect(r.status).toBeGreaterThanOrEqual(400);
+        expect(r.status).toBe(401);
         expect(r.headers.getSetCookie()).toEqual([]);
       }
     });
@@ -168,7 +172,7 @@ describe.skipIf(!SCRATCH)('Keep me signed in on this device (real database)', ()
         .sign(new TextEncoder().encode(process.env.JWT_SECRET));
       mocks.jar = { refresh_token: t };
       const r = await refreshRoute();
-      expect(r.status).toBeGreaterThanOrEqual(400);
+      expect(r.status).toBe(401);
       expect(r.headers.getSetCookie()).toEqual([]);
     });
 

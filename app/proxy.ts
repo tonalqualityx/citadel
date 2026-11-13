@@ -15,9 +15,11 @@ const PAGE_HEADER = 'x-citadel-page';
 export function proxy(request: NextRequest) {
   const headers = new Headers(request.headers);
   headers.delete(PAGE_HEADER);
+  // The route header is only ever stamped on API requests below; a client-sent one never reaches a
+  // page or any other request.
+  headers.delete(ROUTE_HEADER);
   const p = request.nextUrl.pathname;
   if (p === '/api' || p.startsWith('/api/')) {
-    headers.delete(ROUTE_HEADER);
     headers.set(ROUTE_HEADER, `${request.method} ${request.nextUrl.pathname}`);
   } else {
     headers.set(PAGE_HEADER, `${request.nextUrl.pathname}${request.nextUrl.search}`);
@@ -26,6 +28,11 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // API routes, plus every page. Next internals and files with an extension are skipped.
-  matcher: ['/api/:path*', '/((?!api/|_next/|.*\\..*).*)'],
+  // API routes, plus every page, including a page path that contains a dot (a dynamic segment can).
+  // Skipped: Next internals and the public files the home-screen install needs without a session
+  // (manifest, icons, favicon). Those are static, so nothing needs stamping on them.
+  matcher: [
+    '/api/:path*',
+    '/((?!api/|_next/|manifest\\.webmanifest|icons/|apple-icon\\.png|icon\\.png|favicon\\.ico|favicon\\.png).*)',
+  ],
 };

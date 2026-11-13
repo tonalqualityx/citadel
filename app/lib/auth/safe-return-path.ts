@@ -1,7 +1,7 @@
 /**
  * A return path is only ever a same-origin relative path to a page. Anything else returns null.
  * Rejects absolute and protocol-relative URLs, backslashes, control characters, a leading `//`,
- * anything not starting with a single `/`, API paths, and the continue route itself (no loop).
+ * anything not starting with a single `/`, API paths (after dot segments are resolved), and the continue route itself (no loop).
  */
 export function safeReturnPath(raw: unknown): string | null {
   if (typeof raw !== 'string' || raw.length === 0 || raw.length > 2048) return null;
@@ -24,10 +24,14 @@ export function safeReturnPath(raw: unknown): string | null {
     const base = 'http://citadel.invalid';
     const u = new URL(raw, base);
     if (u.origin !== base) return null;
+    // Dot segments are resolved before the API check, so /x/../api/... is refused too. The decoded
+    // form is checked as well (/x/..%2Fapi/...).
+    const resolved = [u.pathname, new URL(decoded, base).pathname];
+    for (const p of resolved) {
+      if (p === '/api' || p.startsWith('/api/')) return null;
+    }
   } catch {
     return null;
   }
-  const pathOnly = raw.split(/[?#]/)[0];
-  if (pathOnly === '/api' || pathOnly.startsWith('/api/')) return null;
   return raw;
 }

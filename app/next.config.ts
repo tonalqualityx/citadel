@@ -55,8 +55,14 @@ const nextConfig: NextConfig = {
       },
       // Documents must never be cached (prerendered pages ship s-maxage=31536000, so a stale HTML
       // shell would keep pointing at chunk hashes of an old build). /_next/static stays immutable.
+      // Auth responses carry tokens and session state: never stored by any cache. Listed first and
+      // excluded from the documents rule below so that rule cannot replace it.
       {
-        source: '/((?!_next/).*)',
+        source: '/api/auth/:path*',
+        headers: [{ key: 'Cache-Control', value: 'no-store' }],
+      },
+      {
+        source: '/((?!_next/|api/auth/).*)',
         headers: [{ key: 'Cache-Control', value: 'private, no-cache, must-revalidate' }],
       },
     ];

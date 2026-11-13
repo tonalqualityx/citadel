@@ -7,8 +7,20 @@ const OVERRIDE = 'x-middleware-override-headers';
 const fwd = (res: Response, name: string) => res.headers.get(`x-middleware-request-${name}`);
 
 describe('proxy (x-citadel-route)', () => {
-  it('runs on /api and on pages, not on Next internals or files', () => {
-    expect(config.matcher).toEqual(['/api/:path*', '/((?!api/|_next/|.*\\..*).*)']);
+  it('runs on /api and on every page, not on Next internals or the public install files', () => {
+    expect(config.matcher[0]).toBe('/api/:path*');
+    const re = new RegExp(`^${config.matcher[1]}$`);
+    for (const p of ['/', '/dashboard', '/sites/example.com', '/design/sessions/a.b']) expect(re.test(p), p).toBe(true);
+    for (const p of ['/_next/static/x.js', '/manifest.webmanifest', '/icons/icon-192.png', '/apple-icon.png', '/icon.png', '/favicon.ico', '/api/x'])
+      expect(re.test(p), p).toBe(false);
+  });
+
+  it('drops a client-sent x-citadel-route on a page request, including a dotted page path', () => {
+    for (const path of ['/tasks/abc', '/sites/example.com']) {
+      const res = proxy(new NextRequest(`http://localhost:3000${path}`, { headers: { 'x-citadel-route': 'GET /api/email-outbox' } }));
+      expect(fwd(res, 'x-citadel-route')).toBeNull();
+      expect(fwd(res, 'x-citadel-page')).toBe(path);
+    }
   });
 
   it('stamps x-citadel-page on a page request and drops a spoofed one, without a route header', () => {
