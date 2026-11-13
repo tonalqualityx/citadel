@@ -5,6 +5,7 @@ import { prisma } from '@/lib/db/prisma';
 import { handleApiError } from '@/lib/api/errors';
 import { authRateLimit } from '@/lib/api/rate-limit';
 import { sendPasswordResetEmail } from '@/lib/services/email';
+import { BOT_USER_IDS } from '@/lib/oracle/projects/gate-constants';
 
 const forgotPasswordSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -34,6 +35,11 @@ export async function POST(request: NextRequest) {
     });
 
     // Only proceed if user exists and is active
+    // A bot user (Bast, Dox, ...) has no password login and must never get a reset token or a mail.
+    if (user && BOT_USER_IDS.includes(user.id)) {
+      return successResponse;
+    }
+
     if (!user || !user.is_active) {
       // Return success anyway to prevent email enumeration
       return successResponse;

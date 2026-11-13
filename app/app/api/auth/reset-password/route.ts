@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs';
 import { prisma } from '@/lib/db/prisma';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { authRateLimit } from '@/lib/api/rate-limit';
+import { BOT_USER_IDS } from '@/lib/oracle/projects/gate-constants';
 
 const resetPasswordSchema = z.object({
   token: z.string().min(1, 'Token is required'),
@@ -34,6 +35,11 @@ export async function POST(request: NextRequest) {
 
     // Validate token exists
     if (!resetToken) {
+      throw new ApiError('Invalid or expired reset link', 400);
+    }
+
+    // A token that belongs to a bot user is refused exactly like an unknown one.
+    if (BOT_USER_IDS.includes(resetToken.user_id)) {
       throw new ApiError('Invalid or expired reset link', 400);
     }
 
