@@ -486,6 +486,8 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('GET', '/api/engagement-briefs/:id/snapshot'),
     r('POST', '/api/engagement-briefs/:id/passes'),
     r('PATCH', '/api/engagement-passes/:id'),
+    // A card pass: Dox working one released card that has no project (lib/dox/guard.ts requireCardInPlay; x-dox-card names it)
+    r('POST', '/api/tasks/:id/card-pass'),
     // The projects that have a next-step refresh queued (an @Dox mention stamps one), and the next-step line for the project in play (lib/dox/guard.ts requireProjectInPlay, checked in the route)
     r('GET', '/api/oracle/projects/refresh-requests'),
     r('PUT', '/api/oracle/projects/:id/next-step/write'),

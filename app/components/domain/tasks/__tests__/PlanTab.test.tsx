@@ -274,6 +274,29 @@ describe('Plan tab', () => {
   });
 });
 
+describe('Plan tab: requirement progress', () => {
+  it('each requirement line says not started, in progress or done when the server sent progress; with none sent it shows nothing', () => {
+    render(
+      <PlanView
+        plan={plan({
+          requirements: [
+            req('Contact form', { progress: 'not_started', done: 0, total: 0 }),
+            req('Home page', { progress: 'in_progress', done: 1, total: 3 }),
+            req('Privacy page', { progress: 'done', done: 1, total: 1 }),
+          ],
+        })}
+      />,
+    );
+    const tags = screen.getAllByTestId('plan-req-progress');
+    expect(tags.map((t) => t.getAttribute('data-progress'))).toEqual(['not_started', 'in_progress', 'done']);
+    expect(tags.map((t) => (t.textContent ?? '').trim())).toEqual(['· Not started', '· In progress (1 of 3 tasks)', '· Done (1 of 1 task)']);
+  });
+  it('a plan with no progress on its lines shows no progress at all', () => {
+    render(<PlanView plan={plan({ requirements: [req('Contact form'), req('Home page')] })} />);
+    expect(screen.queryByTestId('plan-req-progress')).toBeNull();
+  });
+});
+
 describe('Plan tab: collapsible sections and date sources', () => {
   const KEY = 'citadel.plan.collapsed';
   const store: Record<string, string> = {};

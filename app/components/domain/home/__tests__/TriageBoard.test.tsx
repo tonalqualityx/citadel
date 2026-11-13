@@ -47,6 +47,15 @@ const items = () => screen.getAllByTestId('triage-card-item');
 
 beforeEach(() => q.push.mockReset());
 
+describe('TriageBoard: why Dox asks about the dates', () => {
+  it('a card with a date flag shows the reason in plain words; a card without shows nothing', () => {
+    render(<TriageBoard triage={triage([card(1, { date_flags: [{ kind: 'start', reason: 'Start date was Nov 10, and this card is still waiting for you.' }] }), card(2)])} onAct={vi.fn()} onTalk={vi.fn()} />);
+    const [a, b] = items();
+    expect(within(a).getByTestId('triage-date-reason').textContent).toBe('Start date was Nov 10, and this card is still waiting for you.');
+    expect(within(b).queryByTestId('triage-date-reason')).toBeNull();
+  });
+});
+
 describe('TriageBoard', () => {
   it('renders one card per idea in a grid, in the order the server sent', () => {
     render(<TriageBoard triage={triage([card(1), card(2), card(3)])} onAct={vi.fn()} onTalk={vi.fn()} />);

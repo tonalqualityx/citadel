@@ -10,7 +10,7 @@ import { useBastChatShell } from '@/components/domain/bast-chat/BastChatProvider
 import { openTriageConversation } from '@/components/domain/home/triage-talk';
 import { TriageActions } from '@/components/domain/home/TriageActions';
 import { TriageFacts } from '@/components/domain/home/TriageProject';
-import { LooksDoneEvidence, ReleaseLine, SessionChanged } from '@/components/domain/home/TriageBoard';
+import { DateReason, LooksDoneEvidence, ReleaseLine, SessionChanged } from '@/components/domain/home/TriageBoard';
 import { LOOKS_DONE_BADGE, ageFromDays, kindLabel } from '@/lib/tasks/triage-copy';
 
 /** Remembered per device: whether the panel is open. Collapsed by default. */
@@ -70,6 +70,7 @@ export function TriagePanel({ taskId, enabled = true }: { taskId: string; enable
           </button>
         </div>
         <SessionChanged card={card} />
+        <DateReason card={card} />
         {card.looks_done ? <LooksDoneEvidence looksDone={card.looks_done} /> : <ReleaseLine card={card} showDetails={expanded} clamp={!expanded} />}
         <TriageFacts project={card.project} openQuestions={card.open_questions} />
         <TriageActions

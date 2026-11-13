@@ -3,7 +3,8 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { serializeBrief } from '@/lib/engagement/serialize';
-import { guardDoxSnapshotRead, mayReadSnapshot } from '@/lib/dox/guard';
+import { guardDoxSnapshotRead, isDoxLane, mayReadSnapshot, requireDoxBriefBinding } from '@/lib/dox/guard';
+import { ensureProjectBrief } from '@/lib/engagement/ensure-brief';
 import { MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import { isChatLane } from '@/lib/tasks/questions';
 
@@ -12,38 +13,19 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /**
  * POST /api/projects/[id]/engagement-brief: start the project's brief (one per project) with cadence `auto`, owner_mode `dry` and no allowed actions.
  * Idempotent: a project that already has a brief gets it back with 200, unchanged (nothing here replaces or edits an existing brief; the owner changes
- * cadence and mode). The Dox lane, the owner's own session or the owner's chat lane only. A project that does not exist is 404; a deleted one too.
+ * cadence and mode). The Dox lane (only for the project its x-dox-project header names, which must be live: it creates the brief a released card never got, with these same defaults and no way to set the mode), the owner's own session or the owner's chat lane only. A project that does not exist is 404; a deleted one too.
  */
-export async function POST(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const auth = await requireAuth();
     if (!mayReadSnapshot(auth, MIKE_USER_ID) && !isChatLane(auth)) throw new ApiError('Only Dox, the owner and the owner\'s chat start a project brief.', 403, 'brief_forbidden');
     const { id } = await params;
     if (!UUID.test(id)) throw new ApiError('Bad id', 400);
     await guardDoxSnapshotRead(auth, id);
-    const project = await prisma.project.findFirst({ where: { id, is_deleted: false }, select: { id: true, name: true, client_id: true } });
-    if (!project) throw new ApiError('Project not found', 404);
-    const existing = await prisma.engagementBrief.findUnique({ where: { project_id: id } });
-    if (existing) return NextResponse.json(serializeBrief(existing), { status: 200 });
-    try {
-      const row = await prisma.engagementBrief.create({
-        data: {
-          client_id: project.client_id,
-          project_id: id,
-          label: project.name.slice(0, 120),
-          cadence: 'auto',
-          owner_mode: 'dry',
-          allowed_actions: [],
-          created_by_id: auth.userId,
-        },
-      });
-      return NextResponse.json(serializeBrief(row), { status: 201 });
-    } catch (e) {
-      // Two creators at once: the unique project_id makes the second one read the first.
-      const again = await prisma.engagementBrief.findUnique({ where: { project_id: id } });
-      if (again) return NextResponse.json(serializeBrief(again), { status: 200 });
-      throw e;
-    }
+    if (isDoxLane(auth)) await requireDoxBriefBinding(request.headers, id);
+    const made = await ensureProjectBrief(prisma, id, auth.userId);
+    if (!made) throw new ApiError('Project not found', 404);
+    return NextResponse.json(serializeBrief(made.brief), { status: made.created ? 201 : 200 });
   } catch (error) {
     return handleApiError(error);
   }

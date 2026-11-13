@@ -842,6 +842,8 @@ export interface HomeTriageCard {
   target_launch_date: string | null;
   /** A session marked the card finished: the evidence line (text after "Looks done: ") and the web addresses in it. */
   looks_done: { evidence: string; links: { text: string; href: string }[] } | null;
+  /** Dox has an open question about the card's dates (cause_key starting triage-date:): the reason in plain words, one line per kind. */
+  date_flags?: { kind: 'start' | 'launch'; reason: string }[];
   /** project_setup cards only (and only when a project is linked). */
   project: HomeTriageProject | null;
 }

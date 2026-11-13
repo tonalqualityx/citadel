@@ -518,7 +518,7 @@ export const projectEndpoints: ApiEndpoint[] = [
         summary: 'Start the engagement brief of the project (one per project) with cadence auto, owner_mode dry and no allowed actions. Idempotent.',
         auth: 'required',
         responseExample: { id: 'uuid', project_id: 'uuid', cadence: 'auto', owner_mode: 'dry', last_pass_at: 'ISO-8601|null' },
-        responseNotes: '201 created, 200 the existing brief unchanged. The Dox lane, the owner session or the owner\'s chat lane only. Cadence values (auto, daily, every_2_days, every_3_days, weekly, every_2_weeks, none) are validated by PUT /api/engagement-briefs.',
+        responseNotes: '201 created, 200 the existing brief unchanged. The Dox lane (only for the project its x-dox-project header names, which must be live: it makes the brief an older released card never got, with these same defaults and no way to set the mode), the owner session or the owner\'s chat lane only. Releasing a Triage card linked to a project also makes sure the project has this brief. Cadence values (auto, daily, every_2_days, every_3_days, weekly, every_2_weeks, none) are validated by PUT /api/engagement-briefs.',
       },
     ],
   },
@@ -567,6 +567,23 @@ export const projectEndpoints: ApiEndpoint[] = [
         ],
         responseExample: { id: 'uuid', brief_id: 'uuid', mode: 'live', kind: 'setup', started_at: 'ISO-8601', finished_at: null },
         responseNotes: '409 brief_off, 409 brief_not_live. A dry pass writes nothing: Dox\'s task, project, wait and comment writes need an open LIVE pass (403 dox_pass_dry otherwise).',
+      },
+    ],
+  },
+  {
+    path: '/api/tasks/:id/card-pass',
+    group: 'projects',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Dox opens a card pass on one released card that has no project (an ad hoc task, tool, rule or question). Passes normally hang off a project brief; a card pass hangs off the card. The Dox lane only.',
+        auth: 'required',
+        bodySchema: [
+          { name: 'mode', type: 'string', required: false, description: 'live (default: the owner\'s release of the card is the yes) or dry' },
+          { name: 'model', type: 'string', required: false, description: 'Model name, 80 characters at most' },
+        ],
+        responseExample: { id: 'uuid', brief_id: null, task_id: 'uuid', mode: 'live', kind: 'setup', started_at: 'ISO-8601', finished_at: null },
+        responseNotes: '409 card_not_passable unless the card is released from Triage, assigned to Dox, not_started or in_progress, with no project. Under a live card pass (x-dox-card names the card) Dox may comment, change the card\'s own allow-listed fields, assign it to a person or to Bast, mark it done and create a project for it. Finish the pass with PATCH /api/engagement-passes/:id.',
       },
     ],
   },

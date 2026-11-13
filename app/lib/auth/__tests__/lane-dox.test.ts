@@ -73,6 +73,7 @@ const ALLOWED: [string, string][] = [
   ['GET', '/api/engagement-briefs/7f1c/snapshot'],
   ['POST', '/api/engagement-briefs/7f1c/passes'],
   ['PATCH', '/api/engagement-passes/7f1c'],
+  ['POST', '/api/tasks/7f1c/card-pass'],
   ['GET', '/api/oracle/projects/refresh-requests'],
   ['PUT', '/api/oracle/projects/7f1c/next-step/write'],
 ];

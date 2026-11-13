@@ -138,6 +138,100 @@ export async function requireProjectInPlay(headers: Hdrs, expect?: string | null
   return project as PlayProject;
 }
 
+/**
+ * POST /api/projects/:id/engagement-brief as the Dox lane: the brief a released card never got. Bound to the project the x-dox-project header names,
+ * which must be live. No pass is needed (a pass hangs off the brief, so the brief comes first); the route takes no body, so the mode and cadence are
+ * the defaults (dry, auto) and Dox cannot make a brief live.
+ */
+export async function requireDoxBriefBinding(headers: Hdrs, projectId: string, db: Db = prisma): Promise<void> {
+  const header = doxProjectOf(headers);
+  if (!header) return refuse('Dox starts a brief for one project at a time: send the x-dox-project header.', 'dox_no_project');
+  if (header !== projectId.toLowerCase()) return refuse('That is not the project Dox is working on.', 'dox_outside_project');
+  const project = await db.project.findFirst({ where: { id: header, is_deleted: false }, select: { status: true } });
+  if (!project) return refuse('That is not the project Dox is working on.', 'dox_outside_project');
+  if (!(DOX_LIVE_PROJECT_STATUSES as readonly string[]).includes(project.status)) {
+    return refuse(`Dox does not start a brief for a project that is ${project.status}: only ready, in progress or in review.`, 'dox_project_closed');
+  }
+}
+
+// ---------------------------------------------------------------- card passes
+
+/** The statuses a card is in while Dox works it: released (not_started) or picked up (in_progress). */
+export const DOX_CARD_STATUSES = ['not_started', 'in_progress'] as const;
+
+/** The card header's id, or null. */
+export function doxCardOf(headers: Hdrs): string | null {
+  return uuidHeader(headers, DOX_CARD_HEADER);
+}
+
+export interface CardInPlay {
+  id: string;
+  title: string;
+  status: string;
+  tags: string[];
+  client_id: string | null;
+}
+
+/** A card Dox may work through a card pass: released from Triage, assigned to Dox, not finished, no project yet, not deleted. Null when it is not. */
+export async function loadCardForPass(db: Db, taskId: string): Promise<CardInPlay | null> {
+  const card = await db.task.findFirst({
+    where: {
+      id: taskId,
+      is_deleted: false,
+      project_id: null,
+      assignee_id: DOX_USER_ID,
+      status: { in: [...DOX_CARD_STATUSES] },
+      tags: { has: FROM_TRIAGE_TAG },
+    },
+    select: { id: true, title: true, status: true, tags: true, client_id: true },
+  });
+  return card;
+}
+
+/**
+ * The open card pass for a card (or null): started through the dox lane, not finished, not older than DOX_PASS_MAX_AGE_MS, naming this card.
+ * `live: true` counts only a live one (every write needs one).
+ */
+export async function openCardPass(db: Db, taskId: string, now: Date = new Date(), opts: { live?: boolean } = {}): Promise<{ id: string; mode: string } | null> {
+  const rows = await db.engagementPass.findMany({
+    where: {
+      task_id: taskId,
+      brief_id: null,
+      finished_at: null,
+      started_at: { gte: new Date(now.getTime() - DOX_PASS_MAX_AGE_MS) },
+      lane: { contains: DOX_LANE },
+      ...(opts.live ? { mode: 'live' } : {}),
+    },
+    select: { id: true, lane: true, mode: true },
+    take: 10,
+  });
+  return rows.find((r) => isDoxLaneValue(r.lane)) ?? null;
+}
+
+/**
+ * The card this Dox write is bound to: the x-dox-card header names it, it is a released card assigned to Dox with no project, and Dox holds an open LIVE
+ * card pass on it. Mike's release of the card is the yes, so a card pass is live without a brief. Refuses with a code that says which part failed.
+ */
+export async function requireCardInPlay(headers: Hdrs, expect?: string | null, db: Db = prisma): Promise<CardInPlay> {
+  const header = doxCardOf(headers);
+  if (!header) return refuse('Dox works one released card at a time: send the x-dox-card header.', 'dox_no_card');
+  if (expect && header !== expect.toLowerCase()) return refuse('That is not the card Dox is working on.', 'dox_outside_card');
+  const card = await loadCardForPass(db, header);
+  if (!card) return refuse('That is not a released card assigned to Dox with no project.', 'dox_card_closed');
+  if (!(await openCardPass(db, card.id, new Date(), { live: true }))) {
+    if (await openCardPass(db, card.id)) return refuse('The open pass on this card is dry: a dry pass writes nothing. Start a live card pass to write.', 'dox_pass_dry');
+    return refuse('Start a card pass on this card first (POST /api/tasks/:id/card-pass): Dox writes to a card with no project only while a live pass it started is open.', 'dox_no_pass');
+  }
+  return card;
+}
+
+/** True when the header names this very card and a live card pass is open on it (no refusal: the caller decides what it unlocks). */
+async function cardPassIsLive(headers: Hdrs, cardId: string | undefined, db: Db): Promise<boolean> {
+  if (!cardId || doxCardOf(headers) !== cardId.toLowerCase()) return false;
+  if (!(await loadCardForPass(db, cardId))) return false;
+  return !!(await openCardPass(db, cardId, new Date(), { live: true }));
+}
+
 // ---------------------------------------------------------------- tasks
 
 const POST_TASK_FIELDS = new Set([
@@ -327,6 +421,8 @@ export async function guardDoxTaskPatch(auth: LaneAuth, headers: Hdrs, rawBody: 
   } else if (!existing.tags.includes(FROM_TRIAGE_TAG)) {
     refuse('That task is outside what Dox sets up.', 'dox_outside_project');
   }
+  // A card with no project that Dox holds a live card pass on: his own card. It unlocks handing the card to Bast and marking it done.
+  const cardPass = !existing.project_id && (await cardPassIsLive(headers, existing.id, db));
 
   if (body.plan_item_ids !== undefined) {
     if (!existing.project_id) refuse('A card with no project has no setup card to link to.', 'dox_outside_project');
@@ -334,7 +430,7 @@ export async function guardDoxTaskPatch(auth: LaneAuth, headers: Hdrs, rawBody: 
   }
 
   let assignToBast = false;
-  if (body.assignee_id !== undefined) assignToBast = (await checkAssignee(db, body.assignee_id, { inProject: !!existing.project_id })).toBast;
+  if (body.assignee_id !== undefined) assignToBast = (await checkAssignee(db, body.assignee_id, { inProject: !!existing.project_id || cardPass })).toBast;
 
   if (body.blocked_by_ids !== undefined) {
     const b = blockerIdsOf(body.blocked_by_ids);
@@ -346,7 +442,10 @@ export async function guardDoxTaskPatch(auth: LaneAuth, headers: Hdrs, rawBody: 
     }
   }
 
-  if (body.status !== undefined) {
+  if (body.status === 'done') {
+    if (!cardPass) refuse('Dox marks a card done only through a live card pass on that card (x-dox-card and an open pass).', 'dox_status_closed');
+    if (!(DOX_CARD_STATUSES as readonly string[]).includes(existing.status)) refuse(`Dox does not close a card that is ${existing.status}.`, 'dox_status_closed');
+  } else if (body.status !== undefined) {
     if (body.status !== 'not_started' || existing.status !== 'in_progress') refuse('Dox can only return an in_progress task to not_started.', 'dox_status_closed');
     // Hand-back is for a dead agent hold only: the assignee is a bot user, no live session, no movement for 48 hours. Never a person's task.
     const dead = existing.id && (await holdIsDead(db, { id: existing.id, project_id: existing.project_id, assignee_id: existing.assignee_id ?? null, updated_at: existing.updated_at ?? null }));
@@ -455,6 +554,8 @@ export async function guardDoxProjectCreate(auth: LaneAuth, headers: Hdrs, rawBo
   if (!internal && !(card.client_id && body.client_id === card.client_id)) {
     refuse('A project Dox creates is internal or belongs to the card\'s client.', 'dox_field_closed');
   }
+  // The card is Dox's to turn into a project only through a live card pass on it (the release was the yes): the header names it, it is assigned to Dox.
+  await requireCardInPlay(headers, cardId, db);
   return { id: card.id, client_id: card.client_id };
 }
 

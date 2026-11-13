@@ -345,10 +345,10 @@ describe.skipIf(!SCRATCH)('Dox slice 1 (real database)', () => {
       expect((await workState(prisma, `task:${open}`))?.live_session).toBe(false);
 
       // the brief: created once with cadence auto, and the snapshot by brief id carries it
-      const made = await json(await startBrief(call(undefined), idParams(proj)));
+      const made = await json(await startBrief(call(proj), idParams(proj)));
       expect(made.status).toBe(201);
       expect(made.body).toMatchObject({ project_id: proj, cadence: 'auto', owner_mode: 'dry' });
-      const again = await json(await startBrief(call(undefined), idParams(proj)));
+      const again = await json(await startBrief(call(proj), idParams(proj)));
       expect(again.status).toBe(200);
       expect(again.body.id).toBe(made.body.id);
       expect(await prisma.engagementBrief.count({ where: { project_id: proj } })).toBe(1);
