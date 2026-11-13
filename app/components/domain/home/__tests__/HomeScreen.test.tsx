@@ -294,7 +294,7 @@ describe('HomeScreen', () => {
   });
   it('Triage: the section shows for Mike with its count, posts a release through the act hook, and is absent otherwise', async () => {
     const res = mkRes();
-    res.triage = { count: 2, groups: [{ key: 'project:p1', kind: 'project', label: 'Grok rebuild', count: 2, titles: ['Idea A', 'Idea B'], tasks: [{ task_id: 't1', title: 'Idea A', href: '/tasks/t1', project_name: 'Grok rebuild' }, { task_id: 't2', title: 'Idea B', href: '/tasks/t2', project_name: 'Grok rebuild' }], project_id: 'p1', still_quote: false }] };
+    res.triage = { count: 2, open_questions: 0, groups: [{ key: 'project:p1', kind: 'project', label: 'Grok rebuild', count: 2, titles: ['Idea A', 'Idea B'], tasks: [{ task_id: 't1', title: 'Idea A', href: '/tasks/t1', project_name: 'Grok rebuild', open_questions: 0 }, { task_id: 't2', title: 'Idea B', href: '/tasks/t2', project_name: 'Grok rebuild', open_questions: 0 }], open_questions: 0, project_id: 'p1', still_quote: false }] };
     h.home = { data: res, isLoading: false, isError: false, refetch: vi.fn() };
     h.act.mockResolvedValue({});
     const { unmount } = render(<HomeScreen />);

@@ -76,6 +76,10 @@ const EXPECTED = [
   'PATCH /api/tasks/:id',
   'GET /api/tasks/:id/comments',
   'POST /api/tasks/:id/checklist',
+  'GET /api/tasks/:id/questions',
+  'POST /api/tasks/:id/questions',
+  'PATCH /api/tasks/:id/questions/:qid',
+  'POST /api/tasks/:id/questions/:qid/answer',
   'GET /api/projects',
   'GET /api/projects/:id',
   'GET /api/oracle/projects',
@@ -192,7 +196,7 @@ beforeEach(() => {
 });
 
 describe('lane bast-chat: the list', () => {
-  it('holds exactly the 50 entries of the plan, and nothing else', () => {
+  it('holds exactly the 54 entries of the plan, and nothing else', () => {
     expect(LANE_ROUTES['bast-chat'].map((r) => `${r.method} ${r.pattern}`)).toEqual(EXPECTED);
   });
 
@@ -205,7 +209,7 @@ describe('lane bast-chat: the list', () => {
     const writes = LANE_ROUTES['bast-chat'].filter((r) => r.method !== 'GET');
     expect(writes.some((r) => r.method === 'DELETE')).toBe(false);
     for (const r of writes) {
-      const ok = r.pattern.startsWith('/api/bast-chat/worker/') || r.pattern === '/api/tasks' || r.pattern === '/api/tasks/:id' || r.pattern === '/api/tasks/:id/checklist' || r.pattern === '/api/work/attach' || r.pattern === '/api/oracle/clocks';
+      const ok = r.pattern.startsWith('/api/bast-chat/worker/') || r.pattern === '/api/tasks' || r.pattern === '/api/tasks/:id' || r.pattern === '/api/tasks/:id/checklist' || r.pattern.startsWith('/api/tasks/:id/questions') || r.pattern === '/api/work/attach' || r.pattern === '/api/oracle/clocks';
       expect(ok, `${r.method} ${r.pattern}`).toBe(true);
     }
   });

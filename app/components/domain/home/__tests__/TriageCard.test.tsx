@@ -6,12 +6,12 @@ import type { HomeTriage, HomeTriageGroup } from '@/lib/home/types';
 
 const P = '7aa4a01a-1111-4222-8333-944445555666';
 const tasks = (n: number, project = 'Stronghold') =>
-  Array.from({ length: n }, (_, i) => ({ task_id: `7aa4a01a-1111-4222-8333-94444555${String(i).padStart(4, '0')}`, title: `Idea ${i + 1}`, href: `/tasks/${i}`, project_name: project }));
+  Array.from({ length: n }, (_, i) => ({ task_id: `7aa4a01a-1111-4222-8333-94444555${String(i).padStart(4, '0')}`, title: `Idea ${i + 1}`, href: `/tasks/${i}`, project_name: project, open_questions: 0 }));
 const group = (over: Partial<HomeTriageGroup> = {}): HomeTriageGroup => {
   const t = tasks(5);
-  return { key: `project:${P}`, kind: 'project', label: 'Stronghold', count: 5, titles: t.slice(0, 3).map((x) => x.title), tasks: t, project_id: P, still_quote: false, ...over };
+  return { key: `project:${P}`, kind: 'project', label: 'Stronghold', count: 5, titles: t.slice(0, 3).map((x) => x.title), tasks: t, open_questions: 0, project_id: P, still_quote: false, ...over };
 };
-const triage = (groups: HomeTriageGroup[]): HomeTriage => ({ count: groups.reduce((n, g) => n + g.count, 0), groups });
+const triage = (groups: HomeTriageGroup[]): HomeTriage => ({ count: groups.reduce((n, g) => n + g.count, 0), open_questions: groups.reduce((n, g) => n + g.open_questions, 0), groups });
 
 describe('TriageCard', () => {
   it('shows the count, each group with its count and three titles, and expands to all', () => {

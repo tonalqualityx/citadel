@@ -706,6 +706,8 @@ export interface HomeTriageTask {
   href: string;
   /** The project's name, or null for a task with none. */
   project_name: string | null;
+  /** Questions on this card still waiting for his answer. */
+  open_questions: number;
 }
 
 /** Triage: one group of parked ideas, by project, or by a `triage-pass:` tag when the tasks carry one. */
@@ -719,6 +721,8 @@ export interface HomeTriageGroup {
   titles: string[];
   /** Every task in the group, for the expanded view and for "Release plan". */
   tasks: HomeTriageTask[];
+  /** Open questions across the group's cards. */
+  open_questions: number;
   /** Project groups only: the project id (for Talk about this). */
   project_id: string | null;
   /** True when every project in the group is still a quote: Release plan will say so and do nothing. */
@@ -727,6 +731,8 @@ export interface HomeTriageGroup {
 
 export interface HomeTriage {
   count: number;
+  /** Open questions across every card in Triage. */
+  open_questions: number;
   groups: HomeTriageGroup[];
 }
 
