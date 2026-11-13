@@ -37,6 +37,7 @@ import { LOOKS_DONE_TAG } from './looks-done';
 import { markHomeActionUndone } from '@/lib/home/state';
 import { readWorkCloseRecord, undoWorkClose, type WorkCloseRecord } from '@/lib/work/ask-closure';
 import { stageALines } from '@/lib/work/finished-store';
+import { ensureProjectBrief } from '@/lib/engagement/ensure-brief';
 import { RELEASE_REFUSALS, planRelease, type ReleasePlan, type TriageKindName } from './triage-kind';
 import { HELD_NEEDS_MIKE_MARK, HELD_TAG, NEEDS_MIKE_TAG, openQuestionCounts } from './questions';
 
@@ -373,6 +374,8 @@ async function run(
     qDefaulted += defaulted.length;
     qWaiting += waitCount;
     if (fx?.project_to_ready && row.project) toReady.set(row.project.id, row.project.name);
+    // A released card linked to a project makes sure the project has its Dox brief (dry, default cadence; an existing one is never touched). Undo leaves it.
+    if (mode === 'release' && target !== 'done' && row.project_id) await ensureProjectBrief(db, row.project_id, userId);
     if (target === 'done') closedIds.push(row.id);
     rec.items.push({
       task_id: row.id,

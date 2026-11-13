@@ -4450,7 +4450,10 @@ model EngagementBrief {
 
 model EngagementPass {
   id          String    @id @default(uuid()) @db.Uuid
-  brief_id    String    @db.Uuid
+  /// The project brief the pass hangs off. Null for a CARD PASS (task_id set): Dox working one released card that has no project.
+  brief_id    String?   @db.Uuid
+  /// The released card a card pass is for (null for a project pass). Exactly one of brief_id and task_id is set.
+  task_id     String?   @db.Uuid
   mode        String    @db.VarChar(10) // dry | live
   started_at  DateTime  @default(now())
   finished_at DateTime?
@@ -4466,6 +4469,7 @@ model EngagementPass {
   kind        String?   @db.VarChar(10)
 
   @@index([brief_id, started_at])
+  @@index([task_id, started_at])
   @@map("engagement_passes")
 }
 

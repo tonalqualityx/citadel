@@ -24,6 +24,7 @@ import { GET as projectSnapshot } from '@/app/api/projects/[id]/engagement-snaps
 import { POST as startBrief } from '@/app/api/projects/[id]/engagement-brief/route';
 import * as waitsRoute from '@/app/api/waits/route';
 import { PATCH as patchWait } from '@/app/api/waits/[id]/route';
+import { DOX_USER_ID } from '../identity';
 import { dox, idParams, makeFixture, BOT_ID, type Fx } from './fixture';
 import { BOT_USER_IDS, MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
 
@@ -160,7 +161,7 @@ describe.skipIf(!SCRATCH)('Dox escape attempts (real database)', () => {
       const p = await fx.mkProject('Sweep', { status: 'ready' });
       const t = await fx.mkTask('Sweep task', { project_id: p, status: 'not_started' });
       as(dox());
-      const brief = await json(await startBrief(call(undefined), idParams(p)));
+      const brief = await json(await startBrief(call(p), idParams(p)));
       expect(brief.status).toBe(201);
       expect((await json(await patchTask(call(p, { assignee_id: staff }, 'PATCH'), idParams(t)))).body.code).toBe('dox_no_pass');
       // a dry pass is read-only: it is open, but it does not let a write through
@@ -403,7 +404,13 @@ describe.skipIf(!SCRATCH)('Dox escape attempts (real database)', () => {
       for (const c of [unreleased, inTriage]) expect((await json(await make(body, c))).body.code, c).toBe('dox_card_closed');
       expect((await json(await make({ ...body, type: 'enterprise' }))).status).toBe(400);
       expect(await prisma.project.count({ where: { name: `${fx.tag} Small job` } })).toBe(0);
-      // the allowed one
+      // the allowed one needs the card to be Dox's with a live card pass on it
+      const notDoxs = await json(await make(body));
+      expect([notDoxs.status, notDoxs.body.code]).toEqual([403, 'dox_card_closed']);
+      await prisma.task.update({ where: { id: card }, data: { assignee_id: DOX_USER_ID } });
+      const noPass = await json(await make(body));
+      expect([noPass.status, noPass.body.code]).toEqual([403, 'dox_no_pass']);
+      await fx.openCardPass(card);
       const made = await json(await make(body));
       expect(made.status, JSON.stringify(made.body)).toBe(201);
       fx.projectIds.push(made.body.id);
@@ -414,7 +421,8 @@ describe.skipIf(!SCRATCH)('Dox escape attempts (real database)', () => {
       expect((await json(await make({ ...body, name: `${fx.tag} Second` }))).body.code).toBe('dox_card_closed');
       expect(await prisma.project.count({ where: { name: `${fx.tag} Second` } })).toBe(0);
       // a client project for the card's own client is allowed too (and only that client)
-      const card2 = await fx.mkTask('Second released card', { status: 'not_started', tags: ['from-triage'], client_id: fx.clientId, triage_kind: 'task' });
+      const card2 = await fx.mkTask('Second released card', { status: 'not_started', tags: ['from-triage'], client_id: fx.clientId, triage_kind: 'task', assignee_id: DOX_USER_ID });
+      await fx.openCardPass(card2);
       const m2 = await json(await make({ name: `${fx.tag} Client job`, type: 'project', client_id: fx.clientId, status: 'ready' }, card2));
       expect(m2.status, JSON.stringify(m2.body)).toBe(201);
       fx.projectIds.push(m2.body.id);
@@ -424,7 +432,8 @@ describe.skipIf(!SCRATCH)('Dox escape attempts (real database)', () => {
       as(dox());
       const make = (b: unknown, cardId: string) => projectsRoute.POST(call(undefined, b, 'POST', { 'x-dox-card': cardId }));
       for (const [kind, type] of [['project_setup', 'project'], ['project_addition', 'retainer'], ['question_only', 'project'], ['reusable_tool', 'internal'], ['rule_proposal', 'project'], ['task', 'retainer'], [null, 'project']] as const) {
-        const card = await fx.mkTask(`Any size ${kind}`, { status: 'not_started', tags: ['from-triage'], client_id: fx.clientId, ...(kind ? { triage_kind: kind } : {}) });
+        const card = await fx.mkTask(`Any size ${kind}`, { status: 'not_started', tags: ['from-triage'], client_id: fx.clientId, assignee_id: DOX_USER_ID, ...(kind ? { triage_kind: kind } : {}) });
+        await fx.openCardPass(card);
         const made = await json(await make({ name: `${fx.tag} Any ${kind} ${type}`, type, client_id: fx.clientId, status: 'ready' }, card));
         expect(made.status, `${kind}/${type}: ${JSON.stringify(made.body)}`).toBe(201);
         fx.projectIds.push(made.body.id);

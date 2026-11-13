@@ -80,6 +80,21 @@ export function SessionChanged({ card }: { card: Pick<HomeTriageCard, 'recent_ch
   );
 }
 
+/** Dox has an open question about this card's dates: why, in plain words. */
+export function DateReason({ card }: { card: Pick<HomeTriageCard, 'date_flags'> }) {
+  const flags = card.date_flags ?? [];
+  if (flags.length === 0) return null;
+  return (
+    <div data-testid="triage-date-reason">
+      {flags.map((f) => (
+        <p key={f.kind} className="home-small" data-kind={f.kind}>
+          {plain(f.reason)}
+        </p>
+      ))}
+    </div>
+  );
+}
+
 export function LooksDoneEvidence({ looksDone }: { looksDone: NonNullable<HomeTriageCard['looks_done']> }) {
   const text = plain(looksDone.evidence) || 'Marked as done, but no note was left.';
   const nodes: React.ReactNode[] = [];
@@ -138,6 +153,7 @@ function TriageCardItem({ card, onAct, onTalk, busy }: { card: HomeTriageCard } 
         </p>
       ) : null}
       <SessionChanged card={card} />
+      <DateReason card={card} />
       {card.looks_done ? <LooksDoneEvidence looksDone={card.looks_done} /> : <ReleaseLine card={card} />}
       {card.project ? <TriageProjectBlock project={card.project} variant="compact" /> : null}
       <TriageActions card={card} onAct={onAct} onTalk={onTalk} busy={busy}>

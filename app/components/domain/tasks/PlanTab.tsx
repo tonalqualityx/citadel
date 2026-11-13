@@ -4,6 +4,7 @@ import * as React from 'react';
 import '@/components/domain/home/home-tokens.css';
 import { useTaskPlan, usePlanItemActions } from '@/lib/hooks/use-task-plan';
 import { plain } from '@/components/domain/home/home-screen-logic';
+import { REQUIREMENT_PROGRESS_LABELS, type RequirementProgress } from '@/lib/tasks/requirement-progress';
 import { shortDay } from '@/lib/tasks/plan-summary';
 import { DealItems } from '@/components/domain/home/TriageProject';
 import {
@@ -237,6 +238,21 @@ function Purpose({ project }: { project: NonNullable<PlanOut['project']> }) {
   );
 }
 
+/** A requirement line's progress, worked out from the tasks that name it (the server sends it only when the project's tasks carry plan links). */
+function RequirementProgressTag({ item }: { item: PlanItemOut }) {
+  const p = str(item.progress) as RequirementProgress;
+  if (!(p in REQUIREMENT_PROGRESS_LABELS)) return null;
+  const total = typeof item.total === 'number' ? item.total : 0;
+  const done = typeof item.done === 'number' ? item.done : 0;
+  return (
+    <span className="home-small home-muted" data-testid="plan-req-progress" data-progress={p}>
+      {' · '}
+      {REQUIREMENT_PROGRESS_LABELS[p]}
+      {total > 0 ? ` (${done} of ${total} ${total === 1 ? 'task' : 'tasks'})` : ''}
+    </span>
+  );
+}
+
 function Requirements({ s, c }: { s: PlanSectionOut; c: Controls }) {
   const items = live(s);
   return (
@@ -249,6 +265,7 @@ function Requirements({ s, c }: { s: PlanSectionOut; c: Controls }) {
             {items.map((i) => (
               <Line key={i.id} section="requirements" item={i} c={c}>
                 {plain(str(i.text))}
+                <RequirementProgressTag item={i} />
               </Line>
             ))}
           </ul>

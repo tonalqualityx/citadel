@@ -7,7 +7,8 @@ import { WorkerNotice } from './WorkerNotice';
 import { ActionsHistory, ActionsSummaryLine } from './ActionsTab';
 import { buildChatItems, buildHistory, undoableCount } from './action-history';
 import type { BastChatCard } from './card-context';
-import { DOX_EMPTY_HINT, DOX_NAME } from '@/lib/tasks/triage-copy';
+import { Avatar } from '@/components/ui/avatar';
+import { DOX_AVATAR_SMALL, DOX_EMPTY_HINT, DOX_NAME } from '@/lib/tasks/triage-copy';
 import { MAX_MESSAGE_CHARS, type TimelineMessage, type UseBastChat } from '@/lib/hooks/use-bast-chat';
 
 export interface BastChatPanelProps {
@@ -43,7 +44,12 @@ function MessageRow({ m, onResend, speaker = null }: { m: TimelineMessage; onRes
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: mine ? 'flex-end' : 'flex-start', gap: 2 }} data-testid={`msg-${m.role}`}>
       {!mine && speaker ? (
-        <span className="home-small home-muted" data-testid="speaker-label">
+        <span className="home-small home-muted" data-testid="speaker-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          {speaker === DOX_NAME ? (
+            <span data-testid="dox-avatar" style={{ display: 'inline-flex' }}>
+              <Avatar src={DOX_AVATAR_SMALL} name={DOX_NAME} size="sm" />
+            </span>
+          ) : null}
           {speaker}
         </span>
       ) : null}

@@ -25,6 +25,16 @@ describe('the chat panel names who you are talking to', () => {
     expect(labels[0].textContent).toBe('Dox');
   });
 
+  it('on a card, Dox\'s turns carry his picture (the small file) and Mike\'s and the general chat\'s do not', () => {
+    const { unmount } = render(<BastChatPanel {...props} chat={chat([msg('mike', 'hello'), msg('bast', 'Here is the card')])} cardChatTitle="Idea" />);
+    const av = screen.getAllByTestId('dox-avatar');
+    expect(av).toHaveLength(1);
+    expect(av[0].querySelector('img')?.getAttribute('src')).toBe('/avatars/dox-128.jpg');
+    unmount();
+    render(<BastChatPanel {...props} chat={chat([msg('bast', 'Hi')])} cardChatTitle={null} />);
+    expect(screen.queryByTestId('dox-avatar')).toBeNull();
+  });
+
   it('the general chat stays Bast: no label, Bast hint and composer', () => {
     render(<BastChatPanel {...props} chat={chat([msg('bast', 'Hi')])} cardChatTitle={null} />);
     expect(screen.queryByTestId('speaker-label')).toBeNull();

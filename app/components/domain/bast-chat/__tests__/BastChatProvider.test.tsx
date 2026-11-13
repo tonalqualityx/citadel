@@ -331,6 +331,7 @@ describe('Bast chat shell: a card page and its conversation', () => {
     render(app(triage));
     await openIt();
     await waitFor(() => expect(screen.getByTestId('bast-chat-title').textContent).toBe('Dox · Idea about invoices'));
+    expect(screen.getByTestId('dox-avatar-header').querySelector('img')?.getAttribute('src')).toBe('/avatars/dox-128.jpg');
     const btn = screen.getByRole('button', { name: 'Start fresh' });
     expect(btn.getAttribute('title')).toMatch(/about this card/);
     expect(screen.queryByRole('button', { name: 'New chat' })).toBeNull();

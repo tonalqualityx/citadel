@@ -6,6 +6,7 @@
  * desk comments), A6 (client-visible tags and project fields), A7 (the one-hour default), A8 (candidate deals), A9 (a non-UUID id), P1 (the billing
  * note), P2 (the Dox sentence), P7, P8 (the lane and the one-line check) and P10 (who reads which section, per role).
  */
+import { DOX_USER_ID } from '@/lib/dox/identity';
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import { NextRequest } from 'next/server';
 import type { Mock } from 'vitest';
@@ -403,7 +404,8 @@ describe.skipIf(!SCRATCH)('access and plan fixes (real database)', () => {
       expect(((await prisma.project.findUniqueOrThrow({ where: { id: p2 } })).description as string)).not.toContain('Triage card');
     });
     it('a project Dox creates from a released card starts hidden from the portal', async () => {
-      const released = await fx.mkTask('A6 released', { status: 'not_started', tags: ['from-triage'], client_id: fx.clientId });
+      const released = await fx.mkTask('A6 released', { status: 'not_started', tags: ['from-triage'], client_id: fx.clientId, assignee_id: DOX_USER_ID });
+      await fx.openCardPass(released);
       as(dox());
       const res = await json(await createProject(call({ name: `${fx.tag} Dox made`, client_id: fx.clientId, status: 'ready', type: 'project' }, 'POST', { 'x-dox-card': released })));
       expect(res.status).toBe(201);

@@ -10,6 +10,7 @@
  * (lib/dox/guard.ts guardDoxTaskWrite: a Triage card or a card with no project is open; a released project card needs the x-dox-project header and an open pass).
  * "Mark wrong" is Mike's (session or chat relaying his words).
  */
+import { projectHasPlanLinks, requirementProgress, type LinkedTask } from './requirement-progress';
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { prisma } from '@/lib/db/prisma';
 import { ApiError } from '@/lib/api/errors';
@@ -282,6 +283,11 @@ export async function loadPlan(task: PlanTaskHead, auth: Auth, headers: Hdrs): P
   const teamIds = items.map((i) => personOf(i)?.user_id).filter((x): x is string => !!x);
   const people = teamIds.length ? await prisma.user.findMany({ where: { id: { in: teamIds } }, select: { id: true, name: true } }) : [];
   const nameOf = new Map(people.map((u) => [u.id, u.name]));
+  // Requirement progress (Dox slice 2c): from the project's tasks whose plan_item_ids name the line, and only when any task on the project carries such a link.
+  const linked: LinkedTask[] = task.project_id
+    ? await prisma.task.findMany({ where: { project_id: task.project_id, is_deleted: false }, select: { status: true, plan_item_ids: true } })
+    : [];
+  const showProgress = projectHasPlanLinks(linked);
   const sections: PlanSectionOut[] = PLAN_SECTIONS.map((section) => {
     const view = viewOf(reader, section);
     const last = changes.find((c) => c.area === `plan:${section}`);
@@ -292,7 +298,7 @@ export async function loadPlan(task: PlanTaskHead, auth: Auth, headers: Hdrs): P
     const lines = items
       .filter((i) => i.section === section)
       .map((i) => {
-        const out = formatItem(i);
+        const out = section === 'requirements' && showProgress ? { ...formatItem(i), ...requirementProgress(linked, i.id) } : formatItem(i);
         const uid = personOf(i)?.user_id;
         const named = uid ? { ...out, person_name: nameOf.get(uid) ?? 'Unknown user', is_mike: uid === MIKE_USER_ID } : out;
         return section === 'planned_tasks' && uid ? { ...named, for_name: (named as { person_name?: string }).person_name } : named;
