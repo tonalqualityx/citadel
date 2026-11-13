@@ -33,11 +33,13 @@ function AppShellInner({ children }: { children: ReactNode }) {
   const { mode, columnRef } = useBastChatShell();
   const split = mode === 'split';
 
+  // Split: position relative so absolutely placed page content (sr-only labels) is clipped by the one-screen shell
+  // instead of adding pixels to the document, which would make the window scroll under the two columns.
   return (
     <div
       className="min-h-screen bg-background-light"
       data-shell-mode={mode}
-      style={{ paddingBottom: 'env(safe-area-inset-bottom)', ...(split ? { height: '100dvh', minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' } : {}) }}
+      style={{ paddingBottom: 'env(safe-area-inset-bottom)', ...(split ? { position: 'relative', height: '100dvh', minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' } : {}) }}
     >
       <Sidebar collapsed={home} />
       <div

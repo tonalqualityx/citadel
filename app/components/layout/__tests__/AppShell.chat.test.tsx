@@ -65,6 +65,7 @@ describe('AppShell with the Bast chat', () => {
     const main = container.querySelector('main')!;
     expect(root.style.height).toBe('100dvh');
     expect(root.style.overflow).toBe('hidden');
+    expect(root.style.position).toBe('relative'); // clips absolutely placed page content so the window cannot scroll
     expect(body.style.display).toBe('grid');
     expect(body.getAttribute('data-columns')).toBe('minmax(0, 1fr) clamp(360px, 34vw, 480px)'); // jsdom cannot hold clamp() in a style
     expect(body.className).toContain('[&>header]:col-span-full');
