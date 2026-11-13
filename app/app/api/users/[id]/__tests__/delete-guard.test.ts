@@ -12,6 +12,7 @@ vi.mock('@/lib/db/prisma', () => ({
   prisma: {
     user: { findUnique: vi.fn(), update: vi.fn(), delete: vi.fn() },
     task: { count: vi.fn() },
+    session: { deleteMany: vi.fn() },
     designSession: { count: vi.fn() },
     designPublish: { count: vi.fn() },
   },
@@ -78,6 +79,8 @@ describe('DELETE /api/users/[id] design guard', () => {
     expect((await res.json()).deactivated).toBe(true);
     expect(mockUserUpdate).toHaveBeenCalledWith({ where: { id: 'designer-1' }, data: { is_active: false } });
     expect(mockUserDelete).not.toHaveBeenCalled();
+    // a deactivated user is signed out on every device
+    expect(prisma.session.deleteMany).toHaveBeenCalledWith({ where: { user_id: 'designer-1' } });
   });
 
   it('self-delete stays 400 and missing user stays 404', async () => {

@@ -4,8 +4,8 @@ type RequestConfig = {
 };
 
 // Token expiry in milliseconds (should match JWT_ACCESS_EXPIRY)
-const ACCESS_TOKEN_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
-// Refresh token 5 minutes before it expires
+const ACCESS_TOKEN_EXPIRY_MS = 15 * 60 * 1000; // 15 minutes (the cookie's lifetime too)
+// Refresh 5 minutes before it expires
 const REFRESH_BUFFER_MS = 5 * 60 * 1000;
 
 class ApiClient {

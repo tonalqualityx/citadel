@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { verifyAccessToken } from '@/lib/auth/jwt';
+import { redirectToContinueOrLogin } from '@/lib/auth/silent-refresh';
 import { DesignChrome } from '@/components/domain/design/DesignChrome';
 import { DesignStaffShell } from '@/components/domain/design/DesignStaffShell';
 
@@ -13,7 +14,7 @@ import { DesignStaffShell } from '@/components/domain/design/DesignStaffShell';
 export default async function DesignLayout({ children }: { children: React.ReactNode }) {
   const cookieStore = await cookies();
   const token = cookieStore.get('access_token');
-  if (!token) redirect('/login');
+  if (!token) return redirectToContinueOrLogin();
 
   // UX only; the API allowlist is the enforcement. A token that fails to verify (expired) renders
   // the shell so the client-side refresh runs, like the staff layout.

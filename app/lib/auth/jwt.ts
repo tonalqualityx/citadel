@@ -14,6 +14,17 @@ export interface TokenPayload extends JWTPayload {
    * the signing helpers do not need it.
    */
   via?: 'session' | 'api_key';
+  /**
+   * Refresh tokens only: the staff sign-in ticked "Keep me signed in on this device". Part of the
+   * signed token, so it cannot be added or changed without JWT_REFRESH_SECRET.
+   */
+  keep?: boolean;
+  /**
+   * Refresh tokens only: the id of the one session row (one per sign-in, so one per device) this
+   * token belongs to. Refresh finds that row by this id, so signing out and signing in again can
+   * never revive an older device's token. Part of the signed token.
+   */
+  sid?: string;
   /** The API key row id when via is 'api_key'. */
   apiKeyId?: string;
 }
@@ -22,15 +33,21 @@ export async function signAccessToken(payload: Omit<TokenPayload, 'iat' | 'exp'>
   return new SignJWT(payload)
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
-    .setExpirationTime(process.env.JWT_ACCESS_EXPIRY || '1h')
+    // 15 minutes, the same as the access cookie, so a copied access token does not outlive its cookie.
+    .setExpirationTime(process.env.JWT_ACCESS_EXPIRY || '15m')
     .sign(JWT_SECRET);
 }
 
+/** Lifetime of a refresh token (and its session) for a device that ticked "Keep me signed in". */
+export const KEEP_SIGNED_IN_DAYS = 30;
+export const DEFAULT_REFRESH_DAYS = 7;
+
 export async function signRefreshToken(payload: Omit<TokenPayload, 'iat' | 'exp'>): Promise<string> {
-  return new SignJWT(payload)
+  const keep = payload.keep === true;
+  return new SignJWT(keep ? { ...payload, keep: true } : payload)
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
-    .setExpirationTime(process.env.JWT_REFRESH_EXPIRY || '7d')
+    .setExpirationTime(keep ? `${KEEP_SIGNED_IN_DAYS}d` : process.env.JWT_REFRESH_EXPIRY || '7d')
     .sign(JWT_REFRESH_SECRET);
 }
 
@@ -44,33 +61,24 @@ export async function verifyRefreshToken(token: string): Promise<TokenPayload> {
   return payload as TokenPayload;
 }
 
-export async function createOrUpdateSession(userId: string, refreshToken: string): Promise<void> {
-  const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + 7); // 7 days
-
-  // Upsert: create new session or update existing one for this user
-  // This allows multiple tabs to share the same session
-  const existingSession = await prisma.session.findFirst({
-    where: { user_id: userId },
-  });
-
-  if (existingSession) {
-    await prisma.session.update({
-      where: { id: existingSession.id },
-      data: {
-        refresh_token: refreshToken,
-        expires_at: expiresAt,
-      },
-    });
-  } else {
-    await prisma.session.create({
-      data: {
-        user_id: userId,
-        refresh_token: refreshToken,
-        expires_at: expiresAt,
-      },
-    });
-  }
+/**
+ * Sign-in: one NEW session row per sign-in (id = the `sid` carried in the refresh token), so each
+ * device has its own row. The user's expired rows are removed at the same time; their live rows
+ * (other devices) stay.
+ */
+export async function createSession(
+  userId: string,
+  sessionId: string,
+  refreshToken: string,
+  days: number = DEFAULT_REFRESH_DAYS
+): Promise<void> {
+  const expiresAt = new Date(Date.now() + days * 86400 * 1000);
+  await prisma.$transaction([
+    prisma.session.deleteMany({ where: { user_id: userId, expires_at: { lt: new Date() } } }),
+    prisma.session.create({
+      data: { id: sessionId, user_id: userId, refresh_token: refreshToken, expires_at: expiresAt },
+    }),
+  ]);
 }
 
 export async function deleteUserSessions(userId: string): Promise<void> {
@@ -79,17 +87,10 @@ export async function deleteUserSessions(userId: string): Promise<void> {
   });
 }
 
-export async function findSessionByUser(userId: string) {
-  return prisma.session.findFirst({
-    where: { user_id: userId },
-    include: { user: true },
-  });
-}
-
-// Legacy function for backwards compatibility during transition
-export async function findSession(refreshToken: string) {
+/** The session row a refresh token's `sid` names, with its user. Null when there is no such row. */
+export async function findSessionById(sessionId: string) {
   return prisma.session.findUnique({
-    where: { refresh_token: refreshToken },
+    where: { id: sessionId },
     include: { user: true },
   });
 }

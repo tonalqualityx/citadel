@@ -145,6 +145,11 @@ export async function PATCH(
       },
     });
 
+    // Deactivating a user ends every device for good (refresh also refuses an inactive user).
+    if (data.is_active === false) {
+      await prisma.session.deleteMany({ where: { user_id: id } });
+    }
+
     return NextResponse.json(user);
   } catch (error) {
     return handleApiError(error);
@@ -199,6 +204,7 @@ export async function DELETE(
         where: { id },
         data: { is_active: false },
       });
+      await prisma.session.deleteMany({ where: { user_id: id } });
 
       return NextResponse.json({
         message: 'User has been deactivated (has related records)',

@@ -33,8 +33,25 @@ describe('home screen app files load without a session', () => {
     expect(existsSync(path.join(root, 'app/apple-icon.png'))).toBe(true);
     expect(existsSync(path.join(root, 'app/icon.png'))).toBe(true);
   });
-  it('the proxy only matches /api, so none of these paths touch it', () => {
-    expect(config.matcher).toEqual(['/api/:path*']);
+  it('the proxy page pattern does not match these files, so they stay public; pages still match', () => {
+    const pagePattern = config.matcher.find((m) => !m.startsWith('/api/'))!;
+    const re = new RegExp(`^${pagePattern}$`);
+    for (const p of [
+      '/manifest.webmanifest',
+      '/icons/icon-192.png',
+      '/icons/icon-512.png',
+      '/icons/icon-maskable-512.png',
+      '/apple-icon.png',
+      '/icon.png',
+    ]) {
+      expect(re.test(p), p).toBe(false);
+    }
+    for (const p of ['/', '/dashboard', '/tasks/abc', '/sites/example.com', '/iconography']) {
+      expect(re.test(p), p).toBe(true);
+    }
+    // API paths are matched by the first entry, never by the page pattern.
+    expect(config.matcher).toContain('/api/:path*');
+    expect(re.test('/api/tasks')).toBe(false);
   });
   it('a normal signed-in page still redirects to sign-in without a session', async () => {
     (cookies as Mock).mockResolvedValue({ get: () => undefined });
