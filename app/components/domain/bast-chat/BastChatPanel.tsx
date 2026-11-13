@@ -4,6 +4,8 @@ import * as React from 'react';
 import { MessageText } from './MessageText';
 import { ActionLine } from './ActionLine';
 import { WorkerNotice } from './WorkerNotice';
+import { ActionsHistory, ActionsSummaryLine } from './ActionsTab';
+import { buildChatItems, buildHistory, undoableCount } from './action-history';
 import type { BastChatCard } from './card-context';
 import { MAX_MESSAGE_CHARS, type TimelineMessage, type UseBastChat } from '@/lib/hooks/use-bast-chat';
 
@@ -74,6 +76,56 @@ export function BastChatPanel({ chat, card, cardChatTitle = null, onLeaveCardCha
   const stick = React.useRef(true);
   const aboutCard = card && (cardChatTitle !== null || !aboutDropped) ? card : null;
 
+  // Two tabs: the conversation, and the history of what the chat did. The actions are the same rows, drawn in another place.
+  const [tab, setTab] = React.useState<'chat' | 'actions'>('chat');
+  const [highlight, setHighlight] = React.useState<string | null>(null);
+  const actionsScroller = React.useRef<HTMLDivElement | null>(null);
+  const chatScrollTop = React.useRef(0);
+  const jumpTo = React.useRef<string | null>(null);
+  const outcomeOf = chat.actionOutcome;
+  const chatItems = React.useMemo(() => buildChatItems(chat.timeline, outcomeOf), [chat.timeline, outcomeOf]);
+  const history = React.useMemo(() => buildHistory(chat.timeline, outcomeOf), [chat.timeline, outcomeOf]);
+  const historyTotal = history.reduce((n, t) => n + t.entries.length, 0);
+  const undoable = undoableCount(chat.timeline, outcomeOf, chat.now);
+  const [answeredSeen, setAnsweredSeen] = React.useState(chat.lastAssistantSeq);
+  const newAnswer = tab === 'actions' && chat.lastAssistantSeq > answeredSeen;
+  const showTab = (next: 'chat' | 'actions') => {
+    if (next === tab) return;
+    if (tab === 'chat' && scroller.current) chatScrollTop.current = stick.current ? Number.MAX_SAFE_INTEGER : scroller.current.scrollTop;
+    setTab(next);
+  };
+  const viewActions = (turnKey: string) => {
+    jumpTo.current = turnKey;
+    showTab('actions');
+  };
+  React.useEffect(() => {
+    setTab('chat');
+  }, [chat.cardTaskId]);
+  React.useLayoutEffect(() => {
+    if (tab === 'chat') {
+      const el = scroller.current;
+      if (el) el.scrollTop = chatScrollTop.current >= el.scrollHeight ? el.scrollHeight : chatScrollTop.current;
+    } else if (jumpTo.current) {
+      const key = jumpTo.current;
+      jumpTo.current = null;
+      const target = Array.from(actionsScroller.current?.querySelectorAll<HTMLElement>('[data-turn]') ?? []).find((n) => n.dataset.turn === key);
+      if (target) {
+        if (typeof target.scrollIntoView === 'function') target.scrollIntoView({ block: 'start' });
+        setHighlight(key);
+      }
+    } else if (actionsScroller.current) {
+      actionsScroller.current.scrollTop = 0;
+    }
+  }, [tab]);
+  React.useEffect(() => {
+    if (tab === 'chat') setAnsweredSeen(chat.lastAssistantSeq);
+  }, [tab, chat.lastAssistantSeq]);
+  React.useEffect(() => {
+    if (!highlight) return;
+    const t = setTimeout(() => setHighlight(null), 2500);
+    return () => clearTimeout(t);
+  }, [highlight]);
+
   React.useEffect(() => {
     const el = scroller.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
@@ -107,6 +159,46 @@ export function BastChatPanel({ chat, card, cardChatTitle = null, onLeaveCardCha
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0, flex: 1 }} data-testid="bast-chat-panel">
+      <div role="tablist" aria-label="Chat views" data-testid="bast-chat-tabs" style={{ flex: 'none', display: 'flex', gap: 4, borderBottom: '1px solid var(--border)' }}>
+        {(
+          [
+            ['chat', 'Chat', 'Chat'],
+            ['actions', undoable > 0 ? `Actions (${undoable})` : 'Actions', undoable > 0 ? `Actions, ${undoable} can still be undone` : 'Actions'],
+          ] as const
+        ).map(([id, text, name]) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            id={`bast-chat-tab-${id}`}
+            data-testid={`tab-${id}`}
+            aria-selected={tab === id}
+            aria-controls={id === 'chat' ? 'bast-chat-chat-panel' : 'bast-chat-actions-panel'}
+            aria-label={id === 'chat' && newAnswer ? 'Chat, new answer' : name}
+            onClick={() => showTab(id)}
+            style={{
+              flex: 1,
+              minHeight: 44,
+              font: 'inherit',
+              fontSize: '0.9rem',
+              fontWeight: tab === id ? 600 : 400,
+              color: tab === id ? 'var(--text-primary)' : 'var(--text-muted, var(--text-secondary))',
+              background: 'none',
+              border: 0,
+              borderBottom: tab === id ? '2px solid var(--accent)' : '2px solid transparent',
+              marginBottom: -1,
+              cursor: 'pointer',
+            }}
+          >
+            {text}
+            {id === 'chat' && newAnswer ? <span data-testid="tab-chat-dot" aria-hidden="true"> {'\u2022'}</span> : null}
+          </button>
+        ))}
+      </div>
+      {tab === 'actions' ? (
+        <ActionsHistory chat={chat} turns={history} total={historyTotal} highlight={highlight} onUndoSinceCount={(i) => appliedFrom(chat.timeline, i)} scrollerRef={actionsScroller} />
+      ) : null}
+      <div id="bast-chat-chat-panel" role="tabpanel" aria-labelledby="bast-chat-tab-chat" style={{ display: tab === 'chat' ? 'contents' : 'none' }}>
       {chat.notice ? <WorkerNotice text={chat.notice} /> : null}
       <div
         ref={scroller}
@@ -119,7 +211,7 @@ export function BastChatPanel({ chat, card, cardChatTitle = null, onLeaveCardCha
         style={{ flex: 1, minHeight: 0, overflowY: 'auto', overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch', display: 'flex', flexDirection: 'column', gap: 10 }}
       >
         {empty ? <p className="home-small home-muted">Ask about a task or a project. Bast answers from what is in Citadel.</p> : null}
-        {chat.timeline.map((item, idx) => {
+        {chatItems.map((item) => {
           if (item.type === 'message') {
             return (
               <MessageRow
@@ -130,6 +222,7 @@ export function BastChatPanel({ chat, card, cardChatTitle = null, onLeaveCardCha
             );
           }
           if (item.type === 'note') return <p key={item.key} className="home-small home-muted">{item.text}</p>;
+          if (item.type === 'actions') return <ActionsSummaryLine key={item.key} actions={item.actions} turnKey={item.turnKey} onView={viewActions} />;
           return (
             <ActionLine
               key={item.key}
@@ -141,7 +234,7 @@ export function BastChatPanel({ chat, card, cardChatTitle = null, onLeaveCardCha
               onRelease={(id) => void chat.actOn(id, 'release')}
               onDecline={(id) => void chat.actOn(id, 'decline')}
               outcome={chat.actionOutcome(item.action.id)}
-              sinceCount={appliedFrom(chat.timeline, idx)}
+              sinceCount={appliedFrom(chat.timeline, chat.timeline.indexOf(item))}
               onUndoSince={(id) => void chat.undoSince(id)}
               sinceLines={chat.sinceLines(item.action.id)}
             />
@@ -245,6 +338,7 @@ export function BastChatPanel({ chat, card, cardChatTitle = null, onLeaveCardCha
         </div>
         {tooLong ? <span className="home-small" style={{ color: 'var(--warning)' }}>Too long. Keep it under {MAX_MESSAGE_CHARS} characters.</span> : null}
       </form>
+      </div>
     </div>
   );
 }

@@ -160,7 +160,8 @@ export interface TimelineMessage {
 export type TimelineItem =
   | { type: 'message'; key: string; message: TimelineMessage }
   | { type: 'note'; key: string; text: string }
-  | { type: 'action'; key: string; action: ChatAction };
+  /** `at`: when the action's event was written (ISO), or null when that event is not loaded. */
+  | { type: 'action'; key: string; action: ChatAction; at?: string | null };
 
 export const OFFLINE_TEXT = "Bast's machine isn't answering right now. Your message will wait for 2 hours.";
 export const PAUSED_TEXT = 'Bast chat is paused on the machine.';
@@ -666,12 +667,12 @@ export function useBastChat({ open, enabled = true }: { open: boolean; enabled?:
       ) {
         items.push({ order: e.seq, item: { type: 'note', key: `e${e.seq}`, text: e.payload.text } });
       }
-      for (const a of actionBySeq.get(e.seq) ?? []) items.push({ order: e.seq + 0.5, item: { type: 'action', key: `a${a.id}`, action: a } });
+      for (const a of actionBySeq.get(e.seq) ?? []) items.push({ order: e.seq + 0.5, item: { type: 'action', key: `a${a.id}`, action: a, at: e.created_at ?? null } });
     }
     // Actions whose event is not loaded (or has no seq) still show, after what is loaded.
     for (const [seq, list] of actionBySeq) {
       if (seqs.has(seq)) continue;
-      for (const a of list) items.push({ order: seq + 0.5, item: { type: 'action', key: `a${a.id}`, action: a } });
+      for (const a of list) items.push({ order: seq + 0.5, item: { type: 'action', key: `a${a.id}`, action: a, at: null } });
     }
     for (const a of loose) items.push({ order: Number.MAX_SAFE_INTEGER - 1, item: { type: 'action', key: `a${a.id}`, action: a } });
     items.sort((x, y) => x.order - y.order);

@@ -3,10 +3,21 @@
 import * as React from 'react';
 import { createPortal } from 'react-dom';
 import { usePathname } from 'next/navigation';
-import { MessageSquare, ChevronLeft, X, Plus } from 'lucide-react';
+import { MessageSquare, ChevronLeft, ChevronsLeft, ChevronsRight, X, Plus } from 'lucide-react';
 import '@/components/domain/home/home-tokens.css';
 import { BastChatPanel } from './BastChatPanel';
 import { cardFromInput, type OpenCardInput } from './card-context';
+import {
+  BAST_CHAT_WIDTH_KEY,
+  KEY_STEP_BIG_PX,
+  KEY_STEP_PX,
+  dragWidth,
+  parseWidthPref,
+  resolveWidth,
+  serializeWidthPref,
+  type ResolvedWidth,
+  type WidthPref,
+} from './chat-width';
 import { COARSE_QUERY, SPLIT_QUERY, useMediaQuery } from './use-media-query';
 import { useBastChat, type UseBastChat } from '@/lib/hooks/use-bast-chat';
 import { computeSheetBox, useVisualViewport } from '@/lib/hooks/use-visual-viewport';
@@ -67,6 +78,16 @@ export interface BastChatShell {
   setPageCard: (card: OpenCardInput | null) => void;
   /** The element that scrolls the page while the split is open (AppShell's main). */
   columnRef: React.RefObject<HTMLElement | null>;
+  /** The split column's width and its controls (the full-screen sheets ignore all of this). */
+  width: ResolvedWidth;
+  /** Normal width <-> wide. */
+  toggleWide: () => void;
+  /** Drag or arrow keys: a width in px, clamped to the bounds. `save` false while a drag is still going. */
+  setWidthPx: (px: number, save?: boolean) => void;
+  /** Back to the normal width. */
+  resetWidth: () => void;
+  /** AppShell says how much of the window the sidebar takes, so the page column keeps its minimum. */
+  setReservedLeft: (px: number) => void;
 }
 
 const noop = () => {};
@@ -81,6 +102,11 @@ const OFF: BastChatShell = {
   offer: noop,
   setPageCard: noop,
   columnRef: { current: null },
+  width: resolveWidth({ kind: 'normal' }, 1440, 0),
+  toggleWide: noop,
+  setWidthPx: noop,
+  resetWidth: noop,
+  setReservedLeft: noop,
 };
 
 const ShellContext = React.createContext<BastChatShell>(OFF);
@@ -162,6 +188,36 @@ export function BastChatProvider({ children }: { children: React.ReactNode }) {
   const mode: ChatMode = open && available ? (split ? 'split' : 'full') : 'closed';
   const columnRef = React.useRef<HTMLElement | null>(null);
   const pathname = usePathname();
+
+  // ---- the split column's width: normal, wide or dragged; remembered per device in localStorage, like the open state ----
+  const [widthPref, setWidthPref] = React.useState<WidthPref>({ kind: 'normal' });
+  const [vw, setVw] = React.useState(() => (typeof window === 'undefined' ? 1440 : window.innerWidth));
+  const [reservedLeft, setReservedLeft] = React.useState(0);
+  React.useEffect(() => {
+    setWidthPref(parseWidthPref(read(BAST_CHAT_WIDTH_KEY)));
+    const onResize = () => setVw(window.innerWidth);
+    onResize();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+  const width = React.useMemo(() => resolveWidth(widthPref, vw, reservedLeft), [widthPref, vw, reservedLeft]);
+  const saveWidth = React.useCallback((p: WidthPref) => {
+    setWidthPref(p);
+    write(BAST_CHAT_WIDTH_KEY, serializeWidthPref(p));
+  }, []);
+  const toggleWide = React.useCallback(() => {
+    if (width.wide) saveWidth({ kind: 'normal' });
+    else if (width.canWiden) saveWidth({ kind: 'wide' });
+  }, [width.wide, width.canWiden, saveWidth]);
+  const setWidthPx = React.useCallback(
+    (px: number, save = true) => {
+      const next: WidthPref = { kind: 'custom', px: dragWidth(px, 0, 0, vw, reservedLeft) };
+      if (save) saveWidth(next);
+      else setWidthPref(next);
+    },
+    [vw, reservedLeft, saveWidth],
+  );
+  const resetWidth = React.useCallback(() => saveWidth({ kind: 'normal' }), [saveWidth]);
 
   const focusLauncher = React.useRef(false);
   const focusInput = React.useRef(false);
@@ -375,8 +431,13 @@ export function BastChatProvider({ children }: { children: React.ReactNode }) {
       offer: () => setOffered(true),
       setPageCard: setPageCardInput,
       columnRef,
+      width,
+      toggleWide,
+      setWidthPx,
+      resetWidth,
+      setReservedLeft,
     }),
-    [available, offered, mode, openChat, closeChat, talkAbout],
+    [available, offered, mode, openChat, closeChat, talkAbout, width, toggleWide, setWidthPx, resetWidth],
   );
 
   const view = React.useMemo<ViewState>(
@@ -466,6 +527,103 @@ const Launcher = React.forwardRef<HTMLButtonElement, { unread: boolean; hidden: 
   );
 });
 
+const WIDE_OFF_TIP = 'The window is too narrow to make the chat wider.';
+
+/** Header button: normal width <-> about twice as wide. Off, with a reason, when the window cannot fit both columns. */
+function WidthToggle() {
+  const { width, toggleWide } = useBastChatShell();
+  const off = !width.canWiden && !width.wide;
+  const label = width.wide ? 'Make the chat narrower' : 'Make the chat wider';
+  const Icon = width.wide ? ChevronsRight : ChevronsLeft;
+  return (
+    <span title={off ? WIDE_OFF_TIP : label} style={{ display: 'inline-flex' }}>
+      <button
+        type="button"
+        className="home-btn"
+        data-testid="bast-chat-width-toggle"
+        onClick={toggleWide}
+        disabled={off}
+        aria-label={label}
+        aria-pressed={width.wide}
+        title={off ? WIDE_OFF_TIP : label}
+        style={{ minHeight: 40, minWidth: 40, padding: '4px 8px', border: 0, background: 'none', opacity: off ? 0.4 : 1 }}
+      >
+        <Icon className="h-4 w-4" aria-hidden="true" />
+      </button>
+    </span>
+  );
+}
+
+/** The divider on the chat column's left edge: drag it, or use the arrow keys; double-click puts it back. */
+function WidthDivider() {
+  const { width, setWidthPx, resetWidth } = useBastChatShell();
+  const drag = React.useRef<{ startX: number; startPx: number; id: number } | null>(null);
+  const [dragging, setDragging] = React.useState(false);
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize chat"
+      aria-valuemin={width.min}
+      aria-valuemax={width.max}
+      aria-valuenow={Math.round(width.px)}
+      tabIndex={0}
+      data-testid="bast-chat-divider"
+      data-dragging={dragging ? 'true' : undefined}
+      onPointerDown={(e) => {
+        if (e.button !== undefined && e.button !== 0) return;
+        drag.current = { startX: e.clientX, startPx: width.px, id: e.pointerId };
+        try {
+          e.currentTarget.setPointerCapture(e.pointerId);
+        } catch {
+          // jsdom
+        }
+        setDragging(true);
+        e.preventDefault();
+      }}
+      onPointerMove={(e) => {
+        const d = drag.current;
+        if (!d) return;
+        setWidthPx(d.startPx + (d.startX - e.clientX), false);
+      }}
+      onPointerUp={(e) => {
+        const d = drag.current;
+        if (!d) return;
+        drag.current = null;
+        setDragging(false);
+        setWidthPx(d.startPx + (d.startX - e.clientX), true);
+      }}
+      onPointerCancel={() => {
+        drag.current = null;
+        setDragging(false);
+      }}
+      onDoubleClick={resetWidth}
+      onKeyDown={(e) => {
+        const step = e.shiftKey ? KEY_STEP_BIG_PX : KEY_STEP_PX;
+        if (e.key === 'ArrowLeft') setWidthPx(width.px + step);
+        else if (e.key === 'ArrowRight') setWidthPx(width.px - step);
+        else if (e.key === 'Home') setWidthPx(width.min);
+        else if (e.key === 'End') setWidthPx(width.max);
+        else if (e.key === 'Enter') resetWidth();
+        else return;
+        e.preventDefault();
+      }}
+      style={{
+        position: 'absolute',
+        top: 0,
+        bottom: 0,
+        left: -1,
+        width: 10,
+        cursor: 'col-resize',
+        touchAction: 'none',
+        zIndex: 2,
+        background: dragging ? 'var(--accent)' : 'transparent',
+        opacity: dragging ? 0.35 : 1,
+      }}
+    />
+  );
+}
+
 function ChatBody({ layout, onClose }: { layout: 'full' | 'split'; onClose: () => void }) {
   const v = React.useContext(ViewContext);
   if (!v) return null;
@@ -505,6 +663,7 @@ function ChatBody({ layout, onClose }: { layout: 'full' | 'split'; onClose: () =
         >
           {v.title}
         </h2>
+        {layout === 'split' ? <WidthToggle /> : null}
         <button
           type="button"
           className="home-btn"
@@ -593,6 +752,7 @@ export function BastChatSplitColumn() {
         data-layout="split"
         aria-label="Chat with Bast"
         style={{
+          position: 'relative',
           margin: 0,
           minWidth: 0,
           minHeight: 0,
@@ -607,6 +767,7 @@ export function BastChatSplitColumn() {
           color: 'var(--text-primary)',
         }}
       >
+        <WidthDivider />
         <ChatBody layout="split" onClose={close} />
       </aside>
     </Boundary>
