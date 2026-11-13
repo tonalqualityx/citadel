@@ -346,6 +346,8 @@ export interface PlanProjectBlock {
   deal: { id: string; name: string; href: string } | null;
   /** The deal with its items and prices: the owner's session and the chat lane only (never staff, contractors or Dox here). */
   deal_detail?: DealSection | null;
+  /** The project's own description as plain lines (copied from its card when the card finished, or written by a person); null when empty. Read only. */
+  description_lines?: string[] | null;
   /** The recorded source of the current start and launch dates (null when none, or when a later change did not give one). */
   date_sources?: { start: DateSourceOut | null; launch: DateSourceOut | null };
   /** The latest sourced date changes, newest first ("Launch moved from Dec 4, 2026 to Jan 9, 2027, from the SOW"). */

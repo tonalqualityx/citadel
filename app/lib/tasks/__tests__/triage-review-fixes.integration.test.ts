@@ -270,7 +270,7 @@ describe.skipIf(!SCRATCH)('triage review fixes (real database)', () => {
               // who it lands on, from the phrase: "Hands this to X", "hands it to X", or the project setup (Bast, with Dox setting it up)
               const claimedTags: string[] = [];
               let claimedAssignee: string | undefined;
-              const startsProject = /^Starts the project: Dox sets up /.test(line) || /^Hands the setup of .+ to Dox, who creates and assigns every task\./.test(line);
+              const startsProject = /^Starts the project: hands .+ to Dox to set up, /.test(line) || /^Hands .+ to Dox to set up, who creates and assigns every task\./.test(line);
               if (!done) {
                 if (kind === 'project_setup') {
                   if (!startsProject) bad('setup sentence not recognised');

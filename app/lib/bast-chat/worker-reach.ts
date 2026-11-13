@@ -1111,11 +1111,7 @@ export function checkOp(input: OpInput): ReachResult {
         acc.show('unknown_status', `planned project status ${String(after)}`, ['status'], { project_id: op.project_id });
         break;
       }
-      const before = op.status_before;
-      const hiddenBefore = before === undefined || !PROJECT_STATUSES.includes(before) || PORTAL_HIDDEN_PROJECT_STATUSES.includes(before);
-      if (hiddenBefore && !PORTAL_HIDDEN_PROJECT_STATUSES.includes(after)) {
-        acc.show('project_goes_live', `project status ${String(before)} to ${after}`, ['status'], { project_id: op.project_id });
-      }
+      // A project status never stops the chat for the portal (Mike, 2026-11-13: nothing is refused only because the portal would show it).
       break;
     }
     case 'wait_change': {

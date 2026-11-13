@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
 
-/** A link to the project's plan (the Plan tab of its setup card), shown only when the project has one this person may read. */
+/** A link to the project's plan (the Plan tab of its project card), shown only when the project has one this person may read. */
 export function ProjectPlanLink({ projectId }: { projectId: string }) {
   const { data } = useQuery({
     queryKey: ['project-plan-link', projectId],

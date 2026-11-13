@@ -369,6 +369,39 @@ describe.skipIf(!SCRATCH)('access and plan fixes (real database)', () => {
       as(chatLane());
       expect((await json(await patchTriage(call({ target_launch_date: '2027-05-05', date_source: SOW }, 'PATCH'), idp(t2)))).status).toBe(200);
     });
+    it('Dox changes the status of a project the portal shows (nothing is refused only because the portal would show it)', async () => {
+      const live = await fx.mkProject('A6 status', { status: 'ready' });
+      await fx.openPass(live);
+      as(dox());
+      const r = await json(await patchProject(call({ status: 'in_progress' }, 'PATCH', { 'x-dox-project': live }), idp(live)));
+      expect(r.status, JSON.stringify(r.body)).toBe(200);
+      expect((await prisma.project.findUniqueOrThrow({ where: { id: live } })).status).toBe('in_progress');
+    });
+    it('a finished project card copies its what, why and done-when into the project description, never over a person\'s own, and the Plan tab shows it', async () => {
+      const blk = (type: string, text: string) => ({ id: crypto.randomUUID(), type, content: [{ type: 'text', text, styles: {} }] });
+      const desc = JSON.stringify([blk('paragraph', "What's wanted: A new site."), blk('paragraph', 'Why it matters: It brings in leads.'), blk('paragraph', 'Done when:'), blk('bulletListItem', 'Launched with the deal pages')]);
+      const p1 = await fx.mkProject('A6 brief', { status: 'ready' });
+      const card = await fx.mkTask('A6 brief card', { status: 'in_progress', triage_kind: 'project_setup', project_id: p1, client_id: fx.clientId, description: desc });
+      as(mikeSession());
+      expect((await json(await patchTask(call({ status: 'done' }, 'PATCH'), idp(card)))).status).toBe(200);
+      const first = (await prisma.project.findUniqueOrThrow({ where: { id: p1 } })).description as string;
+      expect(JSON.parse(first)[0].content[0].text).toBe('From the Triage card:');
+      expect(first).toContain('It brings in leads.');
+      as(mikeSession());
+      const plan = await json(await getPlan(call(undefined, 'GET'), idp(card)));
+      expect(plan.body.project.description_lines.join(' ')).toContain('Why it matters: It brings in leads.');
+      // the same copy is replaced when the card finishes again; a person's own description is not
+      await prisma.task.update({ where: { id: card }, data: { status: 'in_progress', description: desc.replace('leads', 'orders') } });
+      as(mikeSession());
+      await patchTask(call({ status: 'done' }, 'PATCH'), idp(card));
+      expect(((await prisma.project.findUniqueOrThrow({ where: { id: p1 } })).description as string)).toContain('It brings in orders.');
+      const p2 = await fx.mkProject('A6 mine', { status: 'ready', description: JSON.stringify([blk('paragraph', 'Mike wrote this.')]) });
+      const card2 = await fx.mkTask('A6 mine card', { status: 'in_progress', triage_kind: 'project_setup', project_id: p2, client_id: fx.clientId, description: desc });
+      as(mikeSession());
+      await patchTask(call({ status: 'done' }, 'PATCH'), idp(card2));
+      expect(((await prisma.project.findUniqueOrThrow({ where: { id: p2 } })).description as string)).toContain('Mike wrote this.');
+      expect(((await prisma.project.findUniqueOrThrow({ where: { id: p2 } })).description as string)).not.toContain('Triage card');
+    });
     it('a project Dox creates from a released card starts hidden from the portal', async () => {
       const released = await fx.mkTask('A6 released', { status: 'not_started', tags: ['from-triage'], client_id: fx.clientId });
       as(dox());

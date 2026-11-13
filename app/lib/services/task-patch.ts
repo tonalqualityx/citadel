@@ -1,3 +1,4 @@
+import { carryCardIntoProject } from '@/lib/tasks/project-brief';
 import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
 import { withSavepoint } from '@/lib/db/scope';
@@ -454,6 +455,11 @@ function writeMiss(auth: AuthPayload, expect: PatchTaskExpect | undefined) {
  * Apply a task PATCH: everything PATCH /api/tasks/:id does between authentication and the response.
  * Returns the written task (with the route's include), the completion nudge, and the chat change record id.
  */
+/** A project card finished: what it said about the project becomes the project's own description (never over one a person wrote). Never fails the status change. */
+async function carryProjectCard(id: string): Promise<void> {
+  await carryCardIntoProject(prisma, id).catch(() => false);
+}
+
 export async function patchTask(input: PatchTaskInput) {
   const { actor: auth, id, body, expect, claimToken, chatConversation = null } = input;
   const existingTask = input.existing ?? (await checkTaskAccess(id, auth));
@@ -528,6 +534,7 @@ export async function patchTask(input: PatchTaskInput) {
       task,
       statusData.status
     );
+    if (statusData.status === 'done' && existingTask.status !== 'done') await carryProjectCard(id);
 
     const chatAction = await recordChatPatch(auth, existingTask, task, chatConversation);
     return { ok: true as const, task, completionNudge, chatActionId: chatAction };
@@ -871,6 +878,7 @@ export async function patchTask(input: PatchTaskInput) {
   let completionNudge: CompletionNudge | null = null;
   if (statusChange !== undefined && newStatus !== undefined) {
     completionNudge = await afterStatusChange(auth.userId, existingTask, task, newStatus);
+    if (newStatus === 'done' && existingTask.status !== 'done') await carryProjectCard(id);
   } else {
     await resolvePortalFirstResponse(task);
   }
