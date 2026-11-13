@@ -17,7 +17,7 @@ export const taskEndpoints: ApiEndpoint[] = [
           { name: 'project_id', type: 'uuid', required: false, description: 'Filter by project' },
           { name: 'assignee_id', type: 'uuid', required: false, description: 'Filter by assignee (e.g. the Bast service user to drain its queue)' },
           { name: 'source', type: 'string', required: false, description: 'Filter by provenance: portal | email | internal' },
-          { name: 'tags', type: 'string', required: false, description: 'Comma-separated tag list; matches tasks having ALL listed tags (hasEvery). Handles triage-state tags (bast-doable, needs-mike, awaiting-clarification, staged, …) and the stack:/kind: classification namespaces.' },
+          { name: 'tags', type: 'string', required: false, description: 'Comma-separated tag list; matches tasks having ALL listed tags (hasEvery). Handles triage-state tags (triage:looks-done marks a Triage card an agent says is finished; list status=triage to see which are marked; every task in the list carries its tags; bast-doable, needs-mike, awaiting-clarification, staged, …) and the stack:/kind: classification namespaces.' },
           { name: 'charter_id', type: 'uuid', required: false, description: 'Filter by charter' },
           { name: 'maintenance_period', type: 'string', required: false, description: 'Filter by period (e.g., 2026-05)' },
           { name: 'phase', type: 'string', required: false, description: 'Filter by phase' },
@@ -140,7 +140,7 @@ export const taskEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'GET',
-        summary: 'Get task detail with project, assignee, time entries, and comments.',
+        summary: 'Get task detail with project, assignee, time entries, and comments. A task in Triage also carries triage_kind, release_line and release_ready for Mike\'s session and the chat lane only.',
         auth: 'required',
         responseExample: {
           id: 'uuid',
@@ -416,6 +416,47 @@ export const taskEndpoints: ApiEndpoint[] = [
         responseExample: { question: { id: 'uuid', state: 'answered', answer_text: 'string', citation: 'string' }, comment_id: 'uuid', hold_released: 'boolean' },
         responseNotes:
           'One transaction: answer fields, an internal task comment marked with the question id (it wakes a parked worker task), the held-for-questions tag and needs-mike removed when this was the last open question, and a human asker notified. The chat lane writes the comment as "From Mike, through the chat: Answer on ..." and must only relay his real words. While another `wait` question is still open the comment is written as Bast with the prefix "From Mike, on the card (other questions still waiting): " so the worker does not wake early; the last answer writes the waking comment as Mike. Answering again replaces the answer; every answer stays in the comments. 403 not_mike for any other caller, 409 withdrawn or question_changed.',
+      },
+    ],
+  },
+  {
+    path: '/api/tasks/:id/triage',
+    group: 'tasks',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'One Triage card as the Triage tab shows it: kind, age, summary, release_line (which now also says the open questions and the site) and release_ready and release_version (from the same function Release runs), open questions, looks done, and for a project_setup card the project block.',
+        auth: 'required',
+        responseExample: { task_id: 'uuid', title: 'string', href: 'string', kind: 'project_setup|task|project_addition|reusable_tool|rule_proposal|question_only|null', created_at: 'iso', age_days: 'number', summary: 'string (what is wanted, at most 220 characters)', release_line: 'string', release_version: 'string (hash of everything Release depends on; send it back with triage_release_card)', release_ready: 'boolean', release_block: 'unsorted|no_project|still_quote|project_closed|null', open_questions: 'number', looks_done: '{evidence: string, links: [{text, href}]}|null', project: 'null | {project_id, name, status, phases: [{id, name, summary|null, mike_part|null}], mike_parts: [{phase, text}], contract: {status, signed_at|null, version, deal_id, deal_href}|null, deal: {id, name, href}|null, sitemap: [{id, name, page_type|null, needs_design, notes|null}]} (project_setup cards only; never the plan folder, never tasks)' },
+        responseNotes: "Mike's session or the enforced bast-chat lane only: 403 triage_forbidden for everyone else (PM, admin, tech, designer, bot keys, other lanes, Mike's own API key). 404 not_in_triage for a task that is not in Triage.",
+      },
+      {
+        method: 'PATCH',
+        summary: 'Set what a Triage card is (kind) and, for a project card, which project it sets up (project_id; the card takes that project\'s client and site).',
+        auth: 'required',
+        bodySchema: [
+          { name: 'kind', type: 'string', required: false, description: 'project_setup | task | project_addition | reusable_tool | rule_proposal | question_only, or null for not sorted yet.' },
+          { name: 'project_id', type: 'uuid', required: false, description: 'Link the card to a project (null unlinks). At least one of kind and project_id.' },
+        ],
+        responseExample: { task_id: 'uuid', title: 'string', href: 'string', kind: 'project_setup|task|project_addition|reusable_tool|rule_proposal|question_only|null', created_at: 'iso', age_days: 'number', summary: 'string (what is wanted, at most 220 characters)', release_line: 'string', release_version: 'string (hash of everything Release depends on; send it back with triage_release_card)', release_ready: 'boolean', release_block: 'unsorted|no_project|still_quote|project_closed|null', open_questions: 'number', looks_done: '{evidence: string, links: [{text, href}]}|null', project: 'null | {project_id, name, status, phases: [{id, name, summary|null, mike_part|null}], mike_parts: [{phase, text}], contract: {status, signed_at|null, version, deal_id, deal_href}|null, deal: {id, name, href}|null, sitemap: [{id, name, page_type|null, needs_design, notes|null}]} (project_setup cards only; never the plan folder, never tasks)' },
+        responseNotes: 'Same access as GET. Triage cards only (404 not_in_triage). Release then does what release_line says: project_setup makes its queue project ready and hands the card to Bast tagged kickoff and from-triage; task, project_addition, reusable_tool and rule_proposal move to not_started, assigned to Bast when nobody is, tagged from-triage; question_only closes as done with its questions kept. A card with no kind is refused on release (409 not_sorted); a quote project refuses (409 still_a_quote).',
+      },
+    ],
+  },
+  {
+    path: '/api/tasks/:id/triage/shape',
+    group: 'tasks',
+    methods: [
+      {
+        method: 'PUT',
+        summary: "Draft a project's shape from its Triage card before release: replace its phases (with summary and mike_part) and/or its sitemap pages.",
+        auth: 'required',
+        bodySchema: [
+          { name: 'phases', type: 'object', required: false, description: '[{name (max 100), summary? (max 400), mike_part? (max 400, what will be Mike\'s), icon?}], at most 20. Replaces the project\'s phases.' },
+          { name: 'pages', type: 'object', required: false, description: '[{name, page_type?, needs_design?, notes?}], at most 80. Replaces the project\'s ProjectPage rows.' },
+        ],
+        responseExample: { task_id: 'uuid', title: 'string', href: 'string', kind: 'project_setup|task|project_addition|reusable_tool|rule_proposal|question_only|null', created_at: 'iso', age_days: 'number', summary: 'string (what is wanted, at most 220 characters)', release_line: 'string', release_version: 'string (hash of everything Release depends on; send it back with triage_release_card)', release_ready: 'boolean', release_block: 'unsorted|no_project|still_quote|project_closed|null', open_questions: 'number', looks_done: '{evidence: string, links: [{text, href}]}|null', project: 'null | {project_id, name, status, phases: [{id, name, summary|null, mike_part|null}], mike_parts: [{phase, text}], contract: {status, signed_at|null, version, deal_id, deal_href}|null, deal: {id, name, href}|null, sitemap: [{id, name, page_type|null, needs_design, notes|null}]} (project_setup cards only; never the plan folder, never tasks)' },
+        responseNotes: "Mike's session or the enforced bast-chat lane only (403 triage_forbidden). 409 no_project (card not linked), project_not_queue (only a queue project is reshaped from here), phases_have_tasks. A list that is left out is untouched.",
       },
     ],
   },

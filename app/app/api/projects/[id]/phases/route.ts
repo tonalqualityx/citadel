@@ -3,16 +3,31 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
+import { mayLeaveTriage } from '@/lib/services/task-patch';
+
+/**
+ * summary and mike_part show on Mike's Triage card ("what will be Mike's"), so only Mike's own session or the enforced chat lane may write
+ * them. Anyone else (PMs and admins included) who sends one gets 403; every other phase field is unchanged.
+ */
+const OWNER_ONLY_FIELDS = ['summary', 'mike_part'] as const;
+function assertOwnerFields(auth: Parameters<typeof mayLeaveTriage>[0], data: Record<string, unknown>): void {
+  if (mayLeaveTriage(auth)) return;
+  if (OWNER_ONLY_FIELDS.some((f) => data[f] !== undefined)) throw new ApiError('Only Mike can write a phase summary or his part of it.', 403, 'phase_owner_fields');
+}
 
 const createPhaseSchema = z.object({
   name: z.string().min(1).max(100),
   icon: z.string().max(50).optional().nullable(),
+  summary: z.string().max(400).optional().nullable(),
+  mike_part: z.string().max(400).optional().nullable(),
   sort_order: z.number().optional(),
 });
 
 const updatePhaseSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   icon: z.string().max(50).optional().nullable(),
+  summary: z.string().max(400).optional().nullable(),
+  mike_part: z.string().max(400).optional().nullable(),
   sort_order: z.number().optional(),
 });
 
@@ -39,6 +54,7 @@ export async function POST(
 
     const body = await request.json();
     const data = createPhaseSchema.parse(body);
+    assertOwnerFields(auth, data);
 
     // Get max sort_order if not provided
     let sortOrder = data.sort_order;
@@ -56,6 +72,8 @@ export async function POST(
         project_id: projectId,
         name: data.name,
         icon: data.icon || null,
+        summary: data.summary || null,
+        mike_part: data.mike_part || null,
         sort_order: sortOrder,
       },
       include: {
@@ -123,6 +141,7 @@ export async function PATCH(
     }
 
     const data = updatePhaseSchema.parse(updateData);
+    assertOwnerFields(auth, data);
     const phase = await prisma.projectPhase.update({
       where: { id: phase_id },
       data,

@@ -8,6 +8,7 @@ import { handleApiError, ApiError } from '@/lib/api/errors';
 import { formatTaskResponse } from '@/lib/api/formatters';
 import { logUpdate, logDelete } from '@/lib/services/activity';
 import { checkTaskAccess, patchTask, mayLeaveTriage, TRIAGE_EXIT_TEXT } from '@/lib/services/task-patch';
+import { loadCards } from '@/lib/tasks/triage-card';
 
 export async function GET(
   request: NextRequest,
@@ -68,6 +69,12 @@ export async function GET(
     // Filter out review_requirements for non-PM/Admin users (Quality Gate is PM/Admin only)
     if (auth.role === 'tech') {
       formattedTask.review_requirements = null;
+    }
+
+    // A Triage card shows what Release will do (Mike's session or the chat lane only; nobody else gets these fields).
+    if (task && task.status === 'triage' && mayLeaveTriage(auth)) {
+      const [card] = await loadCards(prisma, [id]);
+      if (card) return NextResponse.json({ ...formattedTask, triage_kind: card.kind, release_line: card.release_line, release_ready: card.release_ready });
     }
 
     return NextResponse.json(formattedTask);

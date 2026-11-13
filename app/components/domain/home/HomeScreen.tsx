@@ -27,7 +27,7 @@ import { CalendarDrawer } from './CalendarDrawer';
 import { useHomeCalendar } from '@/lib/hooks/use-home-calendar';
 import { RestGroupCard } from './RestGroupCard';
 import { LOG_TIME_PROMPT } from '@/lib/home/reconcile/copy';
-import { BastChatDock } from '@/components/domain/bast-chat/BastChatDock';
+import { usePageBastChat, useBastChatShell } from '@/components/domain/bast-chat/BastChatProvider';
 import {
   addCandidates,
   buildTiles,
@@ -193,11 +193,11 @@ function HomeBody(p: BodyProps) {
 
   // Talk about this (Triage): the card the chat is about, and a count that opens the chat each time it is tapped.
   const [talkCard, setTalkCard] = React.useState<OpenCardInput | null>(null);
-  const [talkOpen, setTalkOpen] = React.useState(0);
+  const chatShell = useBastChatShell();
   const onTalk = (card: OpenCardInput) =>
     openTriageConversation(card, (c) => {
       setTalkCard(c);
-      setTalkOpen((n) => n + 1);
+      chatShell.talkAbout(c);
     });
   // The card page's Reopen link: /dashboard?talk=<task id>&title=<title> opens that card's own conversation once, then tidies the address.
   React.useEffect(() => {
@@ -331,6 +331,8 @@ function HomeBody(p: BodyProps) {
       ? { key: selectedKey, title: detail.title, tile }
       : null;
 
+  usePageBastChat(chatCard);
+
   return (
     <div data-home className="home">
       <div className="home-top">
@@ -362,7 +364,6 @@ function HomeBody(p: BodyProps) {
       ) : (
         lists
       )}
-      <BastChatDock card={chatCard} openSignal={talkOpen} />
       <CalendarDrawer
         eventId={openEventId}
         renderItem={(item) => card(item, '', false, true)}

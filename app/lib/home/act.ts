@@ -48,7 +48,7 @@ import { ATTACH_CHOOSE_ACTION, WORK_ATTACH_ACTION, attachChoose, readAttachChoos
 import { readRecord } from './reconcile/records';
 import { readStaleRecord, undoStaleClear } from '@/lib/work/stale-asks';
 import { readTrackRecord, undoSessionTrack } from '@/lib/work/session-track';
-import { TRIAGE_ACTIONS, readTriageRecord, release as triageRelease, releasePlan as triageReleasePlan, drop as triageDrop, undoTriage } from '@/lib/tasks/triage';
+import { TRIAGE_ACTIONS, readTriageRecord, release as triageRelease, releaseCard as triageReleaseCard, releasePlan as triageReleasePlan, drop as triageDrop, closeDone as triageCloseDone, notDone as triageNotDone, undoTriage } from '@/lib/tasks/triage';
 import { FINISHED_ACTION, FINISHED_KEEP_ACTION, finishedClose, finishedCloseOne, finishedKeep, readFinishedRecord, undoFinishedClose, undoFinishedKeep } from '@/lib/work/finished-store';
 import { STEP_DONE_MESSAGE, stepTextToStore } from './projects/step';
 import { dayForGroup, type ProposedDay } from './today';
@@ -163,8 +163,13 @@ export const homeActSchema: z.ZodType<HomeActRequest> = z.discriminatedUnion('ac
   // (the chat may call them: it is his word). The ticked list is at most 100 keys.
   // Triage (operating model S3): Mike's own taps on the Triage section. Task writes go through patchTask, whose check is the authority.
   z.object({ action: z.literal('triage_release'), task_ids: z.array(z.string().uuid()).min(1).max(1000) }).strict(),
+  // Release by kind: exactly one card; refused (409) when the card has no kind.
+  z.object({ action: z.literal('triage_release_card'), task_ids: z.tuple([z.string().uuid()]), release_version: z.string().min(8).max(64) }).strict(),
   z.object({ action: z.literal('triage_release_plan'), group_key: z.string().min(1).max(120) }).strict(),
   z.object({ action: z.literal('triage_drop'), task_ids: z.array(z.string().uuid()).min(1).max(1000) }).strict(),
+  // Triage close-out: Close as done (owner only) and Not done, for cards an agent marked triage:looks-done.
+  z.object({ action: z.literal('triage_close_done'), task_ids: z.array(z.string().uuid()).min(1).max(100) }).strict(),
+  z.object({ action: z.literal('triage_not_done'), task_ids: z.array(z.string().uuid()).min(1).max(100) }).strict(),
   z.object({ action: z.literal('finished_close'), item_keys: z.array(itemKeySchema).min(1).max(100) }).strict(),
   z.object({ action: z.literal('finished_close_one'), item_key: itemKeySchema }).strict(),
   z.object({ action: z.literal('finished_keep'), item_key: itemKeySchema }).strict(),
@@ -893,8 +898,11 @@ export function planAct(req: HomeActRequest, ctx: ActContext): ActPlan {
     case 'proposal_yes':
     case 'proposal_no':
     case 'triage_release':
+    case 'triage_release_card':
     case 'triage_release_plan':
     case 'triage_drop':
+    case 'triage_close_done':
+    case 'triage_not_done':
     case 'finished_close':
     case 'finished_close_one':
     case 'finished_keep':
@@ -999,8 +1007,11 @@ export async function runHomeAct(
   if (req.action === 'proposal_no') return proposalNo(db, userId, req.item_key, opts.now);
   // Triage: Release, Release plan and Drop (lib/tasks/triage.ts).
   if (req.action === 'triage_release') return triageRelease(db, userId, req.task_ids, opts.now);
+  if (req.action === 'triage_release_card') return triageReleaseCard(db, userId, req.task_ids[0], req.release_version, opts.now);
   if (req.action === 'triage_release_plan') return triageReleasePlan(db, userId, req.group_key, opts.now);
   if (req.action === 'triage_drop') return triageDrop(db, userId, req.task_ids, opts.now);
+  if (req.action === 'triage_close_done') return triageCloseDone(db, userId, req.task_ids, opts.now);
+  if (req.action === 'triage_not_done') return triageNotDone(db, userId, req.task_ids, opts.now);
   // Work stage G: the looks-finished card's taps (their own writers; see lib/work/finished-store.ts).
   if (req.action === 'finished_close') return finishedClose(db, userId, req.item_keys, opts.now);
   if (req.action === 'finished_close_one') return finishedCloseOne(db, userId, req.item_key, opts.now);

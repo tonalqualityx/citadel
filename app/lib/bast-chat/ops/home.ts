@@ -25,7 +25,7 @@ import type { HomeActRequest } from '@/lib/home/types';
 import type { OpContext, PreparedOp } from '../actions';
 import { opSummary, type OpLine } from '../actions';
 import { cleanLine, quoted } from '../card-context';
-import { TRIAGE_ACTIONS } from '@/lib/tasks/triage';
+import { TRIAGE_ACTIONS, releaseBastCards } from '@/lib/tasks/triage';
 import { TRIAGE_UNDO_HOURS } from '@/lib/tasks/triage-copy';
 import { checkOp, type ReachOrigin } from '../worker-reach';
 import type { OpDef, OpJson, OpRun, OpDb } from './index';
@@ -139,7 +139,7 @@ async function lineFor(db: OpDb, input: HomeInput, until: Date | null, now: Date
     const ask = await db.emailAsk.findUnique({ where: { id }, select: { subject: true } });
     return opSummary({ op: 'home_act', action: 'reopen_ask', title: ask?.subject ?? 'that email' }, now);
   }
-  if (a === 'triage_release' || a === 'triage_drop') return opSummary({ op: 'home_act', action: a, count: input.task_ids.length }, now);
+  if (a === 'triage_release' || a === 'triage_release_card' || a === 'triage_drop' || a === 'triage_close_done' || a === 'triage_not_done') return opSummary({ op: 'home_act', action: a, count: input.task_ids.length }, now);
   if (a === 'triage_release_plan') return opSummary({ op: 'home_act', action: a, line: cleanLine(message ?? 'Released the plan from Triage.', 300) }, now);
   if (a === 'finished_close') return opSummary({ op: 'home_act', action: 'finished_close', count: input.item_keys.length }, now);
   if (a === 'swap') return opSummary({ op: 'home_act', action: 'swap', title: await groupName(db, input.to_group_key) }, now);
@@ -161,7 +161,12 @@ async function lineFor(db: OpDb, input: HomeInput, until: Date | null, now: Date
   return opSummary(line, now);
 }
 
-async function prepare(ctx: OpContext, _input: HomeInput, origin: ReachOrigin): Promise<PreparedOp> {
+async function prepare(ctx: OpContext, input: HomeInput, origin: ReachOrigin): Promise<PreparedOp> {
+  // A Triage release that ends with a card assigned to Bast is the worker's to start: judged by checkOp, tapped when the card carries client text.
+  if (input.action === 'triage_release' || input.action === 'triage_release_card' || input.action === 'triage_release_plan') {
+    const cards = await releaseBastCards(ctx.db as unknown as Parameters<typeof releaseBastCards>[0], input);
+    return { reach: checkOp({ op: { op: 'triage_release', cards }, now: ctx.now, origin }), expect: {}, copy: { clause: 'release a card to Bast' } };
+  }
   return { reach: checkOp({ op: { op: 'home_act' }, now: ctx.now, origin }), expect: {}, copy: { clause: 'change your home screen' } };
 }
 
