@@ -73,9 +73,9 @@ describe('TriagePanel', () => {
   });
 
   it('a looks-done card shows the evidence and the looks-done actions', async () => {
-    m.card = { ...base, looks_done: { evidence: 'Done in abc123.', links: [{ text: 'abc123', href: 'https://example.com/c' }] } };
+    m.card = { ...base, looks_done: { evidence: 'Done in abc123 https://example.com/c', links: [{ text: 'https://example.com/c', href: 'https://example.com/c' }] } };
     wrap(<TriagePanel taskId={ID} />);
-    expect(screen.getByTestId('looks-done-evidence').textContent).toContain('Done in abc123.');
+    expect(screen.getByTestId('looks-done-evidence').textContent).toContain('Done in abc123 example.com/c');
     expect(screen.queryByRole('button', { name: 'Release' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Close as done' }));
     await waitFor(() => expect(m.act).toHaveBeenCalledWith({ action: 'triage_close_done', task_ids: [ID] }));

@@ -198,7 +198,6 @@
 [data-home] .home-trelease strong { color: var(--text-primary); font-weight: 600; }
 [data-home] .home-trelease[data-blocked] { border-left-color: var(--text-muted); }
 [data-home] .home-tevidence { border-left: 3px solid var(--accent-text); padding-left: 10px; display: flex; flex-direction: column; gap: 4px; }
-[data-home] .home-tlinks { padding-left: 1.1em; }
 [data-home] .home-tactions { margin-top: 2px; }
 [data-home] .home-tactions .home-btn { min-height: 44px; }
 [data-home] .home-tnote { color: var(--text-primary); background: var(--accent-subtle); border-left: 3px solid var(--accent-text); padding: 6px 10px; border-radius: 4px; }
@@ -208,7 +207,7 @@
 [data-home] .home-tphases li { padding-left: 2px; }
 [data-home] .home-yours { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; margin-left: 8px; padding: 1px 7px; border-radius: 999px; background: var(--accent-subtle); color: var(--accent-text); border: 1px solid var(--accent-text); }
 [data-home] .home-tproject-full { gap: 16px; border-top: 0; padding-top: 0; }
-[data-home] .home-tphases-full { padding-left: 1.4em; display: flex; flex-direction: column; gap: 6px; }
+[data-home] .home-tphases-full { list-style: decimal; padding-left: 1.4em; display: flex; flex-direction: column; gap: 6px; }
 [data-home] .home-tasked-list { list-style: none; padding: 0; }
 [data-home] .home-tasked-list li { padding: 6px 0; border-top: 1px solid var(--border); }
 [data-home] .home-tasked-list li:first-child { border-top: 0; }

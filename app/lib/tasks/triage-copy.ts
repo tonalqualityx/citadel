@@ -31,7 +31,7 @@ export const ASKED_AFTER_RELEASE_HEADING = 'Asked after release';
 export const ASKED_AFTER_RELEASE_HINT = 'Released cards that now have a question for you.';
 export const LOOKS_DONE_BADGE = 'Looks done';
 export const ON_RELEASE = 'On release:';
-export const RELEASE_OFF_UNSORTED = 'Release is off until Bast sorts this card. Talk about it to sort it.';
+export const RELEASE_OFF_UNSORTED = 'Bast has not sorted this yet. Talk about it and Bast will propose what it is.';
 export const RELEASE_OFF_PREFIX = 'Release is off.';
 
 /** The tile's label: `in Triage`, with the question count when there is one. */

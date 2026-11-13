@@ -49,22 +49,32 @@ export function ReleaseLine({ card }: { card: HomeTriageCard }) {
   );
 }
 
-/** The evidence a session left on a looks-done card, with the addresses in it as links. */
+/** A web address shown short (host and path, cut), so a long link does not push the card wider. The full address is the href. */
+function shortUrl(u: string): string {
+  const bare = u.replace(/^https?:\/\//i, '').replace(/\/$/, '');
+  return bare.length > 42 ? `${bare.slice(0, 41)}\u2026` : bare;
+}
+
+/** The evidence a session left on a looks-done card, with the web addresses in it as links, in place. */
 export function LooksDoneEvidence({ looksDone }: { looksDone: NonNullable<HomeTriageCard['looks_done']> }) {
+  const text = plain(looksDone.evidence) || 'Marked as done, but no note was left.';
+  const nodes: React.ReactNode[] = [];
+  let rest = text;
+  looksDone.links.forEach((l, i) => {
+    const at = rest.indexOf(l.text);
+    if (at < 0) return;
+    if (at > 0) nodes.push(rest.slice(0, at));
+    nodes.push(
+      <a key={`${l.href}-${i}`} href={l.href} target="_blank" rel="noopener noreferrer">
+        {shortUrl(l.text)}
+      </a>,
+    );
+    rest = rest.slice(at + l.text.length);
+  });
+  if (rest) nodes.push(rest);
   return (
     <div className="home-tevidence" data-testid="looks-done-evidence">
-      <p className="home-small">{looksDone.evidence ? plain(looksDone.evidence) : 'Marked as done, but no note was left.'}</p>
-      {looksDone.links.length > 0 ? (
-        <ul className="home-tlinks">
-          {looksDone.links.map((l, i) => (
-            <li key={`${l.href}-${i}`} className="home-small">
-              <a href={l.href} target="_blank" rel="noopener noreferrer">
-                {plain(l.text)}
-              </a>
-            </li>
-          ))}
-        </ul>
-      ) : null}
+      <p className="home-small">{nodes.map((n, i) => (typeof n === 'string' ? <React.Fragment key={i}>{n}</React.Fragment> : n))}</p>
     </div>
   );
 }

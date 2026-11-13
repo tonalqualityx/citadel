@@ -131,12 +131,12 @@ describe('TriageBoard', () => {
 
   it('a looks-done card comes with a badge, the evidence with its links, and Close as done (filled), Not done, Talk about this', async () => {
     const onAct = vi.fn().mockResolvedValue({});
-    const c = card(1, { looks_done: { evidence: 'Shipped in 3ee16d7, see the page.', links: [{ text: 'the page', href: 'https://example.com/a' }, { text: 'the commit', href: 'https://example.com/b' }] } });
+    const c = card(1, { looks_done: { evidence: 'Shipped in 3ee16d7, see https://example.com/a and https://example.com/b.', links: [{ text: 'https://example.com/a', href: 'https://example.com/a' }, { text: 'https://example.com/b', href: 'https://example.com/b' }] } });
     render(<TriageBoard triage={triage([c, card(2)])} onAct={onAct} onTalk={vi.fn()} />);
     const el = items()[0];
     expect(el.getAttribute('data-looks-done')).toBe('true');
     expect(within(el).getByText('Looks done')).toBeTruthy();
-    expect(within(el).getByTestId('looks-done-evidence').textContent).toContain('Shipped in 3ee16d7');
+    expect(within(el).getByTestId('looks-done-evidence').textContent).toContain('Shipped in 3ee16d7, see example.com/a and example.com/b.');
     expect(within(el).getAllByRole('link').filter((a) => a.getAttribute('href')?.startsWith('https://')).map((a) => a.getAttribute('href'))).toEqual(['https://example.com/a', 'https://example.com/b']);
     expect(within(el).queryByRole('button', { name: 'Release' })).toBeNull();
     expect(within(el).getByRole('button', { name: 'Close as done' }).getAttribute('data-filled')).toBe('true');
