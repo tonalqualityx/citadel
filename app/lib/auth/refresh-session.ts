@@ -6,6 +6,7 @@ import {
   signAccessToken,
   signRefreshToken,
   findSessionById,
+  hashRefreshToken,
 } from '@/lib/auth/jwt';
 import { prisma } from '@/lib/db/prisma';
 import { ApiError } from '@/lib/api/errors';
@@ -76,7 +77,7 @@ export async function refreshSession(
   const days = keep ? KEEP_SIGNED_IN_DAYS : DEFAULT_REFRESH_DAYS;
   const updated = await prisma.session.updateMany({
     where: { id: session.id, user_id: session.user_id },
-    data: { refresh_token: newRefreshToken, expires_at: new Date(Date.now() + days * 86400 * 1000) },
+    data: { refresh_token: hashRefreshToken(newRefreshToken), expires_at: new Date(Date.now() + days * 86400 * 1000) },
   });
   if (updated.count === 0) {
     throw new ApiError('Invalid or expired session', 401);

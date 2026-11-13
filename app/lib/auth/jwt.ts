@@ -1,4 +1,5 @@
 import { SignJWT, jwtVerify, JWTPayload } from 'jose';
+import { createHash } from 'node:crypto';
 import { prisma } from '@/lib/db/prisma';
 
 const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET);
@@ -62,6 +63,15 @@ export async function verifyRefreshToken(token: string): Promise<TokenPayload> {
 }
 
 /**
+ * What the session row stores for a refresh token: its SHA-256 as 64 hex characters. The row is bound
+ * by `sid`, never compared to the token, so the raw token (a live credential) is not kept, and the
+ * stored length no longer depends on the email inside the token.
+ */
+export function hashRefreshToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
+}
+
+/**
  * Sign-in: one NEW session row per sign-in (id = the `sid` carried in the refresh token), so each
  * device has its own row. The user's expired rows are removed at the same time; their live rows
  * (other devices) stay.
@@ -76,7 +86,7 @@ export async function createSession(
   await prisma.$transaction([
     prisma.session.deleteMany({ where: { user_id: userId, expires_at: { lt: new Date() } } }),
     prisma.session.create({
-      data: { id: sessionId, user_id: userId, refresh_token: refreshToken, expires_at: expiresAt },
+      data: { id: sessionId, user_id: userId, refresh_token: hashRefreshToken(refreshToken), expires_at: expiresAt },
     }),
   ]);
 }

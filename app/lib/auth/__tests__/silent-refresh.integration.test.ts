@@ -28,7 +28,7 @@ vi.mock('next/navigation', () => ({
 
 import { prisma } from '@/lib/db/prisma';
 import { SCRATCH } from '@/lib/engine/__tests__/seed';
-import { signAccessToken, signRefreshToken, createSession, deleteUserSessions } from '@/lib/auth/jwt';
+import { signAccessToken, signRefreshToken, createSession, deleteUserSessions, hashRefreshToken } from '@/lib/auth/jwt';
 import { GET as continueRoute } from '@/app/api/auth/continue/route';
 import { POST as refreshRoute } from '@/app/api/auth/refresh/route';
 import { GET as meRoute } from '@/app/api/auth/me/route';
@@ -97,7 +97,7 @@ describe.skipIf(!SCRATCH)('silent refresh on a cold open (real database)', () =>
     expect((await verifyAccessToken(access!)).role).toBe(role);
     // The session row now holds the new refresh token (same as POST /api/auth/refresh).
     const row = await prisma.session.findUnique({ where: { id: users[role].sid } });
-    expect(row?.refresh_token).toBe(cookieValue(res, 'refresh_token'));
+    expect(row?.refresh_token).toBe(hashRefreshToken(cookieValue(res, 'refresh_token')!));
     users[role].refresh = cookieValue(res, 'refresh_token')!;
   });
 
