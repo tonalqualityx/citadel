@@ -12,6 +12,7 @@ export const authEndpoints: ApiEndpoint[] = [
         bodySchema: [
           { name: 'email', type: 'string', required: true, description: 'User email' },
           { name: 'password', type: 'string', required: true, description: 'User password' },
+          { name: 'keep_signed_in', type: 'boolean', required: false, description: 'Staff sign-in only. true gives this device a 30-day sliding refresh lifetime (default 7 days). Carried in the signed refresh token.' },
         ],
         responseExample: {
           user: { id: 'uuid', name: 'string', email: 'string', role: 'tech|pm|admin|designer' },
@@ -56,6 +57,21 @@ export const authEndpoints: ApiEndpoint[] = [
         auth: 'none',
         responseExample: { success: true },
         responseNotes: 'Sets new access_token cookie. Requires valid refresh_token cookie.',
+      },
+    ],
+  },
+  {
+    path: '/api/auth/continue',
+    group: 'auth',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Silent sign-in on a cold open: refresh from the refresh_token cookie, then redirect to a same-origin page.',
+        auth: 'none',
+        queryParams: [
+          { name: 'to', type: 'string', required: false, description: 'Same-origin relative page path to land on (default /dashboard). Anything else is ignored.' },
+        ],
+        responseNotes: '307 redirect. On success sets access_token, refresh_token and a 30-second silent_refresh marker. On any failure redirects to /login and sets nothing.',
       },
     ],
   },

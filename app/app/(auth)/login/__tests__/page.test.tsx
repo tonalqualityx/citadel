@@ -18,3 +18,16 @@ describe('staff login page', () => {
     expect(screen.getByText('Client?')).toBeTruthy();
   });
 });
+
+describe('staff login page: keep me signed in', () => {
+  it('has the tick-box, unticked by default', () => {
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <LoginPage />
+      </QueryClientProvider>
+    );
+    const box = screen.getByTestId('keep-signed-in') as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    expect(screen.getByText('Keep me signed in on this device')).toBeTruthy();
+  });
+});
