@@ -150,13 +150,16 @@ describe.skipIf(!SCRATCH)('triage card routes (real database)', () => {
     expect(again.project.sitemap).toHaveLength(2);
   });
 
-  it('shape is refused for a live project, for a phase that already has tasks, and for non-owners', async () => {
+  it('shape on a live project merges pages and refuses phases; refused for a phase that already has tasks, and for non-owners', async () => {
     await fresh();
     authMock.mockResolvedValue(chatLane());
     const live = (await prisma.project.create({ data: { name: `${tag} live`, client_id: clientId, status: 'ready' } })).id;
     projectIds.push(live);
     await patch(card, { kind: 'project_setup', project_id: live });
-    expect((await shape(card, { pages: [{ name: 'X' }] })).status).toBe(409);
+    expect((await shape(card, { phases: [{ name: 'X' }] })).status).toBe(409);
+    expect((await shape(card, { pages: [{ name: 'X' }] })).status).toBe(200);
+    expect(await prisma.projectPage.count({ where: { project_id: live } })).toBe(1);
+    await prisma.projectPage.deleteMany({ where: { project_id: live } });
     await patch(card, { project_id: projectId });
     const phase = await prisma.projectPhase.create({ data: { project_id: projectId, name: 'Has task' } });
     const t = await mk('in phase', { status: 'not_started', project_id: projectId, phase_id: phase.id });

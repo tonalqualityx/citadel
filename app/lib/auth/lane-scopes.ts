@@ -420,6 +420,8 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('GET', '/api/tasks/:id/triage'),
     r('PATCH', '/api/tasks/:id/triage'),
     r('PUT', '/api/tasks/:id/triage/shape'),
+    // Item-level sitemap edits on a project in any status but done or cancelled (add, change, drop a page; the portal showing it does not matter)
+    r('PATCH', '/api/projects/:id/sitemap'),
     // The card's plan: read it, replace a section (PUT) or change one item (PATCH). Mike's words go in as "Mike, typed in chat"; a document's words keep their source.
     r('GET', '/api/tasks/:id/plan'),
     r('PUT', '/api/tasks/:id/plan/:section'),
@@ -455,6 +457,8 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('GET', '/api/projects/:id/engagement-snapshot'),
     r('POST', '/api/projects/:id/engagement-brief'),
     r('PATCH', '/api/projects/:id'),
+    // Sitemap edits on the project in play (live, open pass, x-dox-project): add, change or drop a page, item by item
+    r('PATCH', '/api/projects/:id/sitemap'),
     r('GET', '/api/tasks'),
     r('GET', '/api/tasks/:id'),
     r('POST', '/api/tasks'),

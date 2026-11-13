@@ -250,6 +250,25 @@ export const projectEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/projects/:id/sitemap',
+    group: 'projects',
+    methods: [
+      {
+        method: 'PATCH',
+        summary: "Change a project's sitemap item by item, in any project status but done or cancelled: add a page, change a page, drop a page. Pages not named stay exactly as they are.",
+        auth: 'required',
+        bodySchema: [
+          { name: 'add', type: 'object', required: false, description: '[{name (max 255), page_type? (max 50), needs_design?, notes? (max 2000)}], at most 40. A name already in the sitemap (any case) is 409 page_exists.' },
+          { name: 'change', type: 'object', required: false, description: '[{id, name?, page_type?, needs_design?, notes?}], at most 40; at least one field besides id. Unknown id is 404 page_not_found.' },
+          { name: 'drop', type: 'object', required: false, description: '[page id], at most 40. Deletes only the page row: no task or other row holds a page id, and open tasks whose title names the page stay (the reply lists them in dropped_with_tasks).' },
+          { name: 'source', type: 'object', required: false, description: 'Optional, where the change came from: {kind: deal|sow|client_email|mike, label (1..200), quote? (..500), dated? YYYY-MM-DD}. Kept with each change line.' },
+        ],
+        responseExample: { lines: [{ op: 'add|change|drop', page: 'string', line: 'string' }], changed: ['string'], dropped_with_tasks: [{ page: 'string', open_tasks: 'number' }], sitemap: [{ id: 'uuid', name: 'string', page_type: 'string|null', needs_design: 'boolean', notes: 'string|null' }] },
+        responseNotes: "Mike's session, the enforced bast-chat lane, or the Dox lane inside his binding (x-dox-project names the project, which must be ready, in progress or in review, with an open pass; 403 dox_no_pass otherwise). 409 project_closed for a done or cancelled project. Whether the client portal shows the project does not matter. One change line per page (area plan:sitemap) lands on each project-setup card of the project, with the source when one is sent. Sending no source is allowed. A dropped page is a plain delete of its row; nothing attached to it exists to lose.",
+      },
+    ],
+  },
+  {
     path: '/api/projects/:id/team',
     group: 'projects',
     methods: [
