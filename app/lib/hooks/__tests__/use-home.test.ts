@@ -1,3 +1,4 @@
+import { CARD_CHANGED_MESSAGE } from '@/lib/tasks/triage-copy';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createElement, type ReactNode } from 'react';
 import { renderHook, act, waitFor } from '@testing-library/react';
@@ -138,6 +139,19 @@ describe('useHomeAct', () => {
     expect(toasts.error).toHaveBeenCalledTimes(1);
     expect(toasts.error).toHaveBeenCalledWith(HOME_FAILURE_TEXT);
     expect(api.get).toHaveBeenCalledTimes(1);
+  });
+
+  it('a 409 card_changed on a Triage release toasts the changed sentence, refetches so the new line is on screen, and rejects', async () => {
+    api.post.mockRejectedValueOnce(new Error(CARD_CHANGED_MESSAGE));
+    const client = makeClient();
+    const { result } = renderHook(() => ({ home: useHome(), act: useHomeAct() }), { wrapper: wrapperFor(client) });
+    await waitFor(() => expect(result.current.home.isSuccess).toBe(true));
+    await act(async () => {
+      await expect(result.current.act({ action: 'triage_release_card', task_ids: ['t1'], release_version: 'old' })).rejects.toThrow(CARD_CHANGED_MESSAGE);
+    });
+    expect(toasts.error).toHaveBeenCalledTimes(1);
+    expect(toasts.error).toHaveBeenCalledWith(CARD_CHANGED_MESSAGE);
+    expect(api.get).toHaveBeenCalledTimes(2);
   });
 
   it('does not toast a pin_conflict, only rejects', async () => {

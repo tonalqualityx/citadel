@@ -16,7 +16,8 @@ export interface ReleaseVersionInput {
   questions: { id: string; if_nobody_action: string }[];
 }
 
-export const CARD_CHANGED_MESSAGE = 'That card changed after you read it. Nothing was released. Look at it again.';
+import { CARD_CHANGED_MESSAGE } from './triage-copy';
+export { CARD_CHANGED_MESSAGE };
 
 export function releaseVersion(i: ReleaseVersionInput): string {
   const qs = [...i.questions].sort((a, b) => a.id.localeCompare(b.id)).map((q) => `${q.id}:${q.if_nobody_action}`);

@@ -644,6 +644,7 @@ export interface HomeEverythingElse {
 export type HomeTileId =
   | 'today'
   | 'needs_you_now'
+  | 'triage'
   | 'working_on'
   | 'leads'
   | 'mail'
@@ -656,6 +657,7 @@ export type HomeTileId =
 export const HOME_TILE_ORDER: readonly HomeTileId[] = [
   'today',
   'needs_you_now',
+  'triage',
   'working_on',
   'leads',
   'mail',
@@ -684,8 +686,8 @@ export interface HomeResponse {
   /** Work stage B: Mail recorded as handled, the last 30 days (read only; each row has Undo through reopen_ask). Never counted in Everything else. */
   handled_mail?: HomeHandledMail[];
   /**
-   * Triage (operating model S3): the ideas parked for his release, grouped. Present only for the owner (Mike); absent for everyone else,
-   * and absent when nothing waits. Triage tasks are never shown anywhere else on this screen as work.
+   * Triage (operating model S3): the ideas parked for his release, grouped. Present only for the owner (Mike); absent for everyone else
+   * (for Mike with nothing waiting it is an empty section, so the Triage tab shows muted at zero). Triage tasks are never shown anywhere else on this screen as work.
    */
   triage?: HomeTriage | null;
   /**
