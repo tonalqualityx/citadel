@@ -34,6 +34,9 @@ jobs:
         run: npm run build
         env:
           NEXT_PUBLIC_APP_URL: ${{ secrets.NEXT_PUBLIC_APP_URL }}
+          # The type check inside `next build` passed Node's default ~2 GB heap on 2026-11-13
+          # ("JavaScript heap out of memory" during "Running TypeScript"). The runner has far more.
+          NODE_OPTIONS: --max-old-space-size=6144
 
       # STALE-CHUNK PROTECTION (build runs here in CI; .next is scp'd to the server).
       # A deploy replaces .next, so a tab (or cached HTML) from the previous build would request
