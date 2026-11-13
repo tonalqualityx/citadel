@@ -102,6 +102,38 @@ export const sourceSchema = z
   .strict();
 export type PlanSource = z.infer<typeof sourceSchema>;
 
+/**
+ * Where a project start or launch date came from, as a lane gives it with PATCH /api/tasks/:id/triage (and a Dox project PATCH). Not the same shape as
+ * PlanSource: its kinds are the four places a date is stated (the deal, the SOW, a client email, Mike's words), it can carry the quote, and its day is
+ * `dated`. dateSourceAsPlanSource maps it onto PlanSource where the Plan tab wants one.
+ */
+export const DATE_SOURCE_KINDS = ['deal', 'sow', 'client_email', 'mike'] as const;
+export const dateSourceSchema = z
+  .object({
+    kind: z.enum(DATE_SOURCE_KINDS),
+    label: oneLine(200),
+    quote: z
+      .string()
+      .trim()
+      .min(1)
+      .max(500)
+      .refine((v) => !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/.test(v), { message: 'No control characters.' })
+      .optional(),
+    dated: planDay.optional(),
+  })
+  .strict();
+export type DateSource = z.infer<typeof dateSourceSchema>;
+export const DATE_SOURCE_MESSAGE = "Give the source for the date (the deal, the SOW, a client email, or Mike's words).";
+const DATE_SOURCE_AS_PLAN_KIND: Record<DateSource['kind'], PlanSourceKind> = { deal: 'deal', sow: 'document', client_email: 'email', mike: 'mike_typed' };
+export function dateSourceAsPlanSource(s: DateSource): PlanSource {
+  return { label: s.label, kind: DATE_SOURCE_AS_PLAN_KIND[s.kind], ...(s.dated ? { date: s.dated } : {}) };
+}
+/** A recorded date source as the Plan tab reads it: the source plus when and by whom it was recorded. */
+export interface DateSourceOut extends DateSource {
+  at: string;
+  by: string;
+}
+
 const markFields = {
   mark: z.enum(MARKS).default('original'),
   /** The earlier wording, when mark is changed. */
@@ -314,6 +346,10 @@ export interface PlanProjectBlock {
   deal: { id: string; name: string; href: string } | null;
   /** The deal with its items and prices: the owner's session and the chat lane only (never staff, contractors or Dox here). */
   deal_detail?: DealSection | null;
+  /** The recorded source of the current start and launch dates (null when none, or when a later change did not give one). */
+  date_sources?: { start: DateSourceOut | null; launch: DateSourceOut | null };
+  /** The latest sourced date changes, newest first ("Launch moved from Dec 4, 2026 to Jan 9, 2027, from the SOW"). */
+  date_changes?: { line: string; at: string; by: string }[];
 }
 
 export interface PlanOut {

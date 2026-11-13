@@ -7,6 +7,9 @@ import { formatProjectResponse } from '@/lib/api/formatters';
 import { canTransitionProjectStatus } from '@/lib/calculations/status';
 import { healBlockedTasks } from '@/lib/services/dependencies';
 import { guardDoxProjectPatch, isDoxLane } from '@/lib/dox/guard';
+import { actorOf } from '@/lib/tasks/triage-rev';
+import { changedDates, recordDateChanges } from '@/lib/tasks/date-changes';
+import { dateSourceSchema } from '@/lib/tasks/plan-schema';
 import { mayReadDeal } from '@/lib/deals/access';
 import { readDeals } from '@/lib/deals/read';
 
@@ -28,6 +31,8 @@ const updateProjectSchema = z.object({
   dependencies_ordering_only: z.boolean().optional(),
   notes: z.string().optional().nullable(),
   portal_visibility: z.enum(['inherit', 'restricted', 'hidden']).optional(),
+  /** Where a start or launch date came from; recorded as a change line on the project's setup card. Dox must give it with a date. */
+  date_source: dateSourceSchema.optional(),
   plan_folder: z
     .string()
     .max(500)
@@ -282,6 +287,8 @@ export async function PATCH(
     if (data.plan_folder !== undefined) updateData.plan_folder = data.plan_folder;
     if (data.portal_visibility !== undefined) updateData.portal_visibility = data.portal_visibility;
 
+    const datesAsked = data.start_date !== undefined || data.target_date !== undefined;
+    const before = data.date_source && datesAsked ? await prisma.project.findUnique({ where: { id, is_deleted: false }, select: { start_date: true, target_date: true } }) : null;
     const project = await prisma.project.update({
       where: { id },
       data: updateData,
@@ -295,6 +302,11 @@ export async function PATCH(
         },
       },
     });
+    if (data.date_source && before) {
+      const toDay = (v: string | null | undefined) => (v === undefined ? undefined : v ? v.slice(0, 10) : null);
+      const changes = changedDates(before, { start_date: toDay(data.start_date), target_date: toDay(data.target_date) });
+      await recordDateChanges(prisma, id, changes, await actorOf(auth), data.date_source);
+    }
 
     // Flipping a project to ordering-only changes which of its tasks count as satisfied
     // blockers. Re-run the self-healing sweep so dependents that were waiting only on

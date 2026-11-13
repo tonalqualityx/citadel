@@ -203,7 +203,7 @@ describe.skipIf(!SCRATCH)('triage plan (real database)', () => {
       expect(r.body.code).toBe('plan_project_date');
       expect((await put(t, 'dates', [{ label: 'Design handoff', date: '2026-12-01', source: SRC }])).status).toBe(200);
       as(chat());
-      expect((await patchTriage(bodyReq('PATCH', { target_launch_date: '2027-01-19' }), idp(t))).status).toBe(200);
+      expect((await patchTriage(bodyReq('PATCH', { target_launch_date: '2027-01-19', date_source: { kind: 'sow', label: 'Signed SOW' } }), idp(t))).status).toBe(200);
       const read = await get(t, mike());
       expect(read.body.project).toMatchObject({ project_id: p.id, target_date: '2027-01-19' }); // read through, not copied
       expect(read.body.sections.find((s: any) => s.section === 'dates').items).toHaveLength(1);
@@ -319,7 +319,7 @@ describe.skipIf(!SCRATCH)('triage plan (real database)', () => {
       expect(await rev(t)).toBe(1);
       await patchTriage(bodyReq('PATCH', { project_id: p.id }), idp(t));
       expect(await rev(t)).toBe(2);
-      await patchTriage(bodyReq('PATCH', { target_launch_date: '2027-01-19' }), idp(t));
+      await patchTriage(bodyReq('PATCH', { target_launch_date: '2027-01-19', date_source: { kind: 'sow', label: 'Signed SOW' } }), idp(t));
       expect(await rev(t)).toBe(3);
       await putShape(bodyReq('PUT', { pages: [{ name: 'Home' }] }), idp(t));
       expect(await rev(t)).toBe(4);

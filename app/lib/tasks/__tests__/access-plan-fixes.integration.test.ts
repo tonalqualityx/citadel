@@ -301,25 +301,73 @@ describe.skipIf(!SCRATCH)('access and plan fixes (real database)', () => {
       const { PORTAL_RENDERED_TAGS } = await import('@/lib/portal/client-rendered');
       expect(PORTAL_RENDERED_TAGS).toEqual(expect.arrayContaining(['quote', 'emergency']));
     });
-    it('the chat lane may not set the dates of a project the portal shows through a card; the desk and Dox are refused too', async () => {
-      const live = await fx.mkProject('A6 live', { status: 'in_progress' });
+    const SOW = { kind: 'sow', label: 'Signed SOW v2, section 4', quote: 'Launch no later than May 5, 2027.', dated: '2026-11-02' };
+    it('the chat lane sets the dates of a project the portal shows only with a source, and the change is recorded; the desk is still refused', async () => {
+      const live = await fx.mkProject('A6 live', { status: 'in_progress', target_date: new Date('2027-03-01T12:00:00Z') });
       const t = await fx.mkTask('A6 card', { status: 'triage', triage_kind: 'project_setup', project_id: live, client_id: fx.clientId });
       as(chatLane());
-      const c = await json(await patchTriage(call({ target_launch_date: '2027-05-05' }, 'PATCH'), idp(t)));
-      expect(c.status).toBe(403);
-      expect(c.body.code).toBe('chat_client_visible_project');
+      const none = await json(await patchTriage(call({ target_launch_date: '2027-05-05' }, 'PATCH'), idp(t)));
+      expect([none.status, none.body.code]).toEqual([422, 'date_source_required']);
+      expect(none.body.error ?? none.body.message).toContain('Give the source for the date');
+      expect((await prisma.project.findUniqueOrThrow({ where: { id: live } })).target_date?.toISOString().slice(0, 10)).toBe('2027-03-01');
+      const revBefore = (await prisma.task.findUniqueOrThrow({ where: { id: t } })).triage_rev;
+      as(chatLane());
+      const ok = await json(await patchTriage(call({ target_launch_date: '2027-05-05', date_source: SOW }, 'PATCH'), idp(t)));
+      expect(ok.status, JSON.stringify(ok.body)).toBe(200);
+      expect((await prisma.project.findUniqueOrThrow({ where: { id: live } })).target_date?.toISOString().slice(0, 10)).toBe('2027-05-05');
+      const rows = await prisma.triageChange.findMany({ where: { task_id: t, area: 'plan:dates' } });
+      expect(rows).toHaveLength(1);
+      expect(rows[0].line).toBe('Launch moved from Mar 1, 2027 to May 5, 2027, from Signed SOW v2, section 4');
+      expect(rows[0].detail).toMatchObject({ field: 'target_date', from: '2027-03-01', to: '2027-05-05', source: SOW });
+      expect((await prisma.task.findUniqueOrThrow({ where: { id: t } })).triage_rev).toBeGreaterThan(revBefore);
+      // the Plan tab reads the source and the line back
+      as(mikeSession());
+      const plan = await json(await getPlan(call(undefined, 'GET'), idp(t)));
+      expect(plan.body.project.date_sources.launch).toMatchObject({ kind: 'sow', label: SOW.label, dated: '2026-11-02' });
+      expect(plan.body.project.date_changes[0].line).toContain('Launch moved from Mar 1, 2027 to May 5, 2027');
+      // a later change with no source (the owner) leaves the old source describing nothing
+      as(mikeSession());
+      expect((await json(await patchTriage(call({ target_launch_date: '2027-06-01' }, 'PATCH'), idp(t)))).status).toBe(200);
+      as(mikeSession());
+      expect((await json(await getPlan(call(undefined, 'GET'), idp(t)))).body.project.date_sources.launch).toBeNull();
       as(desk());
       expect((await json(await patchTriage(call({ target_launch_date: '2027-05-05' }, 'PATCH'), idp(t)))).body.code).toBe('desk_client_closed');
+    });
+    it('the owner session needs no source, a bad source is a 400, and an unchanged date writes no line', async () => {
+      const live = await fx.mkProject('A6 owner', { status: 'in_progress', target_date: new Date('2027-03-01T12:00:00Z') });
+      const t = await fx.mkTask('A6 owner card', { status: 'triage', triage_kind: 'project_setup', project_id: live, client_id: fx.clientId });
+      as(mikeSession());
+      expect((await json(await patchTriage(call({ target_launch_date: '2027-04-01' }, 'PATCH'), idp(t)))).status).toBe(200);
+      as(chatLane());
+      expect((await json(await patchTriage(call({ target_launch_date: '2027-04-01', date_source: { kind: 'rumor', label: 'x' } }, 'PATCH'), idp(t)))).status).toBe(400);
+      as(chatLane());
+      expect((await json(await patchTriage(call({ target_launch_date: '2027-04-01', date_source: SOW }, 'PATCH'), idp(t)))).status).toBe(200);
+      expect(await prisma.triageChange.count({ where: { task_id: t, area: 'plan:dates' } })).toBe(0);
+    });
+    it('Dox sets a portal project\'s dates through its own project PATCH only with a source, and it is recorded; other fields stay closed', async () => {
+      const live = await fx.mkProject('A6 dox', { status: 'in_progress' });
+      const t = await fx.mkTask('A6 dox card', { status: 'not_started', triage_kind: 'project_setup', project_id: live, client_id: fx.clientId });
       await fx.openPass(live);
       as(dox());
-      const d = await json(await patchProject(call({ target_date: '2027-05-05' }, 'PATCH', { 'x-dox-project': live }), idp(live)));
-      expect(d.status).toBe(403);
-      expect(d.body.code).toBe('dox_client_closed');
+      const none = await json(await patchProject(call({ target_date: '2027-05-05T12:00:00.000Z' }, 'PATCH', { 'x-dox-project': live }), idp(live)));
+      expect([none.status, none.body.code]).toEqual([422, 'date_source_required']);
       expect((await prisma.project.findUniqueOrThrow({ where: { id: live } })).target_date).toBeNull();
+      as(dox());
+      const ok = await json(await patchProject(call({ target_date: '2027-05-05T12:00:00.000Z', date_source: { kind: 'client_email', label: 'Jane, Nov 10' } }, 'PATCH', { 'x-dox-project': live }), idp(live)));
+      expect(ok.status, JSON.stringify(ok.body)).toBe(200);
+      expect((await prisma.project.findUniqueOrThrow({ where: { id: live } })).target_date?.toISOString().slice(0, 10)).toBe('2027-05-05');
+      const rows = await prisma.triageChange.findMany({ where: { task_id: t, area: 'plan:dates' } });
+      expect(rows.map((r) => r.line)).toEqual(['Launch set to May 5, 2027, from Jane, Nov 10']);
+      as(dox());
+      const name = await json(await patchProject(call({ name: 'x', date_source: { kind: 'sow', label: 'S' } }, 'PATCH', { 'x-dox-project': live }), idp(live)));
+      expect([name.status, name.body.code]).toEqual([403, 'dox_field_closed']);
+      // a queued project is free of the portal check but still needs the source
       const queued = await fx.mkProject('A6 queued', { status: 'queue' });
       const t2 = await fx.mkTask('A6 queued card', { status: 'triage', triage_kind: 'project_setup', project_id: queued, client_id: fx.clientId });
       as(chatLane());
-      expect((await json(await patchTriage(call({ target_launch_date: '2027-05-05' }, 'PATCH'), idp(t2)))).status).toBe(200);
+      expect((await json(await patchTriage(call({ target_launch_date: '2027-05-05' }, 'PATCH'), idp(t2)))).status).toBe(422);
+      as(chatLane());
+      expect((await json(await patchTriage(call({ target_launch_date: '2027-05-05', date_source: SOW }, 'PATCH'), idp(t2)))).status).toBe(200);
     });
     it('a project Dox creates from a released card starts hidden from the portal', async () => {
       const released = await fx.mkTask('A6 released', { status: 'not_started', tags: ['from-triage'], client_id: fx.clientId });

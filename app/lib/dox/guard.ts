@@ -25,6 +25,7 @@ import { isProjectShownInPortal, isShownInPortal, renderedFieldsTouched } from '
 import { getTemplate } from '@/lib/waits/templates';
 import { liveSessionTaskIds } from '@/lib/work/state';
 import { DOX_LANE, isDoxLaneValue } from './identity';
+import { DATE_SOURCE_MESSAGE, dateSourceSchema } from '@/lib/tasks/plan-schema';
 
 export const DOX_PROJECT_HEADER = 'x-dox-project';
 export const DOX_CARD_HEADER = 'x-dox-card';
@@ -328,7 +329,7 @@ export async function guardDoxTaskWrite(auth: LaneAuth, headers: Hdrs, task: { s
 
 // ---------------------------------------------------------------- projects
 
-const PROJECT_PATCH_FIELDS = new Set(['start_date', 'target_date', 'dependencies_ordering_only']);
+const PROJECT_PATCH_FIELDS = new Set(['start_date', 'target_date', 'dependencies_ordering_only', 'date_source']);
 
 export interface DoxProjectHead {
   id: string;
@@ -368,8 +369,11 @@ export async function guardDoxProjectPatch(auth: LaneAuth, headers: Hdrs, rawBod
   for (const k of keys) {
     if (!PROJECT_PATCH_FIELDS.has(k)) refuse(`Dox cannot change "${k}" on a project.`, 'dox_field_closed');
   }
-  // The dates are what a client reads (target_date) or sits beside it (start_date); ordering-only is internal.
-  if (keys.includes('start_date') || keys.includes('target_date')) await refuseIfPortalShows(db, existing.id, 'dates');
+  // The dates are what a client reads (target_date) or sits beside it (start_date). Dox sets them on any project, the portal's included, but only
+  // with the source of the date (the route records each change with it); ordering-only is internal.
+  if (keys.includes('start_date') || keys.includes('target_date')) {
+    if (!dateSourceSchema.safeParse(body.date_source).success) throw new ApiError(DATE_SOURCE_MESSAGE, 422, 'date_source_required');
+  }
 }
 
 /** A project the client's portal shows: its name, dates, status and phase names are what a client reads, so Dox does not change them (lib/portal/client-rendered.ts). */

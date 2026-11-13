@@ -58,9 +58,9 @@ describe('lane list', () => {
     for (const l of LANES) expect(LANE_ROUTES[l].length).toBeGreaterThan(0);
   });
 
-  it('every lane key is Bast except Troubador, Oracle and design-worker; bast-chat, design-track, design-notes and dox are Bast (no lane acts as Mike)', () => {
+  it('every lane key is Bast except Troubador, Oracle, design-worker and Dox (his own user); bast-chat, design-track and design-notes are Bast (no lane acts as Mike)', () => {
     for (const l of LANES) {
-      expect(LANE_IDENTITY[l]).toBe(l === 'troubador' ? 'troubador' : l === 'oracle' ? 'oracle' : l === 'design-worker' ? 'design-worker' : 'bast');
+      expect(LANE_IDENTITY[l]).toBe(l === 'troubador' ? 'troubador' : l === 'oracle' ? 'oracle' : l === 'design-worker' ? 'design-worker' : l === 'dox' ? 'dox' : 'bast');
     }
   });
 
