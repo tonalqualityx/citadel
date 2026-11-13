@@ -56,6 +56,8 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       // A project under way: the sent pages are merged by name (new added, same names updated, missing dropped); its phases are never redrawn here.
       if (body.phases) throw new ApiError("A project that is already under way keeps its phases; only its pages can be changed from here.", 409, 'project_not_queue');
       if (isTriageDeskLaneValue(auth.lane)) throw new ApiError('Only a project still in the queue can be reshaped by a session.', 409, 'project_not_queue');
+      // An empty list on a project under way would drop every page; that is never what a merge by name means. Drop pages one by one through the project's sitemap route.
+      if (body.pages && body.pages.length === 0) throw new ApiError('An empty page list would drop every page of a project that is under way. Drop pages by name instead.', 409, 'empty_pages_live');
       assertSitemapOpen(task.project.status);
       await prisma.$transaction(async (tx) => {
         const r = await mergePagesByName(tx, projectId, body.pages ?? []);
