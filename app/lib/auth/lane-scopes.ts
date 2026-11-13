@@ -10,7 +10,7 @@
  * not touched by any of this.
  *
  * Lanes carry job names (Porter, Bellringer, Courier, Bast); lanes that fit no job keep a plain
- * label. Every lane key is minted for the Bast user except Troubador and Oracle, which keep their
+ * label. Every lane key is minted for the Bast user except Troubador, Oracle and Dox, which keep their
  * service users (LANE_IDENTITY). Each allowlist was built from the code of the lane's readers on
  * 2026-10-22 (inventory in the fleet-6 notes). Patterns are literal path segments plus `:param` segments; no regex comes from
  * data. A `:param` segment never matches a static sibling route listed in `except`.
@@ -59,7 +59,7 @@ export interface LaneRoute {
 const r = (method: LaneMethod, pattern: string): LaneRoute => ({ method, pattern });
 
 /** Who each lane's key is minted for (Mike's ruling 2026-10-22: lanes stop acting as Mike). */
-export const LANE_IDENTITY: Record<Lane, 'bast' | 'troubador' | 'oracle' | 'design-worker'> = {
+export const LANE_IDENTITY: Record<Lane, 'bast' | 'troubador' | 'oracle' | 'design-worker' | 'dox'> = {
   courier: 'bast',
   bellringer: 'bast',
   'portal-chat-machine': 'bast',
@@ -75,7 +75,7 @@ export const LANE_IDENTITY: Record<Lane, 'bast' | 'troubador' | 'oracle' | 'desi
   'bast-chat': 'bast',
   'design-track': 'bast', // the Bast runner (portal v2, SPEC 6.1a); never the design worker
   'design-notes': 'bast', // the meeting intake's design statements (portal v2, SPEC 8.1); never the design worker
-  dox: 'bast', // the office manager (operating model, PLAN-dox-office-manager): runs as the Bast user, stamped as lane dox
+  dox: 'dox', // the office manager (operating model, PLAN-dox-office-manager): his own user, dox@indelible.bot (migration 20261121090000_dox_user), stamped as lane dox
   'triage-desk': 'bast', // a Claude session reading a card's chat and editing the card (PLAN-triage-investigations decision 5): Bast user, stamped as lane triage-desk
 };
 

@@ -121,9 +121,9 @@ const DENIED: [string, string][] = [
 ];
 
 describe('lane dox', () => {
-  it('is always enforced, acts as Bast, and a key for it must carry scope-mode:enforce', () => {
+  it('is always enforced, acts as the Dox user, and a key for it must carry scope-mode:enforce', () => {
     expect(ALWAYS_ENFORCED_LANES).toContain('dox');
-    expect(LANE_IDENTITY.dox).toBe('bast');
+    expect(LANE_IDENTITY.dox).toBe('dox');
     expect(keyScopesSchema.safeParse(['lane:dox']).success).toBe(false);
     expect(keyScopesSchema.safeParse(['lane:dox', 'scope-mode:enforce']).success).toBe(true);
     expect(keyScopesSchema.safeParse(['lane:dox', 'lane:bast', 'scope-mode:enforce']).success).toBe(false);
