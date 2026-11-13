@@ -352,12 +352,13 @@ export const taskEndpoints: ApiEndpoint[] = [
               answered_at: 'ISO-8601|null',
               citation: 'string|null',
               released_without_answer: 'boolean',
+              version: 'string (the row\'s updated_at; send it back with an answer)',
             },
           ],
           open_count: 'number',
         },
         responseNotes:
-          'Read this to learn whether Mike has answered, so nobody re-asks. `citation` is `Mike, 2026-11-12, on "<question>": "<his exact words>"` and is null unless state is answered. state defaulted means the card was released without an answer and the recommendation went ahead: it is NOT his word and has no citation. While the card is in triage only Mike, the bast-chat lane, bot keys and a question\'s asker can read this; everyone else gets 404. After release anyone who can see the task can read it. The client portal never reads it.',
+          'Read this to learn whether Mike has answered, so nobody re-asks. `citation` is `Mike, 2026-11-12, on "<question>": "<his exact words>"` and is null unless state is answered. state defaulted means the card was released without an answer and the recommendation went ahead: it is NOT his word and has no citation. While the card is in triage only Mike, the bast-chat lane, bot keys and a question\'s asker can read this; everyone else gets 404. After release anyone who can see the task can read it, and so can the bast worker lane on a card it works (never a triage card). The client portal never reads it. Each question carries `version`: send it back with an answer.',
       },
       {
         method: 'POST',
@@ -408,12 +409,13 @@ export const taskEndpoints: ApiEndpoint[] = [
         summary: "Record Mike's answer to a question. Mike's own session, or the bast-chat lane relaying his words.",
         auth: 'required',
         bodySchema: [
+          { name: 'version', type: 'string', required: true, description: "The question's `version` from the GET you read it with (the chat lane too). If the question was edited since, the answer is refused with 409 question_changed: read it again and ask Mike again." },
           { name: 'option_id', type: 'string', required: false, description: 'One of the question options.' },
           { name: 'text', type: 'string', required: false, description: 'His exact words, up to 2000 characters. With option_id too, the answer is "<option label>: <text>".' },
         ],
         responseExample: { question: { id: 'uuid', state: 'answered', answer_text: 'string', citation: 'string' }, comment_id: 'uuid', hold_released: 'boolean' },
         responseNotes:
-          'One transaction: answer fields, an internal task comment marked with the question id (it wakes a parked worker task), the held-for-questions tag and needs-mike removed when this was the last open question, and a human asker notified. The chat lane writes the comment as "From Mike, through the chat: Answer on ..." and must only relay his real words. Answering again replaces the answer; every answer stays in the comments. 403 not_mike for any other caller, 409 withdrawn.',
+          'One transaction: answer fields, an internal task comment marked with the question id (it wakes a parked worker task), the held-for-questions tag and needs-mike removed when this was the last open question, and a human asker notified. The chat lane writes the comment as "From Mike, through the chat: Answer on ..." and must only relay his real words. While another `wait` question is still open the comment is written as Bast with the prefix "From Mike, on the card (other questions still waiting): " so the worker does not wake early; the last answer writes the waking comment as Mike. Answering again replaces the answer; every answer stays in the comments. 403 not_mike for any other caller, 409 withdrawn or question_changed.',
       },
     ],
   },

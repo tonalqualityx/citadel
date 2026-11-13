@@ -25,7 +25,7 @@ const base: QuestionView = {
   answer_text: null,
   answered_at: null,
   citation: null,
-  released_without_answer: false,
+  released_without_answer: false, version: '2026-11-12T10:00:00.000Z',
 };
 const free: QuestionView = { ...base, id: 'q2', question: 'Which week should it go live?', options: null, recommended_option_id: null, recommend_why: null, if_nobody_action: 'wait' };
 
@@ -38,7 +38,7 @@ describe('QuestionList', () => {
     expect(rec.textContent).toContain('Recommended');
     expect(screen.getByRole('button', { name: 'List only' })).toBeTruthy();
     fireEvent.click(rec);
-    await waitFor(() => expect(onAnswer).toHaveBeenCalledWith('q1', { option_id: 'map' }));
+    await waitFor(() => expect(onAnswer).toHaveBeenCalledWith('q1', { option_id: 'map', version: '2026-11-12T10:00:00.000Z' }));
 
     fireEvent.click(screen.getAllByRole('button', { name: 'Other answer' })[1]);
     const box = screen.getByLabelText('Other answer');
@@ -46,7 +46,7 @@ describe('QuestionList', () => {
     expect(send.disabled).toBe(true);
     fireEvent.change(box, { target: { value: ' The week of the 23rd ' } });
     fireEvent.click(send);
-    await waitFor(() => expect(onAnswer).toHaveBeenCalledWith('q2', { text: 'The week of the 23rd' }));
+    await waitFor(() => expect(onAnswer).toHaveBeenCalledWith('q2', { text: 'The week of the 23rd', version: '2026-11-12T10:00:00.000Z' }));
   });
 
   it('Context opens the parts in place and closes again', () => {
@@ -78,7 +78,7 @@ describe('QuestionList', () => {
     expect(screen.queryByRole('button', { name: 'Show the map' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Change' }));
     fireEvent.click(screen.getByRole('button', { name: /Show the map/ }));
-    await waitFor(() => expect(onAnswer).toHaveBeenCalledWith('q1', { option_id: 'map' }));
+    await waitFor(() => expect(onAnswer).toHaveBeenCalledWith('q1', { option_id: 'map', version: '2026-11-12T10:00:00.000Z' }));
   });
 
   it('a defaulted question is never shown as his answer', () => {

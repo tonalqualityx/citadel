@@ -27,7 +27,7 @@ import { ownerActor } from '@/lib/home/reconcile/actor';
 import { appendHomeAction, type HomeDb } from '@/lib/home/state';
 import type { HomeActResponse, HomeTriage, HomeTriageGroup, HomeTriageTask } from '@/lib/home/types';
 import { TRIAGE_MESSAGES, TRIAGE_UNDO_HOURS, droppedLine, questionsLine, releasedLine, releasedPlanLine } from './triage-copy';
-import { HELD_TAG, NEEDS_MIKE_TAG, openQuestionCounts } from './questions';
+import { HELD_NEEDS_MIKE_MARK, HELD_TAG, NEEDS_MIKE_TAG, openQuestionCounts } from './questions';
 
 export const TRIAGE_PASS_PREFIX = 'triage-pass:';
 export const TRIAGE_ACTIONS = ['triage_release', 'triage_release_plan', 'triage_drop'] as const;
@@ -227,7 +227,9 @@ async function run(db: PrismaClient, userId: string, action: TriageAction, mode:
     const open = mode === 'release' ? await db.taskQuestion.findMany({ where: { task_id: row.id, state: 'open' }, select: { id: true, if_nobody_action: true } }) : [];
     const goIds = open.filter((q) => q.if_nobody_action === 'go_with_recommendation').map((q) => q.id);
     const waitCount = open.length - goIds.length;
-    const addTags = waitCount > 0 ? [HELD_TAG, NEEDS_MIKE_TAG].filter((t) => !row.tags.includes(t)) : [];
+    // When release itself adds needs-mike it also adds the second marker, so answering removes only what release added.
+    const addNeeds = waitCount > 0 && !row.tags.includes(NEEDS_MIKE_TAG);
+    const addTags = waitCount > 0 ? [...(row.tags.includes(HELD_TAG) ? [] : [HELD_TAG]), ...(addNeeds ? [NEEDS_MIKE_TAG, HELD_NEEDS_MIKE_MARK] : [])] : [];
     const after = await moveOne(db, userId, row, target, addTags);
     if (!after) {
       skipped += 1;

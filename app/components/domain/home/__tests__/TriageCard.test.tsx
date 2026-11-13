@@ -122,7 +122,7 @@ describe('questions on the Triage row', () => {
     id: 'q1', task_id: 't', position: 0, question: 'Show the map?', what_it_is: 'A layout decision is needed.', sources: [{ who: 'Mike', said: 'Decide later' }],
     checked: 'The brief was read.', unknown: 'Whether mobile matters.', options: [{ id: 'a', label: 'Map', consequence: 'Heavy.' }, { id: 'b', label: 'List', consequence: 'Light.' }],
     recommended_option_id: 'a', recommend_why: 'Nearby first.', if_nobody: 'It waits for you.', if_nobody_action: 'wait', state: 'open',
-    answer_option_id: null, answer_text: null, answered_at: null, citation: null, released_without_answer: false,
+    answer_option_id: null, answer_text: null, answered_at: null, citation: null, released_without_answer: false, version: '2026-11-12T10:00:00.000Z',
   };
 
   it('the heading and the group show the question totals; only a card with open questions gets a Questions button', () => {
@@ -143,7 +143,7 @@ describe('questions on the Triage row', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Questions 2' }));
     expect(screen.getByTestId('question-list')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /^Map/ }));
-    await waitFor(() => expect(q.answer).toHaveBeenCalledWith('q1', { option_id: 'a' }));
+    await waitFor(() => expect(q.answer).toHaveBeenCalledWith('q1', { option_id: 'a', version: '2026-11-12T10:00:00.000Z' }));
   });
 
   it('without questions the heading and rows are unchanged', () => {

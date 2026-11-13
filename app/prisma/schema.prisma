@@ -5932,7 +5932,7 @@ model TaskQuestion {
   created_at            DateTime           @default(now())
   updated_at            DateTime           @updatedAt
 
-  @@unique([task_id, question])
+  // Uniqueness of (task_id, question) among non-withdrawn rows is enforced in code inside the task-locked transaction (Prisma cannot express a partial unique index without drift).
   @@index([task_id, state])
   @@map("task_questions")
 }

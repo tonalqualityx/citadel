@@ -8,7 +8,7 @@ import { QUESTION_COPY, answeredDate } from './question-copy';
 export interface QuestionListProps {
   questions: QuestionView[];
   /** Save an answer. Resolves true when it was saved. Without it the list is read only (everyone but Mike). */
-  onAnswer?: (questionId: string, body: { option_id?: string; text?: string }) => Promise<boolean>;
+  onAnswer?: (questionId: string, body: { option_id?: string; text?: string; version: string }) => Promise<boolean>;
   /** Start with the Context of every question open (the card page does not; tests do). */
   contextOpen?: boolean;
 }
@@ -92,7 +92,7 @@ function OneQuestion({ q, onAnswer, contextOpen }: { q: QuestionView; onAnswer?:
   async function send(body: { option_id?: string; text?: string }) {
     if (!onAnswer) return;
     setBusy(true);
-    const ok = await onAnswer(q.id, body);
+    const ok = await onAnswer(q.id, { ...body, version: q.version });
     setBusy(false);
     if (ok) {
       setEditing(false);

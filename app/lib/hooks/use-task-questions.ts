@@ -4,7 +4,7 @@ import { apiClient } from '@/lib/api/client';
 import { showToast } from '@/lib/hooks/use-toast';
 import { taskKeys } from '@/lib/api/query-keys';
 import { HOME_KEYS } from '@/lib/hooks/use-home';
-import type { QuestionAnswerBody, QuestionView } from '@/lib/tasks/question-context';
+import { QUESTION_CHANGED_MESSAGE, type QuestionAnswerBody, type QuestionView } from '@/lib/tasks/question-context';
 
 export const questionKeys = {
   all: ['task-questions'] as const,
@@ -42,7 +42,13 @@ export function useAnswerQuestion(taskId: string) {
     async (qid: string, body: QuestionAnswerBody): Promise<boolean> => {
       try {
         await apiClient.post(`/tasks/${taskId}/questions/${qid}/answer`, body);
-      } catch {
+      } catch (e) {
+        if (e instanceof Error && e.message === QUESTION_CHANGED_MESSAGE) {
+          // The question changed after he opened it: show the new wording and ask again.
+          showToast.error(QUESTION_CHANGED_MESSAGE);
+          await queryClient.invalidateQueries({ queryKey: questionKeys.task(taskId) });
+          return false;
+        }
         showToast.error(QUESTION_FAILURE_TEXT);
         return false;
       }

@@ -196,6 +196,8 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('GET', '/api/tasks/:id'),
     r('PATCH', '/api/tasks/:id'),
     r('GET', '/api/tasks/:id/comments'),
+    // Card questions: read only, so a session knows whether Mike answered (never a triage card; never ask or answer)
+    r('GET', '/api/tasks/:id/questions'),
     r('POST', '/api/tasks/:id/comments'),
     r('POST', '/api/tasks/:id/live'),
     r('POST', '/api/tasks/:id/staged'),

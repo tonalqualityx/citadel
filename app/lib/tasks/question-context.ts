@@ -18,6 +18,16 @@ export const ANSWER_TEXT_MAX = 2000;
 /** The timezone Mike's dates are written in. */
 export const QUESTION_TZ = 'America/New_York';
 
+/** Message of the 409 an answer gets when the question changed after he read it. Client-safe so the screen can recognise it. */
+export const QUESTION_CHANGED_MESSAGE = 'That question was changed after you opened it. Read it again, then answer.';
+
+/** Characters that draw nothing: zero-width, format, filler and blank braille characters. */
+const INVISIBLE = /[\p{Cf}\p{Cc}\u115F\u1160\u3164\uFFA0\u2800]/gu;
+/** The text as a person sees it: invisible characters gone, spaces trimmed. */
+function seen(s: string): string {
+  return s.replace(/\s+/g, ' ').replace(INVISIBLE, '').trim();
+}
+
 /** A part that only says it has nothing to say is not a part. */
 const EMPTY_PART = /^(n\/?a|none|nothing|unknown|tbd|todo|no|-+|\.+)\.?$/i;
 
@@ -25,8 +35,8 @@ function part(label: string) {
   return z
     .string({ error: `${label} is required.` })
     .transform((s) => s.replace(/\r\n?/g, '\n').trim())
-    .refine((s) => s.length >= PART_MIN, { message: `${label} needs a real sentence (at least ${PART_MIN} characters).` })
-    .refine((s) => !EMPTY_PART.test(s), { message: `${label} cannot be a placeholder.` })
+    .refine((s) => seen(s).length >= PART_MIN, { message: `${label} needs a real sentence (at least ${PART_MIN} characters).` })
+    .refine((s) => !EMPTY_PART.test(seen(s)), { message: `${label} cannot be a placeholder.` })
     .refine((s) => s.length <= PART_MAX, { message: `${label} is too long (${PART_MAX} characters at most).` });
 }
 
@@ -42,7 +52,7 @@ const sourceSchema = z
 const optionSchema = z
   .object({
     id: z.string().trim().regex(/^[a-z0-9][a-z0-9_-]{0,39}$/i, 'An option id is a short word, letters, numbers, _ or -.'),
-    label: z.string().trim().min(1).max(OPTION_LABEL_MAX),
+    label: z.string().trim().min(1).max(OPTION_LABEL_MAX).refine((s) => /[\p{L}\p{N}]/u.test(seen(s)), { message: 'An option label needs a letter or a number.' }),
     consequence: part('Each option consequence'),
   })
   .strict();
@@ -59,7 +69,8 @@ export const questionContextSchema = z
       .min(5)
       .max(QUESTION_MAX, `The question is one line, ${QUESTION_MAX} characters at most.`)
       .refine((s) => !/[\r\n]/.test(s), { message: 'The question is one line, with no line breaks.' })
-      .refine((s) => s.endsWith('?'), { message: 'The question ends in a question mark.' }),
+      .refine((s) => s.endsWith('?'), { message: 'The question ends in a question mark.' })
+      .refine((s) => /[\p{L}\p{N}]/u.test(seen(s)), { message: 'The question needs real words, with at least a letter or a number.' }),
     what_it_is: part('What it is'),
     sources: z.array(sourceSchema).min(1, 'Sources: say who said what, even if the source is your own reading.').max(10),
     checked: part('What was checked'),
@@ -115,6 +126,8 @@ export const questionAnswerSchema = z
   .object({
     option_id: z.string().trim().min(1).max(40).optional(),
     text: z.string().max(ANSWER_TEXT_MAX).optional(),
+    /** The question's `version` from the GET the screen or chat read. A changed question answers 409. */
+    version: z.string({ error: 'version is required: send the question version you read.' }).trim().min(1).max(40),
   })
   .strict()
   .refine((b) => !!b.option_id || (b.text ?? '').trim() !== '', { message: 'Pick an option or write an answer.' });
@@ -174,4 +187,6 @@ export interface QuestionView {
   answered_at: string | null;
   citation: string | null;
   released_without_answer: boolean;
+  /** Send back with the answer. */
+  version: string;
 }

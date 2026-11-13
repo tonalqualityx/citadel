@@ -41,9 +41,6 @@ CREATE TABLE "task_questions" (
 -- CreateIndex
 CREATE INDEX "task_questions_task_id_state_idx" ON "task_questions"("task_id", "state");
 
--- CreateIndex
-CREATE UNIQUE INDEX "task_questions_task_id_question_key" ON "task_questions"("task_id", "question");
-
 -- AddForeignKey
 ALTER TABLE "task_questions" ADD CONSTRAINT "task_questions_task_id_fkey" FOREIGN KEY ("task_id") REFERENCES "tasks"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 

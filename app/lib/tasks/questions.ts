@@ -26,6 +26,7 @@ import { createNotification } from '@/lib/services/notifications';
 import { CHAT_ANSWER_PREFIX } from './checklist-answers';
 import {
   OPEN_QUESTIONS_MAX,
+  QUESTION_CHANGED_MESSAGE,
   answerComment,
   answerWords,
   citationLine,
@@ -39,6 +40,10 @@ import {
 /** Tags that tie a parked card to its open questions. Only `held-for-questions` is ours; removing `needs-mike` rides on it. */
 export const HELD_TAG = 'held-for-questions';
 export const NEEDS_MIKE_TAG = 'needs-mike';
+/** Second marker: present only when release itself put `needs-mike` on the card. Answering removes `needs-mike` only with this marker. */
+export const HELD_NEEDS_MIKE_MARK = 'held-for-questions:needs-mike';
+/** Comment prefix for an answer saved while another `wait` question is still open: written as Bast so the worker's gate does not read it as a human reply. */
+export const HELD_ANSWER_PREFIX = 'From Mike, on the card (other questions still waiting): ';
 
 export const QUESTION_MESSAGES = {
   notFound: 'Question not found',
@@ -48,6 +53,7 @@ export const QUESTION_MESSAGES = {
   tooMany: `A card holds at most ${OPEN_QUESTIONS_MAX} open questions. Ask the most important ones first.`,
   duplicate: 'That question is already on this card.',
   badOption: 'That is not one of the options.',
+  changed: QUESTION_CHANGED_MESSAGE,
 } as const;
 
 type Auth = Pick<AuthPayload, 'userId' | 'role' | 'via' | 'lane' | 'laneEnforced'>;
@@ -73,6 +79,8 @@ type QuestionRow = Prisma.TaskQuestionGetPayload<object>;
 export async function assertCanRead(task: TaskHead, auth: Auth): Promise<void> {
   if (auth.role === 'designer' || (auth.role === 'tech' && task.status === 'triage')) throw new ApiError('Task not found', 404);
   if (task.status !== 'triage') return;
+  // The worker lane reads questions on cards it works, never on a triage card.
+  if (auth.lane === 'bast') throw new ApiError('Task not found', 404);
   if (auth.userId === MIKE_USER_ID || isChatLane(auth) || BOT_USER_IDS.includes(auth.userId)) return;
   const asked = await prisma.taskQuestion.findFirst({ where: { task_id: task.id, asked_by_user_id: auth.userId }, select: { id: true } });
   if (!asked) throw new ApiError('Task not found', 404);
@@ -116,6 +124,8 @@ export interface QuestionOut {
   defaulted_at: string | null;
   withdrawn_reason: string | null;
   created_at: string;
+  /** The row's updated_at as the client saw it. Send it back with an answer; a changed row answers 409. */
+  version: string;
 }
 
 export function formatQuestion(q: QuestionRow): QuestionOut {
@@ -146,6 +156,7 @@ export function formatQuestion(q: QuestionRow): QuestionOut {
     defaulted_at: q.defaulted_at ? q.defaulted_at.toISOString() : null,
     withdrawn_reason: q.withdrawn_reason,
     created_at: q.created_at.toISOString(),
+    version: q.updated_at.toISOString(),
   };
 }
 
@@ -161,7 +172,8 @@ export async function addQuestion(task: TaskHead, auth: Auth, body: QuestionCont
     await tx.$queryRaw`SELECT id FROM tasks WHERE id = ${task.id}::uuid FOR UPDATE`;
     const open = await tx.taskQuestion.count({ where: { task_id: task.id, state: 'open' } });
     if (open >= OPEN_QUESTIONS_MAX) throw new ApiError(QUESTION_MESSAGES.tooMany, 409, 'too_many_open');
-    const same = await tx.taskQuestion.findUnique({ where: { task_id_question: { task_id: task.id, question: body.question } }, select: { id: true } });
+    // Unique among non-withdrawn rows only (the task row lock above makes this check safe); a withdrawn question can be asked again.
+    const same = await tx.taskQuestion.findFirst({ where: { task_id: task.id, question: body.question, state: { not: 'withdrawn' } }, select: { id: true } });
     if (same) throw new ApiError(QUESTION_MESSAGES.duplicate, 409, 'duplicate_question');
     const last = await tx.taskQuestion.aggregate({ where: { task_id: task.id }, _max: { position: true } });
     const row = await tx.taskQuestion.create({
@@ -221,6 +233,10 @@ export async function patchQuestion(task: TaskHead, qid: string, auth: Auth, pat
     } else {
       const merged = questionContextSchema.parse(mergeContext(row, patch));
       const hasOptions = !!merged.options && merged.options.length > 0;
+      if (merged.question !== row.question) {
+        const same = await tx.taskQuestion.findFirst({ where: { task_id: task.id, question: merged.question, state: { not: 'withdrawn' }, id: { not: row.id } }, select: { id: true } });
+        if (same) throw new ApiError(QUESTION_MESSAGES.duplicate, 409, 'duplicate_question');
+      }
       updated = await tx.taskQuestion.update({
         where: { id: row.id },
         data: {
@@ -242,15 +258,16 @@ export async function patchQuestion(task: TaskHead, qid: string, auth: Auth, pat
 }
 
 /**
- * When no open question is left on the card, the marker tag and `needs-mike` come off, but only if the marker tag is there:
- * a `needs-mike` that something else put on the card is never ours to remove.
+ * When no open question is left on the card, the marker tag comes off, and `needs-mike` with it only if release itself added it
+ * (the second marker is present): a `needs-mike` that something else put on the card is never ours to remove.
  */
 async function releaseHoldIfLast(tx: Prisma.TransactionClient, taskId: string): Promise<boolean> {
   const stillOpen = await tx.taskQuestion.count({ where: { task_id: taskId, state: 'open' } });
   if (stillOpen > 0) return false;
   const t = await tx.task.findUnique({ where: { id: taskId }, select: { tags: true } });
   if (!t || !t.tags.includes(HELD_TAG)) return false;
-  await tx.task.update({ where: { id: taskId }, data: { tags: t.tags.filter((x) => x !== HELD_TAG && x !== NEEDS_MIKE_TAG) } });
+  const ours = t.tags.includes(HELD_NEEDS_MIKE_MARK);
+  await tx.task.update({ where: { id: taskId }, data: { tags: t.tags.filter((x) => x !== HELD_TAG && x !== HELD_NEEDS_MIKE_MARK && !(ours && x === NEEDS_MIKE_TAG)) } });
   return true;
 }
 
@@ -272,6 +289,8 @@ export async function answerQuestion(task: TaskHead, qid: string, auth: Auth, bo
     const row = await tx.taskQuestion.findFirst({ where: { id: qid, task_id: task.id } });
     if (!row) throw new ApiError(QUESTION_MESSAGES.notFound, 404);
     if (row.state === 'withdrawn') throw new ApiError(QUESTION_MESSAGES.closed, 409, 'withdrawn');
+    // He answers the wording he saw: if the row changed since he read it, nothing is stored.
+    if (row.updated_at.toISOString() !== body.version) throw new ApiError(QUESTION_MESSAGES.changed, 409, 'question_changed');
     let opt = null;
     if (body.option_id) {
       opt = optionOf(row.options, body.option_id);
@@ -279,11 +298,15 @@ export async function answerQuestion(task: TaskHead, qid: string, auth: Auth, bo
     }
     const words = answerWords(opt, text);
     const base = answerComment(row.question, words);
+    // While another `wait` question is still open the card must not wake. The gate treats a last comment by a bot user as not human,
+    // so this answer is kept as a Bast-authored note that says it is Mike's; the last answer writes the real, waking comment.
+    const othersWaiting = await tx.taskQuestion.count({ where: { task_id: task.id, state: 'open', if_nobody_action: 'wait', id: { not: row.id } } });
+    const quiet = othersWaiting > 0 && !machine;
     const comment = await tx.comment.create({
       data: {
         task_id: task.id,
-        user_id: auth.userId,
-        content: machine ? `${CHAT_ANSWER_PREFIX}${base}` : base,
+        user_id: quiet ? BOT_USER_IDS[0] : auth.userId,
+        content: machine ? `${CHAT_ANSWER_PREFIX}${base}` : quiet ? `${HELD_ANSWER_PREFIX}${base}` : base,
         mentioned_user_ids: [],
         is_internal: true,
         client_visible: false,

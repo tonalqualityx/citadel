@@ -67,9 +67,10 @@ describe('question Context checks', () => {
 describe('answers and citations', () => {
   it('an answer needs an option or words', () => {
     expect(questionAnswerSchema.safeParse({}).success).toBe(false);
-    expect(questionAnswerSchema.safeParse({ text: '   ' }).success).toBe(false);
-    expect(questionAnswerSchema.safeParse({ option_id: 'now' }).success).toBe(true);
-    expect(questionAnswerSchema.safeParse({ text: 'Do it Friday' }).success).toBe(true);
+    expect(questionAnswerSchema.safeParse({ text: '   ', version: 'v' }).success).toBe(false);
+    expect(questionAnswerSchema.safeParse({ option_id: 'now', version: 'v' }).success).toBe(true);
+    expect(questionAnswerSchema.safeParse({ option_id: 'now' }).success).toBe(false); // the version he read is required;
+    expect(questionAnswerSchema.safeParse({ text: 'Do it Friday', version: 'v' }).success).toBe(true);
   });
   it('answerWords keeps his words: the label, the text, or both', () => {
     const o = { id: 'now', label: 'Move it now', consequence: 'x' };
