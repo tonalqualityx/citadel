@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import {
+  KEEP_SIGNED_IN_DAYS,
   verifyRefreshToken,
   signAccessToken,
   signRefreshToken,
@@ -16,7 +17,7 @@ import { ApiError } from '@/lib/api/errors';
  */
 export async function refreshSession(
   refreshToken: string | undefined
-): Promise<{ accessToken: string; refreshToken: string }> {
+): Promise<{ accessToken: string; refreshToken: string; keep: boolean }> {
   if (!refreshToken) {
     throw new ApiError('Refresh token required', 401);
   }
@@ -35,25 +36,34 @@ export async function refreshSession(
     throw new ApiError('User is inactive', 401);
   }
 
+  // Sliding: a device that ticked "Keep me signed in" gets a fresh full long lifetime on every
+  // refresh. The flag is read only from the verified (signed) refresh token.
+  const keep = tokenPayload.keep === true;
+
   const newTokenPayload = {
     userId: session.user.id,
     email: session.user.email,
     role: session.user.role,
+    ...(keep ? { keep: true } : {}),
   };
 
-  const accessToken = await signAccessToken(newTokenPayload);
+  const accessToken = await signAccessToken({
+    userId: newTokenPayload.userId,
+    email: newTokenPayload.email,
+    role: newTokenPayload.role,
+  });
   const newRefreshToken = await signRefreshToken(newTokenPayload);
 
   // Update session with new refresh token (not rotate/delete)
-  await createOrUpdateSession(session.user.id, newRefreshToken);
+  await createOrUpdateSession(session.user.id, newRefreshToken, keep ? KEEP_SIGNED_IN_DAYS : undefined);
 
-  return { accessToken, refreshToken: newRefreshToken };
+  return { accessToken, refreshToken: newRefreshToken, keep };
 }
 
 /** Set the two auth cookies with the same attributes login and refresh have always used. */
 export function setAuthCookies(
   response: NextResponse,
-  tokens: { accessToken: string; refreshToken: string }
+  tokens: { accessToken: string; refreshToken: string; keep?: boolean }
 ): void {
   response.cookies.set('access_token', tokens.accessToken, {
     httpOnly: true,
@@ -67,7 +77,7 @@ export function setAuthCookies(
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
-    maxAge: 60 * 60 * 24 * 7,
+    maxAge: 60 * 60 * 24 * (tokens.keep ? KEEP_SIGNED_IN_DAYS : 7),
     path: '/',
   });
 }

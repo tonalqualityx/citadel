@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 import { prisma } from '@/lib/db/prisma';
-import { signAccessToken, signRefreshToken, createOrUpdateSession } from '@/lib/auth/jwt';
+import { signAccessToken, signRefreshToken, createOrUpdateSession, KEEP_SIGNED_IN_DAYS } from '@/lib/auth/jwt';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { authRateLimit } from '@/lib/api/rate-limit';
 
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
+  keep_signed_in: z.boolean().optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -18,7 +19,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { email, password } = loginSchema.parse(body);
+    const { email, password, keep_signed_in } = loginSchema.parse(body);
 
     // Find user
     const user = await prisma.user.findUnique({
@@ -42,11 +43,12 @@ export async function POST(request: NextRequest) {
       role: user.role,
     };
 
+    const keep = keep_signed_in === true;
     const accessToken = await signAccessToken(tokenPayload);
-    const refreshToken = await signRefreshToken(tokenPayload);
+    const refreshToken = await signRefreshToken(keep ? { ...tokenPayload, keep: true } : tokenPayload);
 
     // Store session (creates new or updates existing for this user)
-    await createOrUpdateSession(user.id, refreshToken);
+    await createOrUpdateSession(user.id, refreshToken, keep ? KEEP_SIGNED_IN_DAYS : undefined);
 
     // Update last login
     await prisma.user.update({
@@ -78,7 +80,7 @@ export async function POST(request: NextRequest) {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 7, // 7 days
+      maxAge: 60 * 60 * 24 * (keep ? KEEP_SIGNED_IN_DAYS : 7), // 7 days unless ticked
       path: '/',
     });
 

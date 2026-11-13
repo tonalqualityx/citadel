@@ -16,6 +16,7 @@ export default function LoginPage() {
   const queryClient = useQueryClient();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [keepSignedIn, setKeepSignedIn] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
@@ -28,7 +29,7 @@ export default function LoginPage() {
       const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify(keepSignedIn ? { email, password, keep_signed_in: true } : { email, password }),
       });
 
       if (!response.ok) {
@@ -92,6 +93,16 @@ export default function LoginPage() {
             required
             autoComplete="current-password"
           />
+
+          <label className="flex items-center gap-2 text-sm text-text-sub">
+            <input
+              type="checkbox"
+              checked={keepSignedIn}
+              onChange={(e) => setKeepSignedIn(e.target.checked)}
+              data-testid="keep-signed-in"
+            />
+            Keep me signed in on this device
+          </label>
 
           <div className="text-right">
             <Link

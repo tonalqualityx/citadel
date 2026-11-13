@@ -14,6 +14,11 @@ export interface TokenPayload extends JWTPayload {
    * the signing helpers do not need it.
    */
   via?: 'session' | 'api_key';
+  /**
+   * Refresh tokens only: the staff sign-in ticked "Keep me signed in on this device". Part of the
+   * signed token, so it cannot be added or changed without JWT_REFRESH_SECRET.
+   */
+  keep?: boolean;
   /** The API key row id when via is 'api_key'. */
   apiKeyId?: string;
 }
@@ -26,11 +31,16 @@ export async function signAccessToken(payload: Omit<TokenPayload, 'iat' | 'exp'>
     .sign(JWT_SECRET);
 }
 
+/** Lifetime of a refresh token (and its session) for a device that ticked "Keep me signed in". */
+export const KEEP_SIGNED_IN_DAYS = 30;
+export const DEFAULT_REFRESH_DAYS = 7;
+
 export async function signRefreshToken(payload: Omit<TokenPayload, 'iat' | 'exp'>): Promise<string> {
-  return new SignJWT(payload)
+  const keep = payload.keep === true;
+  return new SignJWT(keep ? { ...payload, keep: true } : payload)
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
-    .setExpirationTime(process.env.JWT_REFRESH_EXPIRY || '7d')
+    .setExpirationTime(keep ? `${KEEP_SIGNED_IN_DAYS}d` : process.env.JWT_REFRESH_EXPIRY || '7d')
     .sign(JWT_REFRESH_SECRET);
 }
 
@@ -44,9 +54,13 @@ export async function verifyRefreshToken(token: string): Promise<TokenPayload> {
   return payload as TokenPayload;
 }
 
-export async function createOrUpdateSession(userId: string, refreshToken: string): Promise<void> {
-  const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + 7); // 7 days
+export async function createOrUpdateSession(
+  userId: string,
+  refreshToken: string,
+  days: number = DEFAULT_REFRESH_DAYS
+): Promise<void> {
+  let expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + days);
 
   // Upsert: create new session or update existing one for this user
   // This allows multiple tabs to share the same session
@@ -55,6 +69,10 @@ export async function createOrUpdateSession(userId: string, refreshToken: string
   });
 
   if (existingSession) {
+    // One session row per user is shared by all devices: never shorten it, so a default sign-in
+    // elsewhere cannot cut a "keep me signed in" device short. With no long session this is the
+    // same as always (the stored expiry is never later than now + 7 days).
+    if (existingSession.expires_at > expiresAt) expiresAt = existingSession.expires_at;
     await prisma.session.update({
       where: { id: existingSession.id },
       data: {

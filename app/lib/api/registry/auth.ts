@@ -12,6 +12,7 @@ export const authEndpoints: ApiEndpoint[] = [
         bodySchema: [
           { name: 'email', type: 'string', required: true, description: 'User email' },
           { name: 'password', type: 'string', required: true, description: 'User password' },
+          { name: 'keep_signed_in', type: 'boolean', required: false, description: 'Staff sign-in only. true gives this device a 30-day sliding refresh lifetime (default 7 days). Carried in the signed refresh token.' },
         ],
         responseExample: {
           user: { id: 'uuid', name: 'string', email: 'string', role: 'tech|pm|admin|designer' },
