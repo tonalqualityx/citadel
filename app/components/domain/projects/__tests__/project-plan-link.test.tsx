@@ -5,12 +5,12 @@ const m = vi.hoisted(() => ({ get: vi.fn() }));
 vi.mock('@/lib/api/client', () => ({ apiClient: { get: m.get } }));
 vi.mock('next/link', () => ({ default: ({ href, children, ...r }: { href: string; children: React.ReactNode }) => <a href={href} {...r}>{children}</a> }));
 
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, cleanup } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ProjectPlanLink } from '../project-plan-link';
 
 const wrap = () => render(<QueryClientProvider client={new QueryClient()}><ProjectPlanLink projectId="p1" /></QueryClientProvider>);
-beforeEach(() => m.get.mockReset());
+beforeEach(() => { cleanup(); m.get.mockReset(); });
 
 describe('ProjectPlanLink', () => {
   it('links to the setup card Plan tab with the line count', async () => {
@@ -21,7 +21,7 @@ describe('ProjectPlanLink', () => {
     expect(a.textContent).toBe('Plan (12)');
   });
   it('shows nothing when the project has no plan or the person may not read it', async () => {
-    m.get.mockImplementation(() => Promise.reject(new Error('404')));
+    m.get.mockImplementation(async () => { throw new Error('404'); });
     wrap();
     await waitFor(() => expect(m.get).toHaveBeenCalled());
     expect(screen.queryByTestId('project-plan-link')).toBeNull();
