@@ -11,6 +11,8 @@ import { actorOf, recordTriageChange, recordProjectChange } from '@/lib/tasks/tr
 import { assertLinkableProject, guardChatProjectDates, linkIsNarrowed } from '@/lib/tasks/triage-link';
 import { isTriageDeskLane, guardDeskTriagePatch } from '@/lib/triage-desk/guard';
 import { estimatePatchForKind } from '@/lib/tasks/triage-estimate';
+import { dateSourceSchema } from '@/lib/tasks/plan-schema';
+import { changedDates, recordDateChanges } from '@/lib/tasks/date-changes';
 import { cardForCaller } from '@/lib/deals/access';
 
 async function cardOr404(id: string) {
@@ -51,6 +53,8 @@ const bodySchema = z
     /** A project card's target start and launch dates, YYYY-MM-DD, or null to clear. They are the linked project's start_date and target_date. */
     target_start_date: dayString.nullable().optional(),
     target_launch_date: dayString.nullable().optional(),
+    /** Where the date came from. The chat lane must give it with a date; the change is recorded with it. */
+    date_source: dateSourceSchema.optional(),
   })
   .strict()
   .refine((v) => v.kind !== undefined || v.project_id !== undefined || v.target_start_date !== undefined || v.target_launch_date !== undefined, {
@@ -58,9 +62,10 @@ const bodySchema = z
   });
 
 /**
- * PATCH /api/tasks/:id/triage   { kind?: project_setup|task|project_addition|reusable_tool|rule_proposal|question_only|null, project_id?: uuid|null, target_start_date?: YYYY-MM-DD|null, target_launch_date?: YYYY-MM-DD|null }
+ * PATCH /api/tasks/:id/triage   { kind?: project_setup|task|project_addition|reusable_tool|rule_proposal|question_only|null, project_id?: uuid|null, target_start_date?: YYYY-MM-DD|null, target_launch_date?: YYYY-MM-DD|null, date_source?: { kind: deal|sow|client_email|mike, label, quote?, dated? } }
  * The two dates are the linked project's start_date and target_date; they need a project card (kind project_setup) with a project.
  * Sets what the card is and, for a project card, which project it sets up (the card takes the new project's client and site, even when it has no site; unlinking clears both). Triage cards
+ * The chat lane sets dates on any project, the portal's included, only with date_source (422 date_source_required otherwise); each changed date is a change line with old, new and the source.
  * only; Mike's session or the chat lane only (403 for everyone else). Returns the card.
  */
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -74,7 +79,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (!task || task.status !== 'triage') throw new ApiError('That card is not in Triage.', 404, 'not_in_triage');
     // The triage desk may not change the dates of a project the portal shows.
     await guardDeskTriagePatch(auth, rawBody, task.project_id);
-    await guardChatProjectDates(prisma, auth, body.target_start_date !== undefined || body.target_launch_date !== undefined, body.project_id !== undefined ? body.project_id : task.project_id);
+    guardChatProjectDates(auth, body.target_start_date !== undefined || body.target_launch_date !== undefined, body.date_source);
     const data: Record<string, unknown> = {};
     if (body.kind !== undefined) {
       data.triage_kind = body.kind;
@@ -113,11 +118,15 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const changed: string[] = [];
     if (body.kind !== undefined) changed.push('Kind');
     if (body.project_id !== undefined) changed.push('Project link');
-    if (datesGiven) changed.push('Dates');
+    // A sourced date change leaves its own, richer lines (recordDateChanges), so the generic Dates line is for the unsourced one.
+    if (datesGiven && !body.date_source) changed.push('Dates');
     const noon = (v: string | null | undefined) => (v ? new Date(`${v}T12:00:00Z`) : null);
+    let sourced: ReturnType<typeof changedDates> = [];
     await prisma.$transaction(async (tx) => {
       await tx.task.update({ where: { id }, data: data as never });
       if (datesGiven && dateProject) {
+        const before = await tx.project.findUniqueOrThrow({ where: { id: dateProject }, select: { start_date: true, target_date: true } });
+        sourced = body.date_source ? changedDates(before, { start_date: body.target_start_date, target_date: body.target_launch_date }) : [];
         await tx.project.update({
           where: { id: dateProject },
           data: {
@@ -126,9 +135,12 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
           },
         });
       }
-      await recordTriageChange(tx, id, 'card', `${changed.join(' and ')} ${changed.length > 1 ? 'changed' : body.kind !== undefined ? 'set' : 'changed'} by ${actor.by}`, actor);
+      if (changed.length > 0) await recordTriageChange(tx, id, 'card', `${changed.join(' and ')} ${changed.length > 1 ? 'changed' : body.kind !== undefined ? 'set' : 'changed'} by ${actor.by}`, actor);
       // Any other Triage card pointing at this project sees the change too (a project is shared state).
-      if (datesGiven && dateProject) await recordProjectChange(tx, dateProject, `The project's dates changed by ${actor.by}`, actor, id);
+      if (datesGiven && dateProject) {
+        if (body.date_source) await recordDateChanges(tx, dateProject, sourced, actor, body.date_source);
+        else await recordProjectChange(tx, dateProject, `The project's dates changed by ${actor.by}`, actor, id);
+      }
     });
     return NextResponse.json(await cardForCaller(auth, request.headers, await cardOr404(id)));
   } catch (error) {

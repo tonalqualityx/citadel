@@ -149,7 +149,7 @@ describe.skipIf(!SCRATCH)('Dox slice 1 (real database)', () => {
       const proj = await fx.mkProject('Setup', { status: 'ready', portal_visibility: 'hidden' });
       await fx.openPass(proj);
       as(dox());
-      const dates = await patchProject(call(proj, { start_date: '2026-11-10T12:00:00.000Z', target_date: '2026-11-30T12:00:00.000Z', dependencies_ordering_only: true }, 'PATCH'), idParams(proj));
+      const dates = await patchProject(call(proj, { start_date: '2026-11-10T12:00:00.000Z', target_date: '2026-11-30T12:00:00.000Z', dependencies_ordering_only: true, date_source: { kind: 'sow', label: 'Signed SOW v2' } }, 'PATCH'), idParams(proj));
       expect(dates.status).toBe(200);
       const row = await prisma.project.findUniqueOrThrow({ where: { id: proj } });
       expect(row.dependencies_ordering_only).toBe(true);
@@ -411,11 +411,11 @@ describe.skipIf(!SCRATCH)('Dox slice 1 (real database)', () => {
       expect(row.target_date?.toISOString().slice(0, 10)).toBe('2026-11-30');
 
       as(chatLane());
-      const chatSet = await json(await patchTriage(call(undefined, { target_launch_date: '2026-12-15' }, 'PATCH'), idParams(card)));
+      const chatSet = await json(await patchTriage(call(undefined, { target_launch_date: '2026-12-15', date_source: { kind: 'mike', label: 'Mike, in chat' } }, 'PATCH'), idParams(card)));
       expect(chatSet.status).toBe(200);
       expect(chatSet.body.target_launch_date).toBe('2026-12-15');
       expect(chatSet.body.target_start_date).toBe('2026-11-10');
-      const cleared = await json(await patchTriage(call(undefined, { target_start_date: null }, 'PATCH'), idParams(card)));
+      const cleared = await json(await patchTriage(call(undefined, { target_start_date: null, date_source: { kind: 'mike', label: 'Mike, in chat' } }, 'PATCH'), idParams(card)));
       expect(cleared.body.target_start_date).toBeNull();
       expect(cleared.body.project.start_date).toBeNull();
 

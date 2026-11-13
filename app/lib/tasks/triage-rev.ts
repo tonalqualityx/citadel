@@ -46,12 +46,12 @@ export const CHANGE_LINES_SHOWN = 3;
  * Record one change on a card. Inside the caller's transaction when it has one. Bumps triage_rev only while the card is in Triage.
  * Returns the card's rev after the change.
  */
-export async function recordTriageChange(db: Db, taskId: string, area: string, line: string, actor: Actor, note?: string | null): Promise<number> {
+export async function recordTriageChange(db: Db, taskId: string, area: string, line: string, actor: Actor, note?: string | null, detail?: Prisma.InputJsonValue | null): Promise<number> {
   await db.task.updateMany({ where: { id: taskId, status: 'triage' }, data: { triage_rev: { increment: 1 } } });
   const t = await db.task.findUnique({ where: { id: taskId }, select: { triage_rev: true } });
   const rev = t?.triage_rev ?? 0;
   await db.triageChange.create({
-    data: { task_id: taskId, rev, area: area.slice(0, 40), line: line.slice(0, 240), note: note ? note.slice(0, 240) : null, by: actor.by.slice(0, 60), by_user_id: actor.userId, by_lane: actor.lane },
+    data: { task_id: taskId, rev, area: area.slice(0, 40), line: line.slice(0, 240), note: note ? note.slice(0, 240) : null, by: actor.by.slice(0, 60), by_user_id: actor.userId, by_lane: actor.lane, ...(detail ? { detail } : {}) },
   });
   return rev;
 }

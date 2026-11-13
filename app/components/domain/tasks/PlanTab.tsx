@@ -17,6 +17,7 @@ import {
   type PlanSectionName,
   type PlanSectionOut,
   type PlanSource,
+  type DateSourceOut,
 } from '@/lib/tasks/plan-schema';
 
 export const PLAN_COPY = {
@@ -148,14 +149,54 @@ function Empty({ section }: { section: PlanSectionName }) {
   );
 }
 
-function Block({ title, count, testid, children }: { title: string; count?: number; testid: string; children: React.ReactNode }) {
+/** Which sections are folded away, kept per browser under one key for the whole plan. Default: everything open. */
+const COLLAPSE_KEY = 'citadel.plan.collapsed';
+const CollapseCtx = React.createContext<{ closed: Record<string, boolean>; toggle: (key: string) => void }>({ closed: {}, toggle: () => {} });
+
+function readClosed(): Record<string, boolean> {
+  try {
+    const raw = window.localStorage.getItem(COLLAPSE_KEY);
+    const v = raw ? (JSON.parse(raw) as unknown) : null;
+    if (!Array.isArray(v)) return {};
+    return Object.fromEntries(v.filter((k): k is string => typeof k === 'string').map((k) => [k, true]));
+  } catch {
+    return {};
+  }
+}
+function writeClosed(closed: Record<string, boolean>): void {
+  try {
+    window.localStorage.setItem(COLLAPSE_KEY, JSON.stringify(Object.keys(closed).filter((k) => closed[k])));
+  } catch {
+    /* no storage: the plan still works, it just forgets */
+  }
+}
+
+/** Lines the owner marked wrong, so a folded section still says it has something to fix. */
+const wrongOf = (s: { items: PlanItemOut[] }) => s.items.filter((i) => i.marked_wrong).length;
+
+function Block({ title, count, testid, wrong = 0, children }: { title: string; count?: number; testid: string; wrong?: number; children: React.ReactNode }) {
+  const { closed, toggle } = React.useContext(CollapseCtx);
+  const isClosed = closed[testid] === true;
+  const bodyId = `${testid}-body`;
   return (
     <section className="home-blk home-plan-sec" data-testid={testid} aria-label={title}>
       <h3>
-        {title}
-        {count ? <span className="home-plan-count"> {count}</span> : null}
+        <button type="button" className="home-plan-toggle" aria-expanded={!isClosed} aria-controls={bodyId} onClick={() => toggle(testid)} data-testid={`${testid}-toggle`}>
+          <span className="home-plan-chev" aria-hidden="true">{isClosed ? '\u25b8' : '\u25be'}</span>
+          <span>
+            {title}
+            {count ? <span className="home-plan-count"> {count}</span> : null}
+          </span>
+          {isClosed && wrong > 0 ? (
+            <span className="home-small home-plan-wrong home-plan-fix" data-testid={`${testid}-fix`}>
+              {wrong} to fix
+            </span>
+          ) : null}
+        </button>
       </h3>
-      {children}
+      <div id={bodyId} hidden={isClosed} className="home-plan-body">
+        {children}
+      </div>
     </section>
   );
 }
@@ -182,7 +223,7 @@ const droppedOf = (s: PlanSectionOut) => s.items.filter((i) => str(i.mark) === '
 function Requirements({ s, c }: { s: PlanSectionOut; c: Controls }) {
   const items = live(s);
   return (
-    <Block title={s.title} count={items.length} testid="plan-requirements">
+    <Block wrong={wrongOf(s)} title={s.title} count={items.length} testid="plan-requirements">
       {s.items.length === 0 ? (
         <Empty section="requirements" />
       ) : (
@@ -204,9 +245,9 @@ function Requirements({ s, c }: { s: PlanSectionOut; c: Controls }) {
 function Dates({ s, c, project }: { s: PlanSectionOut; c: Controls; project: PlanOut['project'] }) {
   const fromProject = project
     ? [
-        project.start_date ? { label: 'Start', date: project.start_date } : null,
-        project.target_date ? { label: 'Launch', date: project.target_date } : null,
-      ].filter((x): x is { label: string; date: string } => !!x)
+        project.start_date ? { label: 'Start', date: project.start_date, src: project.date_sources?.start ?? null } : null,
+        project.target_date ? { label: 'Launch', date: project.target_date, src: project.date_sources?.launch ?? null } : null,
+      ].filter((x): x is { label: string; date: string; src: DateSourceOut | null } => !!x)
     : [];
   const items = live(s).sort((a, b) => str(a.date).localeCompare(str(b.date)));
   const empty = items.length === 0 && fromProject.length === 0 && droppedOf(s).length === 0;
@@ -216,7 +257,7 @@ function Dates({ s, c, project }: { s: PlanSectionOut; c: Controls; project: Pla
     </>
   );
   return (
-    <Block title={s.title} count={items.length + fromProject.length} testid="plan-dates">
+    <Block wrong={wrongOf(s)} title={s.title} count={items.length + fromProject.length} testid="plan-dates">
       {empty ? (
         <Empty section="dates" />
       ) : (
@@ -227,7 +268,9 @@ function Dates({ s, c, project }: { s: PlanSectionOut; c: Controls; project: Pla
                 <span className="home-plan-text">
                   <strong>{d.label}</strong> {dayLong(d.date)}
                 </span>
-                <span className="home-small home-muted home-plan-src">Project dates</span>
+                <span className="home-small home-muted home-plan-src" data-testid={d.src ? 'plan-date-source' : undefined}>
+                  {d.src ? `From ${plain(d.src.label)}${d.src.dated ? ` · ${dayLong(d.src.dated)}` : ''}` : 'Project dates'}
+                </span>
               </li>
             ))}
             {items.map((i) => (
@@ -236,6 +279,15 @@ function Dates({ s, c, project }: { s: PlanSectionOut; c: Controls; project: Pla
               </Line>
             ))}
           </ul>
+          {project?.date_changes && project.date_changes.length > 0 ? (
+            <ul className="home-plan-list" aria-label="Date changes" data-testid="plan-date-changes">
+              {project.date_changes.map((d, k) => (
+                <li key={k} className="home-small home-muted home-plan-item">
+                  {plain(d.line)} · {whenWords(d.at)}
+                </li>
+              ))}
+            </ul>
+          ) : null}
           <Dropped items={droppedOf(s)} section="dates" c={c} render={render} />
         </>
       )}
@@ -260,7 +312,7 @@ function Team({ s, c, project }: { s: PlanSectionOut; c: Controls; project: Plan
   );
   const total = mikeParts.length + s.items.length;
   return (
-    <Block title={s.title} count={total} testid="plan-team">
+    <Block wrong={wrongOf(s)} title={s.title} count={total} testid="plan-team">
       {total === 0 ? (
         <Empty section="team" />
       ) : (
@@ -292,7 +344,7 @@ function Team({ s, c, project }: { s: PlanSectionOut; c: Controls; project: Plan
 function Billing({ s, c }: { s: PlanSectionOut; c: Controls }) {
   if (s.withheld) {
     return (
-      <Block title={s.title} testid="plan-billing">
+      <Block wrong={wrongOf(s)} title={s.title} testid="plan-billing">
         <p className="home-small home-muted">{PLAN_COPY.withheld}</p>
       </Block>
     );
@@ -301,7 +353,7 @@ function Billing({ s, c }: { s: PlanSectionOut; c: Controls }) {
   const miles = s.items.filter((i) => i.type === 'milestone');
   const refers = basis?.refers_to as { label: string; href?: string } | undefined;
   return (
-    <Block title={s.title} testid="plan-billing">
+    <Block wrong={wrongOf(s)} title={s.title} testid="plan-billing">
       {!basis && miles.length === 0 ? (
         <Empty section="billing" />
       ) : (
@@ -382,7 +434,7 @@ function WorkToNote({ s, c }: { s: PlanSectionOut; c: Controls }) {
     );
   };
   return (
-    <Block title={s.title} count={live.length} testid="plan-planned-tasks">
+    <Block wrong={wrongOf(s)} title={s.title} count={live.length} testid="plan-planned-tasks">
       {s.withheld ? (
         <p className="home-small home-muted">{PLAN_COPY.withheld}</p>
       ) : s.items.length === 0 ? (
@@ -412,7 +464,7 @@ function WorkToNote({ s, c }: { s: PlanSectionOut; c: Controls }) {
 function Risks({ s, c }: { s: PlanSectionOut; c: Controls }) {
   const sorted = [...s.items.filter((i) => i.uncovered === true), ...s.items.filter((i) => i.uncovered !== true)];
   return (
-    <Block title={s.title} count={s.items.length} testid="plan-risks">
+    <Block wrong={wrongOf(s)} title={s.title} count={s.items.length} testid="plan-risks">
       {s.items.length === 0 ? (
         <Empty section="risks" />
       ) : (
@@ -440,7 +492,7 @@ function Risks({ s, c }: { s: PlanSectionOut; c: Controls }) {
 
 function Examples({ s, c }: { s: PlanSectionOut; c: Controls }) {
   return (
-    <Block title={s.title} count={s.items.length} testid="plan-examples">
+    <Block wrong={wrongOf(s)} title={s.title} count={s.items.length} testid="plan-examples">
       {s.items.length === 0 ? (
         <Empty section="examples" />
       ) : (
@@ -462,7 +514,7 @@ function Examples({ s, c }: { s: PlanSectionOut; c: Controls }) {
 function Decisions({ s, c, answered }: { s: PlanSectionOut; c: Controls; answered: PlanOut['answered_questions'] }) {
   const total = s.items.length + answered.length;
   return (
-    <Block title={s.title} count={total} testid="plan-decisions">
+    <Block wrong={wrongOf(s)} title={s.title} count={total} testid="plan-decisions">
       {s.withheld ? (
         <p className="home-small home-muted">{PLAN_COPY.withheld}</p>
       ) : total === 0 ? (
@@ -536,6 +588,9 @@ function ProjectBlocks({ project }: { project: NonNullable<PlanOut['project']> }
   );
 }
 
+const PLAN_BLOCK_KEYS = ['plan-requirements', 'plan-dates', 'plan-team', 'plan-billing', 'plan-planned-tasks', 'plan-risks', 'plan-examples', 'plan-decisions'];
+const PROJECT_BLOCK_KEYS = ['plan-shape', 'plan-deal', 'plan-sitemap'];
+
 /** The plan as a read: presentational. `canEdit` shows the owner's two controls per line (Mark wrong, Remove); he edits by talking. */
 export function PlanView({
   plan,
@@ -551,8 +606,24 @@ export function PlanView({
   // The two per-line controls sit behind one "Review lines" switch so the plan stays quiet to read; he edits by talking.
   const [reviewing, setReviewing] = React.useState(false);
   const c: Controls = { canEdit: canEdit && reviewing, onRemove, onMarkWrong };
+  const [closed, setClosed] = React.useState<Record<string, boolean>>({});
+  React.useEffect(() => setClosed(readClosed()), []);
+  const keys = [...PLAN_BLOCK_KEYS, ...(plan.project ? PROJECT_BLOCK_KEYS : [])];
+  const allClosed = keys.every((k) => closed[k]);
+  const setAll = (shut: boolean) => {
+    const next = shut ? Object.fromEntries(keys.map((k) => [k, true])) : {};
+    setClosed(next);
+    writeClosed(next);
+  };
+  const toggle = (key: string) =>
+    setClosed((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      writeClosed(next);
+      return next;
+    });
   const by = (n: PlanSectionName) => plan.sections.find((s) => s.section === n) as PlanSectionOut;
   return (
+    <CollapseCtx.Provider value={{ closed, toggle }}>
     <div className="home-plan" data-testid="plan-tab">
       <div className="home-plan-top">
         <p className="home-small home-muted" data-testid="plan-last-changed">
@@ -563,6 +634,9 @@ export function PlanView({
             {reviewing ? PLAN_COPY.doneReviewing : PLAN_COPY.review}
           </button>
         ) : null}
+        <button type="button" className="home-linkbtn home-plan-all" onClick={() => setAll(!allClosed)} data-testid="plan-collapse-all">
+          {allClosed ? 'Expand all' : 'Collapse all'}
+        </button>
       </div>
       {plan.project ? (
         <p className="home-small" data-testid="plan-shape-line">
@@ -583,6 +657,7 @@ export function PlanView({
       <Decisions s={by('decisions')} c={c} answered={plan.answered_questions} />
       {plan.project ? <ProjectBlocks project={plan.project} /> : null}
     </div>
+    </CollapseCtx.Provider>
   );
 }
 
