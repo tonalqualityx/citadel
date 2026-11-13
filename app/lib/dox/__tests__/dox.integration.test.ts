@@ -145,7 +145,8 @@ describe.skipIf(!SCRATCH)('Dox slice 1 (real database)', () => {
     });
 
     it('sets the project dates and ordering-only, moves ready -> in_progress, closes only when every task is done', async () => {
-      const proj = await fx.mkProject('Setup', { status: 'ready' });
+      // A project Dox sets up is hidden from the portal (the ones it creates start that way): a project the portal shows is refused its dates and status.
+      const proj = await fx.mkProject('Setup', { status: 'ready', portal_visibility: 'hidden' });
       await fx.openPass(proj);
       as(dox());
       const dates = await patchProject(call(proj, { start_date: '2026-11-10T12:00:00.000Z', target_date: '2026-11-30T12:00:00.000Z', dependencies_ordering_only: true }, 'PATCH'), idParams(proj));

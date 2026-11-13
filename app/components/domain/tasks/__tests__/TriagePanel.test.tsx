@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import * as React from 'react';
 
 const m = vi.hoisted(() => ({ card: undefined as unknown, act: vi.fn(), talkAbout: vi.fn() }));
@@ -13,6 +13,11 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { TriagePanel, TRIAGE_PANEL_STORAGE_KEY } from '../TriagePanel';
+
+const store = new Map<string, string>();
+beforeAll(() => {
+  vi.stubGlobal('localStorage', { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) });
+});
 import type { HomeTriageCard } from '@/lib/home/types';
 import { CARD_CHANGED_MESSAGE } from '@/lib/tasks/triage-copy';
 
@@ -107,14 +112,14 @@ describe('TriagePanel', () => {
 
   it('the panel remembers More or Less per device', () => {
     m.card = base;
-    window.localStorage.removeItem(TRIAGE_PANEL_STORAGE_KEY);
+    localStorage.removeItem(TRIAGE_PANEL_STORAGE_KEY);
     const first = wrap(<TriagePanel taskId={ID} />);
     fireEvent.click(screen.getByTestId('triage-more'));
-    expect(window.localStorage.getItem(TRIAGE_PANEL_STORAGE_KEY)).toBe('1');
+    expect(localStorage.getItem(TRIAGE_PANEL_STORAGE_KEY)).toBe('1');
     first.unmount();
     wrap(<TriagePanel taskId={ID} />);
     expect(screen.getByTestId('triage-panel').getAttribute('data-expanded')).toBe('true');
-    window.localStorage.removeItem(TRIAGE_PANEL_STORAGE_KEY);
+    localStorage.removeItem(TRIAGE_PANEL_STORAGE_KEY);
   });
 
   it('a project card shows ONE facts line (contract, launch, phases, pages, yours, open questions) and no placeholder sentences, shape or sitemap', () => {

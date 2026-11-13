@@ -148,7 +148,7 @@ describe.skipIf(!SCRATCH)('the triage-desk lane (real database)', () => {
       expect(JSON.stringify(r)).not.toContain('something private');
       expect(bySeq(5).text).not.toContain('abcdefghijklmnop1234567890');
       expect(bySeq(5).text).not.toContain('AbCdEfGhIjKlMnOp1234567890xyz');
-      expect(bySeq(5).text).toContain('[redacted]');
+      expect(bySeq(5).text).toContain('[secret removed]');
       expect(bySeq(10)).toMatchObject({ not_answered: true });
     });
 
@@ -246,7 +246,7 @@ describe.skipIf(!SCRATCH)('the triage-desk lane (real database)', () => {
       const ok = await json(await putShape(call({ phases: [{ name: 'Design', mike_part: 'Pick one option' }], pages: [{ name: 'Home' }] }, 'PUT'), idParams(card)));
       expect(ok.status, JSON.stringify(ok.body)).toBe(200);
       expect(await prisma.projectPhase.count({ where: { project_id: queueProject } })).toBe(1);
-      expect((await sessionNotes(card)).some((n) => /Shape redrawn by a session/.test(n.content))).toBe(true);
+      expect((await sessionNotes(card)).some((n) => /redrawn by a session/.test(n.content))).toBe(true);
       const live = await fx.mkTask('Card, live project', { status: 'triage', triage_kind: 'project_setup', project_id: liveProject });
       const no = await json(await putShape(call({ pages: [{ name: 'Home' }] }, 'PUT'), idParams(live)));
       expect(no.status).toBe(409);

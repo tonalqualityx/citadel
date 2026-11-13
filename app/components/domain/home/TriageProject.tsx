@@ -140,8 +140,8 @@ export function TriageFacts({ project, openQuestions }: { project: HomeTriagePro
   const facts: string[] = [];
   if (project) {
     facts.push(contractShort(project));
-    const launch = dateWords(project.target_date);
-    facts.push(launch ? `Launch ${launch}` : 'No launch date');
+    const launch = triageDatesLine(null, project.target_date);
+    facts.push(launch || 'No launch date');
     facts.push(`${project.phases.length} ${project.phases.length === 1 ? 'phase' : 'phases'}`);
     facts.push(`${project.sitemap.length} ${project.sitemap.length === 1 ? 'page' : 'pages'}`);
     facts.push(`${project.mike_parts.length} yours`);

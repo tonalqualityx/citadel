@@ -71,19 +71,20 @@ describe('plan item validation, per section', () => {
     expect(ok('decisions', { text: 'Go with the old logo' })).toBe(false);
   });
 
-  it('planned tasks: a title, who it is for (user, Bast, Dox decides or a named party), dependencies as ids, when as free text, marks and a nullable task_id', () => {
+  it('work to note: a title, a one-line note, who it is for when that matters, when as free text, marks and a nullable task_id; depends_on and done_when are accepted', () => {
     const base = { title: 'Build the header', for: { kind: 'bast' }, source: src };
     expect(ok('planned_tasks', base)).toBe(true);
-    expect(ITEM_SCHEMAS.planned_tasks.parse(base)).toMatchObject({ depends_on: [], mark: 'original' });
+    expect(ITEM_SCHEMAS.planned_tasks.parse(base)).toMatchObject({ mark: 'original' });
     expect(ok('planned_tasks', { ...base, for: { kind: 'dox_decides' } })).toBe(true);
     expect(ok('planned_tasks', { ...base, for: { user_id: '3ecfb7be-20bb-43cb-9b4d-31c44337dc81' }, when: 'before design handoff', done_when: 'Matches the design' })).toBe(true);
     expect(ok('planned_tasks', { ...base, for: { name: 'Lisa', org: 'Freelance designer' } })).toBe(true);
     expect(ok('planned_tasks', { ...base, for: { kind: 'someone' } })).toBe(false);
-    expect(ok('planned_tasks', { ...base, depends_on: ['not-an-id'] })).toBe(false);
+    expect(ok('planned_tasks', { ...base, depends_on: ['anything'], done_when: 'x', note: 'Why it is noted' })).toBe(true); // accepted and ignored
+    expect(ok('planned_tasks', { ...base, note: 'a\u2028b' })).toBe(false);
     expect(ok('planned_tasks', { ...base, task_id: null })).toBe(true);
     expect(ok('planned_tasks', { ...base, title: 'a\nb' })).toBe(false);
     expect(ok('planned_tasks', { ...base, mark: 'changed' })).toBe(false);
-    expect(ok('planned_tasks', { title: 'x', source: src })).toBe(false); // who it is for is required
+    expect(ok('planned_tasks', { title: 'x', source: src })).toBe(true); // who it is for is optional: only when it matters
   });
 
   it('risks: what covers it, or uncovered, never both and never neither', () => {

@@ -11,6 +11,7 @@ import { NextRequest } from 'next/server';
 import type { Mock } from 'vitest';
 
 vi.mock('@/lib/auth/middleware', async (orig) => ({ ...(await orig<typeof import('@/lib/auth/middleware')>()), requireAuth: vi.fn() }));
+vi.mock('@/lib/api/formatters', async (orig) => ({ ...(await orig<typeof import('@/lib/api/formatters')>()), formatProjectResponse: (p: { id: string }) => ({ id: p.id }) }));
 vi.mock('@/lib/auth/actor-lane', () => ({ actorLaneField: vi.fn(async () => ({})), currentActorLane: vi.fn(async () => null) }));
 
 import { prisma } from '@/lib/db/prisma';
@@ -51,6 +52,7 @@ const qp = (id: string, qid: string) => ({ params: Promise.resolve({ id, qid }) 
 const idp = idParams;
 const SRC = { label: 'Email from jane@client.example, Nov 3', date: '2026-11-03', kind: 'email', url: 'https://mail.example/thread/1' };
 const CTX = {
+  question: 'Ten pages or forty?',
   what_it_is: 'The scope in the signed deal and the email thread disagree about the number of pages.',
   sources: [{ who: 'A session', said: 'The deal lists 12 pages, the thread says 10', at: '2026-11-13' }],
   checked: 'The deal and the thread were both read.',
@@ -148,6 +150,7 @@ describe.skipIf(!SCRATCH)('access and plan fixes (real database)', () => {
   let techId: string;
   let pmId: string;
   const ids: { projects: string[]; deals: string[] } = { projects: [], deals: [] };
+  const functionIds: string[] = [];
 
   beforeAll(async () => {
     fx = await makeFixture('apf');
@@ -171,6 +174,7 @@ describe.skipIf(!SCRATCH)('access and plan fixes (real database)', () => {
     await prisma.notification.deleteMany({ where: { user_id: { in: [techId, pmId] } } });
     await prisma.project.deleteMany({ where: { id: { in: ids.projects } } });
     await fx.cleanup();
+    await prisma.function.deleteMany({ where: { id: { in: functionIds } } });
     await prisma.client.deleteMany({ where: { id: otherClientId } });
     await prisma.$disconnect();
   });
@@ -263,7 +267,7 @@ describe.skipIf(!SCRATCH)('access and plan fixes (real database)', () => {
 
   describe('A4: deal prices go only to the owner, the chat lane and Dox inside its binding', () => {
     it('strips deal_detail for the desk on GET, PATCH and PUT replies; the owner and the chat keep it', async () => {
-      const deal = await prisma.accord.create({ data: { name: `${fx.tag} Deal`, client_id: fx.clientId, status: 'signed' } as never });
+      const deal = await prisma.accord.create({ data: { name: `${fx.tag} Deal`, client_id: fx.clientId, owner_id: MIKE_USER_ID, status: 'signed' } as never });
       ids.deals.push(deal.id);
       const p = await fx.mkProject('A4 project', { status: 'queue', accord_id: deal.id });
       const t = await fx.mkTask('A4 card', { status: 'triage', triage_kind: 'project_setup', project_id: p, client_id: fx.clientId });
@@ -329,8 +333,8 @@ describe.skipIf(!SCRATCH)('access and plan fixes (real database)', () => {
 
   describe('A8: a project with no deal tie lists only deals not tied to another project', () => {
     it('leaves out a deal already tied to another project', async () => {
-      const taken = await prisma.accord.create({ data: { name: `${fx.tag} taken`, client_id: fx.clientId, status: 'signed' } as never });
-      const free = await prisma.accord.create({ data: { name: `${fx.tag} free`, client_id: fx.clientId, status: 'signed' } as never });
+      const taken = await prisma.accord.create({ data: { name: `${fx.tag} taken`, client_id: fx.clientId, owner_id: MIKE_USER_ID, status: 'signed' } as never });
+      const free = await prisma.accord.create({ data: { name: `${fx.tag} free`, client_id: fx.clientId, owner_id: MIKE_USER_ID, status: 'signed' } as never });
       ids.deals.push(taken.id, free.id);
       await fx.mkProject('A8 owner of the taken deal', { accord_id: taken.id });
       const loose = await fx.mkProject('A8 loose');
@@ -345,7 +349,9 @@ describe.skipIf(!SCRATCH)('access and plan fixes (real database)', () => {
     it('a contractor reads the allowed sections with short source labels only, never billing (items or note), decisions, wrong marks, was/changed_by, answered questions or the deal', async () => {
       const proj = await fx.mkProject('P1 project', { status: 'ready' });
       const t = await fx.mkTask('P1 released', { status: 'triage', triage_kind: 'project_setup', project_id: proj, client_id: fx.clientId });
-      await prisma.projectTeamAssignment.create({ data: { project_id: proj, user_id: techId } as never });
+      const fn = await prisma.function.create({ data: { name: `${fx.tag} fn` } as never });
+      functionIds.push(fn.id);
+      await prisma.projectTeamAssignment.create({ data: { project_id: proj, user_id: techId, function_id: fn.id } as never });
       expect((await put(t, 'billing', [{ type: 'basis', kind: 'hourly', source: SRC }], chatLane(), 'Billing: $150/hr capped at $18,000')).status).toBe(200);
       expect((await put(t, 'requirements', [{ text: 'Ten pages', source: SRC, mark: 'changed', was: 'Twelve pages', changed_by: 'Jane by email' }, { text: 'Wrong one', source: SRC }])).status).toBe(200);
       expect((await put(t, 'decisions', [{ text: 'Use the old logo', source: SRC }])).status).toBe(200);

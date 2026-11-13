@@ -359,13 +359,13 @@ describe.skipIf(!SCRATCH)('Dox escape attempts (real database)', () => {
 
   describe('projects', () => {
     it('a project whose tasks are all abandoned cannot be closed as done; one done task and nothing open can', async () => {
-      const ab = await fx.mkProject('All abandoned', { status: 'in_progress' });
+      const ab = await fx.mkProject('All abandoned', { status: 'in_progress', portal_visibility: 'hidden' });
       await fx.openPass(ab);
       await fx.mkTask('gone 1', { project_id: ab, status: 'abandoned' });
       await fx.mkTask('gone 2', { project_id: ab, status: 'abandoned' });
-      const empty = await fx.mkProject('Empty', { status: 'in_progress' });
+      const empty = await fx.mkProject('Empty', { status: 'in_progress', portal_visibility: 'hidden' });
       await fx.openPass(empty);
-      const withTriage = await fx.mkProject('Done plus a triage card', { status: 'in_progress' });
+      const withTriage = await fx.mkProject('Done plus a triage card', { status: 'in_progress', portal_visibility: 'hidden' });
       await fx.openPass(withTriage);
       await fx.mkTask('finished', { project_id: withTriage, status: 'done' });
       await fx.mkTask('parked', { project_id: withTriage, status: 'triage' });
@@ -431,7 +431,8 @@ describe.skipIf(!SCRATCH)('Dox escape attempts (real database)', () => {
     });
 
     it('a project_setup card whose release already made its queued project ready is not blocked and cannot get a second project', async () => {
-      const own = await fx.mkProject('Released setup project', { status: 'ready' });
+      // hidden from the portal: Dox does not change the status or dates of a project a client can see (A6)
+      const own = await fx.mkProject('Released setup project', { status: 'ready', portal_visibility: 'hidden' });
       const card = await fx.mkTask('Setup card, released', { status: 'not_started', tags: ['from-triage'], client_id: fx.clientId, triage_kind: 'project_setup', project_id: own });
       await fx.openPass(own);
       as(dox());

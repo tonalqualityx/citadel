@@ -368,7 +368,8 @@ export async function guardDoxProjectPatch(auth: LaneAuth, headers: Hdrs, rawBod
   for (const k of keys) {
     if (!PROJECT_PATCH_FIELDS.has(k)) refuse(`Dox cannot change "${k}" on a project.`, 'dox_field_closed');
   }
-  await refuseIfPortalShows(db, existing.id, 'dates');
+  // The dates are what a client reads (target_date) or sits beside it (start_date); ordering-only is internal.
+  if (keys.includes('start_date') || keys.includes('target_date')) await refuseIfPortalShows(db, existing.id, 'dates');
 }
 
 /** A project the client's portal shows: its name, dates, status and phase names are what a client reads, so Dox does not change them (lib/portal/client-rendered.ts). */

@@ -110,7 +110,8 @@ describe.skipIf(!SCRATCH)('the signed deal (real database)', () => {
     it("with neither link, lists the client's signed deals newest first and says they are not a link (client_signed_deals)", async () => {
       const d = await readDeals(prisma, { projectId: unlinkedProject });
       expect(d.tie).toBe('client_signed_deals');
-      expect(d.deals.map((x) => x.id)).toEqual([laterSigned, signedAccord]);
+      // signedAccord is tied to another project (Linked), so it is that project's deal and no candidate here.
+      expect(d.deals.map((x) => x.id)).toEqual([laterSigned]);
       expect(d.deals.every((x) => x.tied_to_project === false)).toBe(true);
       expect(d.tie_note).toMatch(/does not tie this project/i);
     });
