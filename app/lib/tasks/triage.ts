@@ -10,6 +10,10 @@
  *   drop          tasks to abandoned.
  *   undoTriage    puts back exactly the tasks still as the tap left them (compare-and-set), for 72 hours.
  *
+ * Open questions (lib/tasks/questions.ts) never block a release. Each open question follows its if_nobody_action: `go_with_recommendation`
+ * becomes `defaulted` (released without an answer, never his words); `wait` puts `held-for-questions` and `needs-mike` on the card.
+ * The tap records which questions and which tags it changed, so Undo restores exactly those.
+ *
  * Every task write goes through patchTask (lib/services/task-patch.ts), the one patch path. Its server check (only Mike's own
  * session, or the enforced Bast chat lane, may take a task out of triage) is what authorizes the write; nothing here steps around
  * it. The actor is built with ownerActor, from the user row, and only after this module has checked the caller is Mike.
@@ -22,7 +26,8 @@ import { patchTask } from '@/lib/services/task-patch';
 import { ownerActor } from '@/lib/home/reconcile/actor';
 import { appendHomeAction, type HomeDb } from '@/lib/home/state';
 import type { HomeActResponse, HomeTriage, HomeTriageGroup, HomeTriageTask } from '@/lib/home/types';
-import { TRIAGE_MESSAGES, TRIAGE_UNDO_HOURS, droppedLine, releasedLine, releasedPlanLine } from './triage-copy';
+import { TRIAGE_MESSAGES, TRIAGE_UNDO_HOURS, droppedLine, questionsLine, releasedLine, releasedPlanLine } from './triage-copy';
+import { HELD_NEEDS_MIKE_MARK, HELD_TAG, NEEDS_MIKE_TAG, openQuestionCounts } from './questions';
 
 export const TRIAGE_PASS_PREFIX = 'triage-pass:';
 export const TRIAGE_ACTIONS = ['triage_release', 'triage_release_plan', 'triage_drop'] as const;
@@ -110,8 +115,15 @@ export async function loadTriage(db: HomeDb, userId: string): Promise<HomeTriage
     }
     g.rows.push(r);
   }
+  const qCounts = await openQuestionCounts(db, rows.map((r) => r.id));
   const out: HomeTriageGroup[] = [...groups.entries()].map(([key, g]) => {
-    const tasks: HomeTriageTask[] = g.rows.map((r) => ({ task_id: r.id, title: r.title, href: `/tasks/${r.id}`, project_name: r.project?.name ?? null }));
+    const tasks: HomeTriageTask[] = g.rows.map((r) => ({
+      task_id: r.id,
+      title: r.title,
+      href: `/tasks/${r.id}`,
+      project_name: r.project?.name ?? null,
+      open_questions: qCounts.get(r.id) ?? 0,
+    }));
     const withProject = g.rows.filter((r) => r.project);
     return {
       key,
@@ -120,12 +132,13 @@ export async function loadTriage(db: HomeDb, userId: string): Promise<HomeTriage
       count: g.rows.length,
       titles: tasks.slice(0, TITLES_SHOWN).map((t) => t.title),
       tasks,
+      open_questions: tasks.reduce((a, t) => a + t.open_questions, 0),
       project_id: g.project_id,
       still_quote: withProject.length > 0 && withProject.every((r) => r.project?.status === 'quote'),
     };
   });
   out.sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
-  return { count: rows.length, groups: out };
+  return { count: rows.length, open_questions: out.reduce((a, g) => a + g.open_questions, 0), groups: out };
 }
 
 // ----------------------------------------------------------------------------
@@ -137,7 +150,15 @@ export interface TriageRecord {
   kind: 'triage';
   mode: 'release' | 'drop';
   started_at: string;
-  items: { task_id: string; project_id: string | null; updated_after: string }[];
+  items: {
+    task_id: string;
+    project_id: string | null;
+    updated_after: string;
+    /** Questions this tap turned from open to defaulted (released without an answer). Undo opens them again. */
+    defaulted_question_ids?: string[];
+    /** Tags this tap added (held-for-questions, needs-mike). Undo takes exactly these off. */
+    tags_added?: string[];
+  }[];
   projects: { project_id: string; from: 'queue'; to: 'ready'; updated_after: string }[];
 }
 
@@ -153,10 +174,10 @@ function uniqueIds(ids: string[]): string[] {
   return Array.from(new Set(ids));
 }
 
-async function moveOne(db: PrismaClient, userId: string, row: Row, to: 'not_started' | 'abandoned'): Promise<Date | null> {
+async function moveOne(db: PrismaClient, userId: string, row: Row, to: 'not_started' | 'abandoned', addTags: string[] = []): Promise<Date | null> {
   const actor = await ownerActor(db, userId);
   try {
-    const res = await patchTask({ actor, id: row.id, body: { status: to }, expect: { status: 'triage', updated_at: row.updated_at } });
+    const res = await patchTask({ actor, id: row.id, body: { status: to, ...(addTags.length > 0 ? { tags: [...row.tags, ...addTags] } : {}) }, expect: { status: 'triage', updated_at: row.updated_at } });
     if (!res.ok) return null;
   } catch (e) {
     // The server's own refusals (not Mike, a transition it does not allow) must not look like a quiet skip.
@@ -194,18 +215,40 @@ async function run(db: PrismaClient, userId: string, action: TriageAction, mode:
   const details: string[] = [];
   let skipped = 0;
   let quoteSkipped = 0;
+  let qDefaulted = 0;
+  let qWaiting = 0;
   for (const row of rows) {
     // A task on a quote project is never released: nothing in the worker checks project status, so a release would start it.
     if (mode === 'release' && row.project?.status === 'quote') {
       quoteSkipped += 1;
       continue;
     }
-    const after = await moveOne(db, userId, row, target);
+    // Open questions never block him: each follows its own if_nobody_action (see the header).
+    const open = mode === 'release' ? await db.taskQuestion.findMany({ where: { task_id: row.id, state: 'open' }, select: { id: true, if_nobody_action: true } }) : [];
+    const goIds = open.filter((q) => q.if_nobody_action === 'go_with_recommendation').map((q) => q.id);
+    const waitCount = open.length - goIds.length;
+    // When release itself adds needs-mike it also adds the second marker, so answering removes only what release added.
+    const addNeeds = waitCount > 0 && !row.tags.includes(NEEDS_MIKE_TAG);
+    const addTags = waitCount > 0 ? [...(row.tags.includes(HELD_TAG) ? [] : [HELD_TAG]), ...(addNeeds ? [NEEDS_MIKE_TAG, HELD_NEEDS_MIKE_MARK] : [])] : [];
+    const after = await moveOne(db, userId, row, target, addTags);
     if (!after) {
       skipped += 1;
       continue;
     }
-    rec.items.push({ task_id: row.id, project_id: row.project_id, updated_after: after.toISOString() });
+    let defaulted: string[] = [];
+    if (goIds.length > 0) {
+      await db.taskQuestion.updateMany({ where: { id: { in: goIds }, state: 'open' }, data: { state: 'defaulted', defaulted_at: now } });
+      defaulted = goIds;
+    }
+    qDefaulted += defaulted.length;
+    qWaiting += waitCount;
+    rec.items.push({
+      task_id: row.id,
+      project_id: row.project_id,
+      updated_after: after.toISOString(),
+      ...(defaulted.length > 0 ? { defaulted_question_ids: defaulted } : {}),
+      ...(addTags.length > 0 ? { tags_added: addTags } : {}),
+    });
     details.push(`${row.title} /tasks/${row.id}`);
   }
   if (rec.items.length === 0) throw quoteSkipped > 0 && skipped === 0 ? quoteErr() : changedErr();
@@ -227,7 +270,8 @@ async function run(db: PrismaClient, userId: string, action: TriageAction, mode:
   const line =
     mode === 'drop' ? droppedLine(rec.items.length) : plan ? releasedPlanLine(rec.items.length, names, madeReady) : releasedLine(rec.items.length, skipped + quoteSkipped);
   const tail = plan && (skipped > 0 || quoteSkipped > 0) ? ` ${skipped + quoteSkipped} left alone.` : '';
-  return writeLine(db, userId, action, rec, line + tail, details, now);
+  const qLine = questionsLine(qDefaulted, qWaiting);
+  return writeLine(db, userId, action, rec, `${line}${tail}${qLine ? ` ${qLine}` : ''}`, details, now);
 }
 
 async function rowsById(db: PrismaClient, ids: string[]): Promise<Row[]> {
@@ -288,8 +332,19 @@ export async function undoTriage(db: HomeDb, userId: string, rec: TriageRecord, 
         if (!t) continue;
         current = { status: 'not_started', updated_at: t.updated_at };
       }
-      const res = await patchTask({ actor, id: it.task_id, body: { status: 'triage' }, expect: current });
-      if (res.ok) restored.push(it.task_id);
+      // Tags: take off exactly the ones the tap added. The compare-and-set below fails if anything changed the card since, so the list is still as the tap left it.
+      let tagBody: { tags?: string[] } = {};
+      if (it.tags_added && it.tags_added.length > 0) {
+        const t = await prisma.task.findUnique({ where: { id: it.task_id }, select: { tags: true } });
+        if (t) tagBody = { tags: t.tags.filter((x) => !it.tags_added!.includes(x)) };
+      }
+      const res = await patchTask({ actor, id: it.task_id, body: { status: 'triage', ...tagBody }, expect: current });
+      if (res.ok) {
+        restored.push(it.task_id);
+        if (it.defaulted_question_ids && it.defaulted_question_ids.length > 0) {
+          await prisma.taskQuestion.updateMany({ where: { id: { in: it.defaulted_question_ids }, task_id: it.task_id, state: 'defaulted' }, data: { state: 'open', defaulted_at: null } });
+        }
+      }
     } catch {
       // changed since: it stays as it is
     }

@@ -93,17 +93,17 @@ model User {
   home_days        HomeDay[]       @relation("HomeDayUser")
   home_actions     HomeAction[]    @relation("HomeActionUser")
 
-  home_keeper_runs     HomeKeeperRun[]     @relation("HomeKeeperRunUser")
+  home_keeper_runs        HomeKeeperRun[]        @relation("HomeKeeperRunUser")
   home_reconcile_messages HomeReconcileMessage[] @relation("HomeReconcileMessageUser")
   home_reconcile_changes  HomeReconcileChange[]  @relation("HomeReconcileChangeUser")
   home_reconcile_holds    HomeReconcileHold[]    @relation("HomeReconcileHoldUser")
   work_finished_items     WorkFinishedItem[]     @relation("WorkFinishedItemUser")
-  home_keeper_settings HomeKeeperSettings? @relation("HomeKeeperSettingsUser")
-  home_owed_threads    HomeOwedThread[]    @relation("HomeOwedThreadUser")
-  home_site_incidents  HomeSiteIncident[]  @relation("HomeSiteIncidentUser")
-  home_emergency_watch HomeEmergencyWatch[] @relation("HomeEmergencyWatchUser")
-  home_measures        HomeMeasure[]       @relation("HomeMeasureUser")
-  home_score_weights   HomeScoreWeight[]   @relation("HomeScoreWeightUser")
+  home_keeper_settings    HomeKeeperSettings?    @relation("HomeKeeperSettingsUser")
+  home_owed_threads       HomeOwedThread[]       @relation("HomeOwedThreadUser")
+  home_site_incidents     HomeSiteIncident[]     @relation("HomeSiteIncidentUser")
+  home_emergency_watch    HomeEmergencyWatch[]   @relation("HomeEmergencyWatchUser")
+  home_measures           HomeMeasure[]          @relation("HomeMeasureUser")
+  home_score_weights      HomeScoreWeight[]      @relation("HomeScoreWeightUser")
 
   @@map("users")
 }
@@ -1165,6 +1165,8 @@ model ProjectTeamAssignment {
 
 model Task {
   chat_conversation ChatConversation?
+  // Card questions: open questions for Mike on this card (additive; the portal never reads them)
+  questions         TaskQuestion[]
   id                String            @id @default(uuid()) @db.Uuid
   // Portal phase B slice 2 (back-relation)
   portal_notices    PortalNotice[]
@@ -5235,35 +5237,35 @@ model HomeItemState {
   first_seen_at     DateTime  @default(now())
   last_shown_at     DateTime?
 
-  view_set_by          String?   @db.VarChar(10)  // null or 'user': his Not now; 'keeper': the nightly sort
-  keeper_hold_until    DateTime?                  // after an Undo of a keeper action, the keeper leaves the item alone
-  read_hard_due_at     DateTime?                  // the keeper's reading of an existing due_date (2A.6)
+  view_set_by          String?   @db.VarChar(10) // null or 'user': his Not now; 'keeper': the nightly sort
+  keeper_hold_until    DateTime? // after an Undo of a keeper action, the keeper leaves the item alone
+  read_hard_due_at     DateTime? // the keeper's reading of an existing due_date (2A.6)
   read_hard_due_source String?   @db.VarChar(200)
   dates_read_at        DateTime?
-  card_summary         String?   @db.Text         // 2b
-  card_checklist       Json?                      // 2b
-  card_summary_hash    String?   @db.VarChar(64)  // 2b, sha256 of the description it summarizes
-  card_summary_at      DateTime?                  // 2b
-  parked_at            DateTime?                  // 4c: when his Not now was tapped; a newer message from them wakes the row
-  step_done_at         DateTime?                  // 8b: when he tapped "I did this" on a project next step
-  step_done_text       String?   @db.Text         // 8b: the step text at that moment (a rewritten step shows again)
-  session_cleared_at   DateTime?                  // session card: when he tapped "Clear it" on a session's parked question
-  on_day               DateTime? @db.Date         // "Do it on a day": the calendar day he said he would do it (view_at holds 00:05 of that day his time)
-  snoozed_until        DateTime?                  // "Snooze": the instant a short snooze ends (view_at holds the same instant)
-  snooze_count         Int       @default(0)      // snoozes of this item on snooze_day
-  snooze_day           DateTime? @db.Date         // the calendar day (his zone) snooze_count counts
-  session_cleared_hash String?   @db.VarChar(64)  // session card: sha256 of that question's text; the item stays hidden while the session's waiting_on hashes the same
+  card_summary         String?   @db.Text // 2b
+  card_checklist       Json? // 2b
+  card_summary_hash    String?   @db.VarChar(64) // 2b, sha256 of the description it summarizes
+  card_summary_at      DateTime? // 2b
+  parked_at            DateTime? // 4c: when his Not now was tapped; a newer message from them wakes the row
+  step_done_at         DateTime? // 8b: when he tapped "I did this" on a project next step
+  step_done_text       String?   @db.Text // 8b: the step text at that moment (a rewritten step shows again)
+  session_cleared_at   DateTime? // session card: when he tapped "Clear it" on a session's parked question
+  on_day               DateTime? @db.Date // "Do it on a day": the calendar day he said he would do it (view_at holds 00:05 of that day his time)
+  snoozed_until        DateTime? // "Snooze": the instant a short snooze ends (view_at holds the same instant)
+  snooze_count         Int       @default(0) // snoozes of this item on snooze_day
+  snooze_day           DateTime? @db.Date // the calendar day (his zone) snooze_count counts
+  session_cleared_hash String?   @db.VarChar(64) // session card: sha256 of that question's text; the item stays hidden while the session's waiting_on hashes the same
 
   // 7c: display-only guesses written by the nightly learn step for his open tasks. Never copied to Task.
-  effort_minutes    Int?
-  effort_source     String?   @db.VarChar(10)  // history | energy | kind
-  effort_basis_n    Int?
-  unknowns          String?   @db.VarChar(10)  // none | some | many
-  drain             String?   @db.VarChar(10)  // call | high
-  guessed_at        DateTime?
+  effort_minutes Int?
+  effort_source  String?   @db.VarChar(10) // history | energy | kind
+  effort_basis_n Int?
+  unknowns       String?   @db.VarChar(10) // none | some | many
+  drain          String?   @db.VarChar(10) // call | high
+  guessed_at     DateTime?
 
-  created_at        DateTime  @default(now())
-  updated_at        DateTime  @updatedAt
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
   @@unique([user_id, item_key])
   @@index([user_id, view_at])
@@ -5306,6 +5308,7 @@ model HomeKeeperRun {
   finished_at DateTime?
   counts      Json?
   error       String?   @db.Text
+
   @@unique([user_id, date, kind])
   @@map("home_keeper_runs")
 }
@@ -5331,6 +5334,7 @@ model HomeKeeperSettings {
   reconcile_on    Boolean  @default(false)
   created_at      DateTime @default(now())
   updated_at      DateTime @updatedAt
+
   @@map("home_keeper_settings")
 }
 
@@ -5362,6 +5366,7 @@ model HomeEmergencyWatch {
   scan_json              Json?
   created_at             DateTime  @default(now())
   updated_at             DateTime  @updatedAt
+
   @@unique([user_id, item_key])
   @@index([user_id, scan_site_id, scan_requested_at])
   @@map("home_emergency_watch")
@@ -5369,40 +5374,40 @@ model HomeEmergencyWatch {
 
 // Home screen Slice 4a: Bast's owed-reply work on one thread, for that user only. Never read by another screen.
 model HomeOwedThread {
-  id                String    @id @default(uuid()) @db.Uuid
-  user_id           String    @db.Uuid
-  user              User      @relation("HomeOwedThreadUser", fields: [user_id], references: [id], onDelete: Cascade)
-  thread_key        String    @db.VarChar(300)   // thread:<account>:<thread_id>
-  state             String    @default("queued") @db.VarChar(20) // queued | drafted | needs_thought | failed | sent
-  request_kind      String?   @db.VarChar(20)    // draft | read | go_with_that (a pending tap)
-  requested_at      DateTime?
-  draft_id          String?   @db.VarChar(64)    // Gmail draft id (Bast's only)
-  draft_message_id  String?   @db.VarChar(64)
-  draft_hash        String?   @db.VarChar(64)    // sha256 of the body Bast wrote
-  draft_text        String?   @db.Text           // what Bast wrote, shown on the card
-  draft_for_ask_id  String?   @db.Uuid           // newest inbound ask when drafted
-  drafted_at        DateTime?
-  mike_edited_at    DateTime?                    // Bast saw his edit; never touches the draft again
-  bast_read         String?   @db.VarChar(400)
-  suggested_answer  String?   @db.VarChar(300)
-  needs_commitment  Boolean   @default(false)
-  thought_since     DateTime?
-  attempts          Int       @default(0)
-  last_error        String?   @db.VarChar(300)
-  last_model        String?   @db.VarChar(20)
+  id                     String    @id @default(uuid()) @db.Uuid
+  user_id                String    @db.Uuid
+  user                   User      @relation("HomeOwedThreadUser", fields: [user_id], references: [id], onDelete: Cascade)
+  thread_key             String    @db.VarChar(300) // thread:<account>:<thread_id>
+  state                  String    @default("queued") @db.VarChar(20) // queued | drafted | needs_thought | failed | sent
+  request_kind           String?   @db.VarChar(20) // draft | read | go_with_that (a pending tap)
+  requested_at           DateTime?
+  draft_id               String?   @db.VarChar(64) // Gmail draft id (Bast's only)
+  draft_message_id       String?   @db.VarChar(64)
+  draft_hash             String?   @db.VarChar(64) // sha256 of the body Bast wrote
+  draft_text             String?   @db.Text // what Bast wrote, shown on the card
+  draft_for_ask_id       String?   @db.Uuid // newest inbound ask when drafted
+  drafted_at             DateTime?
+  mike_edited_at         DateTime? // Bast saw his edit; never touches the draft again
+  bast_read              String?   @db.VarChar(400)
+  suggested_answer       String?   @db.VarChar(300)
+  needs_commitment       Boolean   @default(false)
+  thought_since          DateTime?
+  attempts               Int       @default(0)
+  last_error             String?   @db.VarChar(300)
+  last_model             String?   @db.VarChar(20)
   // Slice 4c: clock marks, joining, replied-elsewhere, the auto draft and the short holding draft.
-  lead_clock_from       DateTime?                    // Keep it restarts the lead clock from here
-  resurfaced_at         DateTime?                    // the last time a short draft was written for a lead coming back
-  resurface_count       Int       @default(0)
-  not_lead_at           DateTime?                    // Not a lead, Treat as a reply
-  keep_lead_at          DateTime?                    // Keep it
-  joined_to_key         String?   @db.VarChar(300)   // a non-primary thread of a joined conversation points at the primary
-  replied_elsewhere_at  DateTime?                    // when someone on our side replied in a joined thread
-  replied_elsewhere_from String?  @db.VarChar(320)
-  auto_drafted_at       DateTime?                    // Bast drafted along its suggestion after 3 business days
-  short_draft_id        String?   @db.VarChar(64)
-  short_draft_hash      String?   @db.VarChar(64)
-  short_draft_text      String?   @db.Text
+  lead_clock_from        DateTime? // Keep it restarts the lead clock from here
+  resurfaced_at          DateTime? // the last time a short draft was written for a lead coming back
+  resurface_count        Int       @default(0)
+  not_lead_at            DateTime? // Not a lead, Treat as a reply
+  keep_lead_at           DateTime? // Keep it
+  joined_to_key          String?   @db.VarChar(300) // a non-primary thread of a joined conversation points at the primary
+  replied_elsewhere_at   DateTime? // when someone on our side replied in a joined thread
+  replied_elsewhere_from String?   @db.VarChar(320)
+  auto_drafted_at        DateTime? // Bast drafted along its suggestion after 3 business days
+  short_draft_id         String?   @db.VarChar(64)
+  short_draft_hash       String?   @db.VarChar(64)
+  short_draft_text       String?   @db.Text
   // Slice 4d: a private 30 minute block on his own calendar. book_requested_at is the pending request (booked_start and booked_end
   // are the picked slot, cleared by a conflict so the next run picks again); booked_event_id is the Google event once the machine
   // made it; book_undo_requested_at asks the machine to delete that one event. book_attempts and book_error are the machine's failures.
@@ -5414,8 +5419,9 @@ model HomeOwedThread {
   book_undo_requested_at DateTime?
   book_attempts          Int       @default(0)
   book_error             String?   @db.VarChar(300)
-  created_at        DateTime  @default(now())
-  updated_at        DateTime  @updatedAt
+  created_at             DateTime  @default(now())
+  updated_at             DateTime  @updatedAt
+
   @@unique([user_id, thread_key])
   @@map("home_owed_thread")
 }
@@ -5875,4 +5881,58 @@ model WorkClock {
   @@index([project_id, started_at])
   @@index([task_id, started_at])
   @@map("work_clock")
+}
+
+enum TaskQuestionState {
+  open
+  answered
+  defaulted
+  withdrawn
+}
+
+enum TaskQuestionAction {
+  go_with_recommendation
+  wait
+}
+
+/// A question on a card that Mike must answer, with the Context he needs to answer it. Written by agents and the Bast chat,
+/// answered only by Mike's own session or the chat lane relaying his words. `defaulted` means the card was released without an
+/// answer and the recommendation went ahead: it is never his words. Every answer also stays as an internal comment on the task.
+model TaskQuestion {
+  id                    String             @id @default(uuid()) @db.Uuid
+  task_id               String             @db.Uuid
+  task                  Task               @relation(fields: [task_id], references: [id], onDelete: Cascade)
+  position              Int                @default(0)
+  question              String             @db.VarChar(200)
+  // Context parts
+  what_it_is            String             @db.Text
+  sources               Json // [{ who, said, at?, url? }]
+  checked               String             @db.Text
+  unknown               String             @db.Text
+  options               Json? // [{ id, label, consequence }], none or 2 to 4
+  recommended_option_id String?            @db.VarChar(40)
+  recommend_why         String?            @db.Text
+  if_nobody             String             @db.Text
+  if_nobody_action      TaskQuestionAction
+  // State
+  state                 TaskQuestionState  @default(open)
+  asked_by_user_id      String?            @db.Uuid
+  asked_by_lane         String?            @db.VarChar(40)
+  chat_conversation_id  String?            @db.Uuid
+  // His answer (exact words, or the option label he picked)
+  answer_option_id      String?            @db.VarChar(40)
+  answer_text           String?            @db.Text
+  answered_at           DateTime?
+  answered_by_id        String?            @db.Uuid
+  answer_comment_id     String?            @db.Uuid
+  // Released without an answer
+  defaulted_at          DateTime?
+  withdrawn_reason      String?            @db.Text
+  withdrawn_at          DateTime?
+  created_at            DateTime           @default(now())
+  updated_at            DateTime           @updatedAt
+
+  // Uniqueness of (task_id, question) among non-withdrawn rows is enforced in code inside the task-locked transaction (Prisma cannot express a partial unique index without drift).
+  @@index([task_id, state])
+  @@map("task_questions")
 }

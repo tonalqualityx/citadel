@@ -9,6 +9,7 @@ import { HomeProjectDrawer } from './HomeProjectDrawer';
 import { useOracleProjects, type OracleProjectCard } from '@/lib/hooks/use-oracle-projects';
 import { useHome, useHomeAct, useHomeChecklist, useHomeItemAction, useHomeReconcile, useHomeRule, useHomeUndo } from '@/lib/hooks/use-home';
 import type { HomeActRequest, HomeActResponse, HomeItem, HomeItemAction, HomeResponse, HomeTileId, HomeTodayActRequest } from '@/lib/home/types';
+import { HomeRefreshButton } from './HomeRefreshButton';
 import { TileStrip } from './TileStrip';
 import { ItemList } from './ItemList';
 import { ItemCard } from './ItemCard';
@@ -113,6 +114,7 @@ function HomeScreenInner() {
       res={data}
       projects={projects}
       projectCount={projectsQuery.data ? projects.length : null}
+      onRefresh={() => Promise.all([refetch(), projectsQuery.refetch?.()])}
       tile={tile}
       chosen={chosen}
       setTile={setTile}
@@ -143,6 +145,7 @@ interface BodyProps {
   res: HomeResponse;
   projects: OracleProjectCard[];
   projectCount: number | null;
+  onRefresh: () => Promise<unknown>;
   tile: HomeTileId;
   chosen: Chosen | undefined;
   setTile: (t: HomeTileId) => void;
@@ -332,6 +335,7 @@ function HomeBody(p: BodyProps) {
     <div data-home className="home">
       <div className="home-top">
         <h1>{plain(res.screen_date_line)}</h1>
+        <HomeRefreshButton onRefresh={p.onRefresh} />
       </div>
       {pinned ? (
         <>

@@ -323,6 +323,103 @@ export const taskEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/tasks/:id/questions',
+    group: 'tasks',
+    methods: [
+      {
+        method: 'GET',
+        summary: "The card's questions for Mike, each with the Context parts, its state and a ready-made `citation` line when Mike answered it.",
+        auth: 'required',
+        responseExample: {
+          questions: [
+            {
+              id: 'uuid',
+              task_id: 'uuid',
+              position: 'number',
+              question: 'string (one line, ends in ?)',
+              what_it_is: 'string',
+              sources: [{ who: 'string', said: 'string', at: 'string|null', url: 'string|null' }],
+              checked: 'string',
+              unknown: 'string',
+              options: [{ id: 'string', label: 'string', consequence: 'string' }],
+              recommended_option_id: 'string|null',
+              recommend_why: 'string|null',
+              if_nobody: 'string',
+              if_nobody_action: 'go_with_recommendation|wait',
+              state: 'open|answered|defaulted|withdrawn',
+              answer_option_id: 'string|null',
+              answer_text: 'string|null',
+              answered_at: 'ISO-8601|null',
+              citation: 'string|null',
+              released_without_answer: 'boolean',
+              version: 'string (the row\'s updated_at; send it back with an answer)',
+            },
+          ],
+          open_count: 'number',
+        },
+        responseNotes:
+          'Read this to learn whether Mike has answered, so nobody re-asks. `citation` is `Mike, 2026-11-12, on "<question>": "<his exact words>"` and is null unless state is answered. state defaulted means the card was released without an answer and the recommendation went ahead: it is NOT his word and has no citation. While the card is in triage only Mike, the bast-chat lane, bot keys and a question\'s asker can read this; everyone else gets 404. After release anyone who can see the task can read it, and so can the bast worker lane on a card it works (never a triage card). The client portal never reads it. Each question carries `version`: send it back with an answer.',
+      },
+      {
+        method: 'POST',
+        summary: 'Ask Mike a question on this card. The server refuses it unless it carries every Context part. At most 10 open per card.',
+        auth: 'required',
+        bodySchema: [
+          { name: 'question', type: 'string', required: true, description: 'One line, at most 200 characters, no line breaks, ends in "?".' },
+          { name: 'what_it_is', type: 'string', required: true, description: 'What this is, in a real sentence (12 to 2000 characters).' },
+          { name: 'sources', type: 'object', required: true, description: '1 to 10 of { who, said, at?, url? }: who said what, even when the source is your own reading.' },
+          { name: 'checked', type: 'string', required: true, description: 'What was checked and found.' },
+          { name: 'unknown', type: 'string', required: true, description: 'What is not known.' },
+          { name: 'options', type: 'object', required: false, description: 'None, or 2 to 4 of { id, label, consequence }. Every option needs its consequence.' },
+          { name: 'recommended_option_id', type: 'string', required: false, description: 'Required when options are offered: the id of the one you recommend.' },
+          { name: 'recommend_why', type: 'string', required: false, description: 'Required when options are offered: why you recommend it.' },
+          { name: 'if_nobody', type: 'string', required: true, description: 'What happens if nobody decides.' },
+          { name: 'if_nobody_action', type: 'string', required: true, description: 'go_with_recommendation (needs a recommended option) or wait. On release from triage, go_with_recommendation marks the question defaulted; wait puts needs-mike and held-for-questions on the card.' },
+          { name: 'chat_conversation_id', type: 'uuid', required: false, description: 'The card conversation the question came from.' },
+        ],
+        responseExample: { id: 'uuid', question: 'string', state: 'open', citation: 'null' },
+        responseNotes: '201 with the stored question. 400 with Validation failed and the missing Context parts. 409 too_many_open or duplicate_question (the same question text on the same card).',
+      },
+    ],
+  },
+  {
+    path: '/api/tasks/:id/questions/:qid',
+    group: 'tasks',
+    methods: [
+      {
+        method: 'PATCH',
+        summary: 'Change the Context of an open question, or withdraw it.',
+        auth: 'required',
+        bodySchema: [
+          { name: 'withdraw', type: 'boolean', required: false, description: 'true withdraws the question (state withdrawn). Takes the marker tag off when it was the last open one.' },
+          { name: 'reason', type: 'string', required: false, description: 'Why it is withdrawn.' },
+          { name: 'question / what_it_is / sources / checked / unknown / options / recommended_option_id / recommend_why / if_nobody / if_nobody_action', type: 'object', required: false, description: 'Any Context part; the merged question must still pass every Context check.' },
+        ],
+        responseExample: { id: 'uuid', state: 'open|withdrawn' },
+        responseNotes: 'Mike, the bast-chat lane, bot keys and the asker only (others 404). 409 when the question is not open.',
+      },
+    ],
+  },
+  {
+    path: '/api/tasks/:id/questions/:qid/answer',
+    group: 'tasks',
+    methods: [
+      {
+        method: 'POST',
+        summary: "Record Mike's answer to a question. Mike's own session, or the bast-chat lane relaying his words.",
+        auth: 'required',
+        bodySchema: [
+          { name: 'version', type: 'string', required: true, description: "The question's `version` from the GET you read it with (the chat lane too). If the question was edited since, the answer is refused with 409 question_changed: read it again and ask Mike again." },
+          { name: 'option_id', type: 'string', required: false, description: 'One of the question options.' },
+          { name: 'text', type: 'string', required: false, description: 'His exact words, up to 2000 characters. With option_id too, the answer is "<option label>: <text>".' },
+        ],
+        responseExample: { question: { id: 'uuid', state: 'answered', answer_text: 'string', citation: 'string' }, comment_id: 'uuid', hold_released: 'boolean' },
+        responseNotes:
+          'One transaction: answer fields, an internal task comment marked with the question id (it wakes a parked worker task), the held-for-questions tag and needs-mike removed when this was the last open question, and a human asker notified. The chat lane writes the comment as "From Mike, through the chat: Answer on ..." and must only relay his real words. While another `wait` question is still open the comment is written as Bast with the prefix "From Mike, on the card (other questions still waiting): " so the worker does not wake early; the last answer writes the waking comment as Mike. Answering again replaces the answer; every answer stays in the comments. 403 not_mike for any other caller, 409 withdrawn or question_changed.',
+      },
+    ],
+  },
+  {
     path: '/api/tasks/:id/mention-suggestions',
     group: 'tasks',
     methods: [

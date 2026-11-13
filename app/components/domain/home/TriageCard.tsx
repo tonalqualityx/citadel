@@ -4,6 +4,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import type { HomeActRequest, HomeTriage, HomeTriageGroup, HomeTriageTask } from '@/lib/home/types';
 import type { OpenCardInput } from '@/components/domain/bast-chat/card-context';
+import { TaskQuestions } from '@/components/domain/tasks/questions/TaskQuestions';
 import { TRIAGE_BUTTONS, TRIAGE_HEADING, TRIAGE_MESSAGES, TRIAGE_SUBHEAD } from '@/lib/tasks/triage-copy';
 import { plain } from './home-screen-logic';
 import { triageTalkCard } from './triage-talk';
@@ -29,6 +30,9 @@ export function TriageCard({ triage, onAct, onTalk, busy = false }: TriageCardPr
   const [working, setWorking] = React.useState(false);
   const [open, setOpen] = React.useState<Record<string, boolean>>({});
   const [allGroups, setAllGroups] = React.useState(false);
+  // Cards whose questions are open in place.
+  const [asking, setAsking] = React.useState<Record<string, boolean>>({});
+  const toggleAsking = (id: string) => setAsking((a) => ({ ...a, [id]: !a[id] }));
   // One plain line under a group when the server's own reason is better than the hook's generic toast (a quote that is still a quote).
   const [notes, setNotes] = React.useState<Record<string, string>>({});
   const off = busy || working;
@@ -48,6 +52,14 @@ export function TriageCard({ triage, onAct, onTalk, busy = false }: TriageCardPr
   const shown = allGroups ? triage.groups : triage.groups.slice(0, GROUPS_SHOWN);
   const hidden = triage.groups.length - shown.length;
 
+  const questionsButton = (t: HomeTriageTask) =>
+    t.open_questions > 0 ? (
+      <button type="button" className="home-btn" aria-expanded={asking[t.task_id] === true} onClick={() => toggleAsking(t.task_id)}>
+        {TRIAGE_BUTTONS.questions} {t.open_questions}
+      </button>
+    ) : null;
+  const questionsPanel = (t: HomeTriageTask) => (asking[t.task_id] ? <TaskQuestions taskId={t.task_id} canAnswer /> : null);
+
   const taskRow = (g: HomeTriageGroup, t: HomeTriageTask) => (
     <li key={t.task_id} className="home-finished-row" data-task-id={t.task_id}>
       <Link href={t.href}>{plain(t.title)}</Link>
@@ -62,7 +74,9 @@ export function TriageCard({ triage, onAct, onTalk, busy = false }: TriageCardPr
         <button type="button" className="home-btn" onClick={() => onTalk(triageTalkCard(g, t))}>
           {TRIAGE_BUTTONS.talk}
         </button>
+        {questionsButton(t)}
       </div>
+      {questionsPanel(t)}
     </li>
   );
 
@@ -70,6 +84,7 @@ export function TriageCard({ triage, onAct, onTalk, busy = false }: TriageCardPr
     <section className="home-card" data-testid="triage-card" aria-label={TRIAGE_HEADING}>
       <h2>
         {TRIAGE_HEADING}: {triage.count} {triage.count === 1 ? 'idea waits' : 'ideas wait'} for you
+        {triage.open_questions > 0 ? `, ${triage.open_questions} ${triage.open_questions === 1 ? 'question' : 'questions'} to answer` : ''}
       </h2>
       <p className="home-small home-muted">{TRIAGE_SUBHEAD}</p>
       {shown.map((g) => {
@@ -79,14 +94,18 @@ export function TriageCard({ triage, onAct, onTalk, busy = false }: TriageCardPr
           <div key={g.key} className="home-finished-group" data-testid="triage-group" data-group-key={g.key}>
             <h3>
               {plain(g.label)} <span className="home-small home-muted">({g.count})</span>
+              {g.open_questions > 0 ? <span className="home-small home-muted"> {g.open_questions} {g.open_questions === 1 ? 'question' : 'questions'} for you</span> : null}
             </h3>
             {notes[g.key] ? <p className="home-small" role="status">{notes[g.key]}</p> : null}
             {expanded ? (
               <ul>{g.tasks.map((t) => taskRow(g, t))}</ul>
             ) : (
               <ul>
-                {g.titles.map((t, i) => (
-                  <li key={i}>{plain(t)}</li>
+                {g.tasks.slice(0, g.titles.length).map((t, i) => (
+                  <li key={t.task_id}>
+                    {plain(g.titles[i])} {questionsButton(t)}
+                    {questionsPanel(t)}
+                  </li>
                 ))}
               </ul>
             )}
