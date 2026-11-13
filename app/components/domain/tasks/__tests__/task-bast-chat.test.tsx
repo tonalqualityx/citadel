@@ -21,7 +21,7 @@ describe('TaskBastChat', () => {
   it('offers Talk about this on a Triage card with no conversation yet', async () => {
     reply(200, { conversations: [] });
     render(<TaskBastChat taskId={T} title="Idea" status="triage" />);
-    expect(await screen.findByRole('button', { name: 'Talk about this' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'Talk to Dox' })).toBeTruthy();
   });
   it('Talk about this opens the chat in place on that card', async () => {
     const calls: string[] = [];
@@ -40,10 +40,10 @@ describe('TaskBastChat', () => {
         <TaskBastChat taskId={T} title="Idea" status="triage" />
       </BastChatProvider>,
     );
-    fireEvent.click(await screen.findByRole('button', { name: 'Talk about this' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Talk to Dox' }));
     expect(await screen.findByTestId('bast-chat-sheet')).toBeTruthy();
     await waitFor(() => expect(calls.some((c) => c === 'POST /api/bast-chat/conversations')).toBe(true));
-    expect(screen.getByTestId('bast-chat-title').textContent).toBe('Idea');
+    expect(screen.getByTestId('bast-chat-title').textContent).toBe('Dox · Idea');
   });
   it('shows nothing for a card with no conversation outside Triage, and nothing for anyone the chat refuses', async () => {
     reply(200, { conversations: [] });

@@ -121,6 +121,11 @@ function TriageCardItem({ card, onAct, onTalk, busy }: { card: HomeTriageCard } 
         <Link href={card.href}>{plain(card.title)}</Link>
       </h3>
       {card.summary ? <p className="home-tsummary">{plain(card.summary)}</p> : null}
+      {card.plan_line ? (
+        <p className="home-small home-muted" data-testid="triage-plan-line">
+          {plain(card.plan_line)}
+        </p>
+      ) : null}
       {card.looks_done ? <LooksDoneEvidence looksDone={card.looks_done} /> : <ReleaseLine card={card} />}
       {card.project ? <TriageProjectBlock project={card.project} variant="compact" /> : null}
       <TriageActions card={card} onAct={onAct} onTalk={onTalk} busy={busy}>

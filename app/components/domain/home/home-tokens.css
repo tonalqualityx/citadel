@@ -238,3 +238,24 @@
   [data-home] .home-owho, [data-home] .home-otitle, [data-home] .home-oproject, [data-home] .home-odays { grid-column: auto; grid-row: auto; }
   [data-home] .home-odays { text-align: right; }
 }
+
+/* The Plan tab on a card: one line per item, the source in small muted type under it, built to skim on a phone. */
+[data-home] .home-plan { display: flex; flex-direction: column; gap: 22px; }
+[data-home] .home-plan-sec { gap: 8px; }
+[data-home] .home-plan-sec > h3 { font-size: 0.78rem; letter-spacing: 0.06em; text-transform: uppercase; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+[data-home] .home-plan-count { color: var(--text-muted); font-weight: 500; font-variant-numeric: tabular-nums; }
+[data-home] .home-plan-list { list-style: none; padding: 0; gap: 0; }
+[data-home] .home-plan-ol { list-style: decimal; padding-left: 1.4em; }
+[data-home] .home-plan-item { display: flex; flex-direction: column; gap: 1px; padding: 9px 0; border-top: 1px solid var(--border); min-width: 0; overflow-wrap: anywhere; }
+[data-home] .home-plan-item:first-child { border-top: 0; }
+[data-home] .home-plan-text { font-size: 0.95rem; line-height: 1.4; }
+[data-home] .home-plan-src { line-height: 1.35; }
+[data-home] .home-plan-pill { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-secondary); }
+[data-home] .home-plan-pill[data-mark="changed"] { background: var(--warning-subtle); color: var(--warning); border-color: var(--warning-line); }
+[data-home] .home-plan-pill[data-mark="added"] { background: var(--accent-subtle); color: var(--accent-text); border-color: var(--accent-text); }
+[data-home] .home-plan-wrong { color: var(--warning); }
+[data-home] .home-plan-unconfirmed { color: var(--warning); border-left: 3px solid var(--warning-line); padding-left: 10px; }
+[data-home] .home-plan-ctl { display: flex; gap: 14px; margin-top: 2px; }
+[data-home] .home-plan-ctl .home-linkbtn { min-height: 32px; padding: 4px 0; font-size: 0.8rem; color: var(--text-muted); }
+[data-home] .home-plan-dropped { margin-top: 2px; }
+[data-home] .home-plan-dropped summary { cursor: pointer; min-height: 32px; display: flex; align-items: center; }

@@ -27,6 +27,9 @@ const card = (n: number, over: Partial<HomeTriageCard> = {}): HomeTriageCard => 
   release_ready: true,
   release_block: null,
   open_questions: 0,
+  triage_rev: 0,
+  recent_changes: [],
+  plan_line: null,
   target_start_date: null,
   target_launch_date: null,
   looks_done: null,
@@ -76,8 +79,14 @@ describe('TriageBoard', () => {
     await waitFor(() => expect(onAct).toHaveBeenCalledWith({ action: 'triage_release_card', task_ids: [c.task_id], release_version: 'v1' }));
     fireEvent.click(within(el).getByRole('button', { name: 'Drop' }));
     await waitFor(() => expect(onAct).toHaveBeenCalledWith({ action: 'triage_drop', task_ids: [c.task_id] }));
-    fireEvent.click(within(el).getByRole('button', { name: 'Talk about this' }));
+    fireEvent.click(within(el).getByRole('button', { name: 'Talk to Dox' }));
     expect(onTalk).toHaveBeenCalledWith({ key: `task:${c.task_id}`, title: 'Idea 1', type: 'task', task_id: c.task_id, tile: 'triage' });
+  });
+
+  it('shows one plan line when a plan exists, and nothing when it does not', () => {
+    render(<TriageBoard triage={triage([card(1, { plan_line: 'Plan: 12 requirements, launch Jan 19, milestones billing' }), card(2)])} onAct={vi.fn()} onTalk={vi.fn()} />);
+    expect(within(items()[0]).getByTestId('triage-plan-line').textContent).toBe('Plan: 12 requirements, launch Jan 19, milestones billing');
+    expect(within(items()[1]).queryByTestId('triage-plan-line')).toBeNull();
   });
 
   it('the whole card opens the card page; its buttons and link do not trigger that', async () => {
@@ -87,7 +96,7 @@ describe('TriageBoard', () => {
     expect(q.push).toHaveBeenCalledWith('/tasks/1');
     q.push.mockReset();
     fireEvent.click(within(el).getByRole('button', { name: 'Drop' }));
-    fireEvent.click(within(el).getByRole('button', { name: 'Talk about this' }));
+    fireEvent.click(within(el).getByRole('button', { name: 'Talk to Dox' }));
     fireEvent.click(within(el).getByRole('link', { name: 'Idea 1' }));
     await waitFor(() => expect(q.push).not.toHaveBeenCalled());
   });
@@ -153,7 +162,7 @@ describe('TriageBoard', () => {
     await waitFor(() => expect(onAct).toHaveBeenCalledWith({ action: 'triage_close_done', task_ids: [c.task_id] }));
     fireEvent.click(within(el).getByRole('button', { name: 'Not done' }));
     await waitFor(() => expect(onAct).toHaveBeenCalledWith({ action: 'triage_not_done', task_ids: [c.task_id] }));
-    expect(within(el).getByRole('button', { name: 'Talk about this' })).toBeTruthy();
+    expect(within(el).getByRole('button', { name: 'Talk to Dox' })).toBeTruthy();
   });
 
   it('the questions button shows the count and opens the questions in place without opening the card', () => {

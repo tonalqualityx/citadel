@@ -51,6 +51,12 @@ export function TriageActions({ card, onAct, onTalk, busy = false, onDone, child
       {changed ? (
         <p className="home-small home-tnote" role="status" data-testid="triage-changed">
           {CARD_CHANGED_NOTE}
+          {(card.recent_changes ?? []).length > 0 ? (
+            <>
+              {' '}
+              <span data-testid="triage-what-changed">{`What changed: ${Array.from(new Set((card.recent_changes ?? []).map((l) => l.line))).join('; ')}.`}</span>
+            </>
+          ) : null}
         </p>
       ) : null}
       <div className="home-actions home-tactions">

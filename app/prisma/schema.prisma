@@ -1170,6 +1170,11 @@ model Task {
   chat_conversation ChatConversation?
   // Card questions: open questions for Mike on this card (additive; the portal never reads them)
   questions         TaskQuestion[]
+  // Triage plan: the ongoing description of a Triage card (additive; the portal never reads it)
+  plan_items        TaskPlanItem[]
+  triage_changes    TriageChange[]
+  // Goes up on every change the owner should see before releasing (kind, project, shape, sitemap, dates, questions, plan); part of release_version
+  triage_rev        Int               @default(0)
   id                String            @id @default(uuid()) @db.Uuid
   // Portal phase B slice 2 (back-relation)
   portal_notices    PortalNotice[]
@@ -1230,11 +1235,11 @@ model Task {
   battery_impact    BatteryImpact @default(average_drain)
 
   // Dates
-  due_date     DateTime?
+  due_date       DateTime?
   // The due_date the assignee was last told about one day ahead (/api/cron/task-due-soon). Equal to due_date = already told; a new due date is told again.
   due_notice_for DateTime?
-  started_at   DateTime?
-  completed_at DateTime?
+  started_at     DateTime?
+  completed_at   DateTime?
 
   // Requirements (stored as JSON)
   requirements        Json? // Array of requirement items (visible to all)
@@ -5957,4 +5962,54 @@ model TaskQuestion {
   @@index([task_id, state])
   @@index([cause_key, state])
   @@map("task_questions")
+}
+
+/// The sections of a Triage card's plan, in the order the tab shows them.
+enum PlanSection {
+  requirements
+  dates
+  team
+  billing
+  examples
+  decisions
+}
+
+/// One line of a Triage card's plan. `data` holds the section-specific fields (validated with zod per section in lib/tasks/plan-schema.ts):
+/// text, source (label, date, link), mark (original, changed, added, dropped) and so on. Kept after release. Never read by the portal.
+model TaskPlanItem {
+  id                 String      @id @default(uuid()) @db.Uuid
+  task_id            String      @db.Uuid
+  task               Task        @relation(fields: [task_id], references: [id], onDelete: Cascade)
+  section            PlanSection
+  position           Int         @default(0)
+  data               Json
+  // Mike marked this line wrong; the chat reads it and corrects it. Cleared when the line is rewritten.
+  wrong_at           DateTime?
+  wrong_by           String?     @db.VarChar(60)
+  updated_by_user_id String?     @db.Uuid
+  updated_by         String      @db.VarChar(60)
+  created_at         DateTime    @default(now())
+  updated_at         DateTime    @updatedAt
+
+  @@index([task_id, section, position])
+  @@map("task_plan_items")
+}
+
+/// A change on a Triage card the owner should see before releasing: one line each, newest last. `rev` is the card's triage_rev after the change
+/// (unchanged once the card has left Triage, where only the plan keeps being written).
+model TriageChange {
+  id         String   @id @default(uuid()) @db.Uuid
+  task_id    String   @db.Uuid
+  task       Task     @relation(fields: [task_id], references: [id], onDelete: Cascade)
+  rev        Int
+  area       String   @db.VarChar(40)
+  line       String   @db.VarChar(240)
+  note       String?  @db.VarChar(240)
+  by         String   @db.VarChar(60)
+  by_user_id String?  @db.Uuid
+  by_lane    String?  @db.VarChar(40)
+  created_at DateTime @default(now())
+
+  @@index([task_id, created_at])
+  @@map("triage_changes")
 }

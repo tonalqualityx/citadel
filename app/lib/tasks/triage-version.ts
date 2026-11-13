@@ -12,6 +12,8 @@ export interface ReleaseVersionInput {
   project_status: string | null;
   site_id: string | null;
   client_id: string | null;
+  /** The card's triage_rev: goes up on every change the owner should see (kind, project, shape, sitemap, dates, questions, plan). */
+  triage_rev: number;
   /** Open questions only. */
   questions: { id: string; if_nobody_action: string }[];
 }
@@ -21,6 +23,6 @@ export { CARD_CHANGED_MESSAGE };
 
 export function releaseVersion(i: ReleaseVersionInput): string {
   const qs = [...i.questions].sort((a, b) => a.id.localeCompare(b.id)).map((q) => `${q.id}:${q.if_nobody_action}`);
-  const canon = JSON.stringify([i.kind, i.assignee_id, i.project_id, i.project_status, i.site_id, i.client_id, qs]);
+  const canon = JSON.stringify([i.kind, i.assignee_id, i.project_id, i.project_status, i.site_id, i.client_id, qs, i.triage_rev]);
   return createHash('sha256').update(canon).digest('hex').slice(0, 32);
 }

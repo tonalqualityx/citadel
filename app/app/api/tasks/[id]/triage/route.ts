@@ -7,6 +7,7 @@ import { requireTriageOwner } from '@/lib/tasks/triage-auth';
 import { TRIAGE_KINDS } from '@/lib/tasks/triage-kind';
 import { loadCards } from '@/lib/tasks/triage-card';
 import { isDoxLane } from '@/lib/dox/guard';
+import { actorOf, recordTriageChange } from '@/lib/tasks/triage-rev';
 
 async function cardOr404(id: string) {
   const [card] = await loadCards(prisma, [id]);
@@ -90,6 +91,11 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       if (kind !== 'project_setup') throw new ApiError('Target dates are for a project card (kind project_setup).', 400, 'not_project_card');
       if (!dateProject) throw new ApiError('Link the card to a project first, then set its dates.', 409, 'no_project');
     }
+    const actor = await actorOf(auth);
+    const changed: string[] = [];
+    if (body.kind !== undefined) changed.push('Kind');
+    if (body.project_id !== undefined) changed.push('Project link');
+    if (datesGiven) changed.push('Dates');
     const noon = (v: string | null | undefined) => (v ? new Date(`${v}T12:00:00Z`) : null);
     await prisma.$transaction(async (tx) => {
       await tx.task.update({ where: { id }, data: data as never });
@@ -102,6 +108,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
           },
         });
       }
+      await recordTriageChange(tx, id, 'card', `${changed.join(' and ')} ${changed.length > 1 ? 'changed' : body.kind !== undefined ? 'set' : 'changed'} by ${actor.by}`, actor);
     });
     return NextResponse.json(await cardOr404(id));
   } catch (error) {

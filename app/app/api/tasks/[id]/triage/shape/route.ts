@@ -5,6 +5,7 @@ import { requireAuth } from '@/lib/auth/middleware';
 import { ApiError, handleApiError } from '@/lib/api/errors';
 import { loadCards } from '@/lib/tasks/triage-card';
 import { requireTriageOwner } from '@/lib/tasks/triage-auth';
+import { actorOf, recordTriageChange } from '@/lib/tasks/triage-rev';
 
 const line = (max: number) => z.string().trim().max(max);
 const bodySchema = z
@@ -47,6 +48,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     if (!task.project) throw new ApiError('Link the card to its project first.', 409, 'no_project');
     if (task.project.status !== 'queue') throw new ApiError('Only a project still in the queue can be reshaped from its card.', 409, 'project_not_queue');
     const projectId = task.project.id;
+    const actor = await actorOf(auth);
     await prisma.$transaction(async (tx) => {
       if (body.phases) {
         const withTasks = await tx.projectPhase.count({ where: { project_id: projectId, tasks: { some: {} } } });
@@ -62,6 +64,8 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
           data: body.pages.map((p, i) => ({ project_id: projectId, name: p.name, page_type: p.page_type || null, needs_design: p.needs_design ?? false, notes: p.notes || null, sort_order: i })),
         });
       }
+      const parts = [body.phases ? 'Shape' : null, body.pages ? 'Sitemap' : null].filter(Boolean).join(' and ');
+      await recordTriageChange(tx, id, 'shape', `${parts} changed by ${actor.by}`, actor);
     });
     const [card] = await loadCards(prisma, [id]);
     return NextResponse.json(card);
