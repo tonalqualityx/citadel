@@ -1,4 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
+
+const q = vi.hoisted(() => ({ answer: vi.fn(), data: { questions: [] as unknown[], open_count: 0 } }));
+vi.mock('@/lib/hooks/use-task-questions', () => ({
+  useTaskQuestions: () => ({ data: q.data, isLoading: false }),
+  useAnswerQuestion: () => q.answer,
+}));
+
 import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 import { TriageCard } from '../TriageCard';
 import { triageTalkCard, openTriageConversation } from '../triage-talk';
@@ -103,5 +110,45 @@ describe('triage talk seam', () => {
     const open = vi.fn();
     openTriageConversation({ key: 'task:x', title: 'x', task_id: 'not-a-uuid', tile: 'triage' }, open);
     expect(open.mock.calls[0][0].own_conversation).toBeUndefined();
+  });
+});
+
+describe('questions on the Triage row', () => {
+  const withQuestions = () => {
+    const t = tasks(2).map((x, i) => ({ ...x, open_questions: i === 0 ? 2 : 0 }));
+    return group({ count: 2, titles: t.map((x) => x.title), tasks: t, open_questions: 2 });
+  };
+  const oneQuestion = {
+    id: 'q1', task_id: 't', position: 0, question: 'Show the map?', what_it_is: 'A layout decision is needed.', sources: [{ who: 'Mike', said: 'Decide later' }],
+    checked: 'The brief was read.', unknown: 'Whether mobile matters.', options: [{ id: 'a', label: 'Map', consequence: 'Heavy.' }, { id: 'b', label: 'List', consequence: 'Light.' }],
+    recommended_option_id: 'a', recommend_why: 'Nearby first.', if_nobody: 'It waits for you.', if_nobody_action: 'wait', state: 'open',
+    answer_option_id: null, answer_text: null, answered_at: null, citation: null, released_without_answer: false,
+  };
+
+  it('the heading and the group show the question totals; only a card with open questions gets a Questions button', () => {
+    const g = withQuestions();
+    render(<TriageCard triage={{ count: 2, open_questions: 2, groups: [g] }} onAct={vi.fn()} onTalk={vi.fn()} />);
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toContain('2 questions to answer');
+    expect(screen.getByTestId('triage-group').textContent).toContain('2 questions for you');
+    expect(screen.getAllByRole('button', { name: 'Questions 2' })).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: /^Questions 0/ })).toBeNull();
+  });
+
+  it('Questions n opens the list in place and an answer goes to the answer handler', async () => {
+    q.data = { questions: [oneQuestion], open_count: 1 };
+    q.answer.mockResolvedValue(true);
+    const g = withQuestions();
+    render(<TriageCard triage={{ count: 2, open_questions: 2, groups: [g] }} onAct={vi.fn()} onTalk={vi.fn()} />);
+    expect(screen.queryByTestId('question-list')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Questions 2' }));
+    expect(screen.getByTestId('question-list')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /^Map/ }));
+    await waitFor(() => expect(q.answer).toHaveBeenCalledWith('q1', { option_id: 'a' }));
+  });
+
+  it('without questions the heading and rows are unchanged', () => {
+    render(<TriageCard triage={triage([group()])} onAct={vi.fn()} onTalk={vi.fn()} />);
+    expect(screen.getByRole('heading', { level: 2 }).textContent).not.toContain('question');
+    expect(screen.queryByRole('button', { name: /^Questions/ })).toBeNull();
   });
 });

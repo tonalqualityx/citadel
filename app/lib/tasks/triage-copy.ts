@@ -12,6 +12,7 @@ export const TRIAGE_BUTTONS = {
   releasePlan: 'Release plan',
   drop: 'Drop',
   talk: 'Talk about this',
+  questions: 'Questions',
   showAll: 'Show all',
   showLess: 'Show fewer',
 } as const;

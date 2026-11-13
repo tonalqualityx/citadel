@@ -76,6 +76,10 @@ import { TimeEntriesSection } from '@/components/domain/tasks/time-entries-secti
 import { ResourceLinks } from '@/components/domain/projects/resource-links';
 import { TaskDependencies } from '@/components/domain/tasks/task-dependencies';
 import { TaskBastChat } from '@/components/domain/tasks/task-bast-chat';
+import { TaskQuestions } from '@/components/domain/tasks/questions/TaskQuestions';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { useTaskQuestions } from '@/lib/hooks/use-task-questions';
+import { MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import { isClientVisibleTask } from '@/lib/portal/visibility';
 
 // ============================================
@@ -216,6 +220,14 @@ export default function QuestDetailPage() {
   const isPmOrAdmin = user?.role === 'pm' || user?.role === 'admin';
 
   const { data: task, isLoading, error } = useTask(taskId);
+  // Questions for Mike on this card: a "Card | Questions (n)" strip when there are any; it opens on Questions for a card in triage with open ones.
+  const { data: questionData } = useTaskQuestions(taskId);
+  const questionsShown = (questionData?.questions ?? []).filter((q) => q.state !== 'withdrawn').length;
+  const openQuestions = questionData?.open_count ?? 0;
+  const [cardTab, setCardTab] = React.useState<'card' | 'questions' | null>(null);
+  React.useEffect(() => {
+    if (cardTab === null && task && questionData) setCardTab(task.status === 'triage' && openQuestions > 0 ? 'questions' : 'card');
+  }, [cardTab, task, questionData, openQuestions]);
   const updateTask = useUpdateTask();
   const deleteTask = useDeleteTask();
   const timer = useTimer();
@@ -497,6 +509,14 @@ export default function QuestDetailPage() {
         </div>
       </div>
 
+      <Tabs value={cardTab ?? 'card'} onValueChange={(v) => setCardTab(v as 'card' | 'questions')}>
+        {questionsShown > 0 && (
+          <TabsList data-testid="card-tabs">
+            <TabsTrigger value="card">Card</TabsTrigger>
+            <TabsTrigger value="questions">Questions ({openQuestions > 0 ? openQuestions : questionsShown})</TabsTrigger>
+          </TabsList>
+        )}
+        <TabsContent value="card" forceMount className="mt-0 space-y-6 data-[state=inactive]:hidden">
       {/* Blocked Warning */}
       {hasBlockers && (
         <Card className="border-red-500/50 bg-red-50/50">
@@ -867,6 +887,13 @@ export default function QuestDetailPage() {
           </Card>
         </div>
       </div>
+        </TabsContent>
+        {questionsShown > 0 && (
+          <TabsContent value="questions">
+            <TaskQuestions taskId={task.id} canAnswer={user?.id === MIKE_USER_ID} standalone />
+          </TabsContent>
+        )}
+      </Tabs>
 
       {/* Delete Confirmation */}
       <Modal open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>

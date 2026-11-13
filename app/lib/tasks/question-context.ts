@@ -152,3 +152,26 @@ export function optionOf(options: unknown, id: string | null | undefined): Quest
   if (!id || !Array.isArray(options)) return null;
   return (options as QuestionOption[]).find((o) => o && o.id === id) ?? null;
 }
+
+/** A question as the routes return it and the screens read it (the JSON of GET /api/tasks/:id/questions). Client-safe: no server imports. */
+export interface QuestionView {
+  id: string;
+  task_id: string;
+  position: number;
+  question: string;
+  what_it_is: string;
+  sources: QuestionSource[];
+  checked: string;
+  unknown: string;
+  options: QuestionOption[] | null;
+  recommended_option_id: string | null;
+  recommend_why: string | null;
+  if_nobody: string;
+  if_nobody_action: 'go_with_recommendation' | 'wait';
+  state: 'open' | 'answered' | 'defaulted' | 'withdrawn';
+  answer_option_id: string | null;
+  answer_text: string | null;
+  answered_at: string | null;
+  citation: string | null;
+  released_without_answer: boolean;
+}
