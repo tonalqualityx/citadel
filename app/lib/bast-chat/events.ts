@@ -81,8 +81,14 @@ const SUMMARY_SELECT = { id: true, title: true, status: true, last_message_at: t
  * starts a second conversation for the same card: the card's own conversation is REOPENED (closed or idle, it goes
  * to idle, `closed_at` cleared, its events untouched) and `reopened` is true.
  */
-export async function startConversation(ownerId: string, now: Date = new Date(), db: Db = defaultDb, taskId?: string | null): Promise<{ id: string; reopened: boolean }> {
-  if (taskId) return openCardConversation(ownerId, taskId, db);
+export async function startConversation(
+  ownerId: string,
+  now: Date = new Date(),
+  db: Db = defaultDb,
+  taskId?: string | null,
+  opts: { fresh?: boolean } = {},
+): Promise<{ id: string; reopened: boolean }> {
+  if (taskId) return openCardConversation(ownerId, taskId, db, now, opts.fresh === true);
   return db.$transaction(async (tx) => {
     await tx.bastChatConversation.updateMany({ where: { owner_id: ownerId, task_id: null, status: { not: 'closed' } }, data: { status: 'closed', closed_at: now, live_text: null, live_action: null } });
     const c = await tx.bastChatConversation.create({ data: { owner_id: ownerId }, select: { id: true } });
@@ -90,29 +96,30 @@ export async function startConversation(ownerId: string, now: Date = new Date(),
   });
 }
 
-async function openCardConversation(ownerId: string, taskId: string, db: Db): Promise<{ id: string; reopened: boolean }> {
-  const reopen = async (): Promise<{ id: string; reopened: boolean } | null> => {
-    const existing = await db.bastChatConversation.findUnique({ where: { owner_id_task_id: { owner_id: ownerId, task_id: taskId } }, select: { id: true, status: true } });
-    if (!existing) return null;
-    // Only a closed one changes: an idle, queued or running one is already open (never touch a turn in flight).
-    if (existing.status === 'closed') {
-      await db.bastChatConversation.updateMany({ where: { id: existing.id, status: 'closed' }, data: { status: 'idle', closed_at: null, live_text: null, live_action: null } });
+/**
+ * A card's conversation. Over time a card has several (each "start fresh" closes the open one, kept as history, and opens a
+ * new empty one); at most one is open, which the database also holds (partial unique index) and this function holds in
+ * code: everything runs in one transaction under an advisory lock keyed on owner and card, so two taps at once cannot
+ * make two open conversations. Without `fresh` the NEWEST conversation is reopened (a closed one goes back to idle, its
+ * events untouched); the machine replays turns of that conversation only, never of an older one.
+ */
+async function openCardConversation(ownerId: string, taskId: string, db: Db, now: Date, fresh: boolean): Promise<{ id: string; reopened: boolean }> {
+  return db.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`bast-chat-card:${ownerId}:${taskId}`}))`;
+    const newest = await tx.bastChatConversation.findFirst({ where: { owner_id: ownerId, task_id: taskId }, orderBy: { created_at: 'desc' }, select: { id: true, status: true } });
+    if (newest && !fresh) {
+      // Only a closed one changes: an idle, queued or running one is already open (never touch a turn in flight).
+      if (newest.status === 'closed') {
+        await tx.bastChatConversation.updateMany({ where: { id: newest.id, status: 'closed' }, data: { status: 'idle', closed_at: null, live_text: null, live_action: null } });
+      }
+      return { id: newest.id, reopened: true };
     }
-    return { id: existing.id, reopened: true };
-  };
-  const found = await reopen();
-  if (found) return found;
-  try {
-    const c = await db.bastChatConversation.create({ data: { owner_id: ownerId, task_id: taskId }, select: { id: true } });
+    if (newest) {
+      await tx.bastChatConversation.updateMany({ where: { owner_id: ownerId, task_id: taskId, status: { not: 'closed' } }, data: { status: 'closed', closed_at: now, live_text: null, live_action: null } });
+    }
+    const c = await tx.bastChatConversation.create({ data: { owner_id: ownerId, task_id: taskId }, select: { id: true } });
     return { id: c.id, reopened: false };
-  } catch (e) {
-    // Two taps at once: the unique (owner, card) index let one win; the other reopens that one.
-    if ((e as { code?: string }).code === 'P2002') {
-      const again = await reopen();
-      if (again) return again;
-    }
-    throw e;
-  }
+  });
 }
 
 /** The owner's most recent general conversation that is not closed, or null. Card conversations are never "the current chat". */
@@ -124,9 +131,14 @@ export async function currentConversation(ownerId: string, db: Pick<PrismaClient
   });
 }
 
-/** The owner's conversation about one card, open or closed, or null. */
+/** The owner's NEWEST conversation about one card, open or closed, or null. */
 export async function conversationForTask(ownerId: string, taskId: string, db: Pick<PrismaClient, 'bastChatConversation'> = defaultDb): Promise<ConversationSummary | null> {
-  return db.bastChatConversation.findUnique({ where: { owner_id_task_id: { owner_id: ownerId, task_id: taskId } }, select: SUMMARY_SELECT });
+  return db.bastChatConversation.findFirst({ where: { owner_id: ownerId, task_id: taskId }, orderBy: { created_at: 'desc' }, select: SUMMARY_SELECT });
+}
+
+/** Every conversation the owner had about one card, newest first (older ones are history, readable by id). */
+export async function conversationsForTask(ownerId: string, taskId: string, db: Pick<PrismaClient, 'bastChatConversation'> = defaultDb): Promise<ConversationSummary[]> {
+  return db.bastChatConversation.findMany({ where: { owner_id: ownerId, task_id: taskId }, orderBy: { created_at: 'desc' }, select: SUMMARY_SELECT });
 }
 
 /** The last 20 conversations (open and closed), newest first. */

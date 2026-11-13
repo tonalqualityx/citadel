@@ -3,12 +3,13 @@ import { z } from 'zod';
 import { requireChatOwner } from '@/lib/bast-chat/access';
 import { prisma } from '@/lib/db/prisma';
 import { ApiError } from '@/lib/api/errors';
-import { conversationForTask, listConversations, startConversation } from '@/lib/bast-chat/events';
+import { conversationForTask, conversationsForTask, listConversations, startConversation } from '@/lib/bast-chat/events';
 import { chatError, chatJson, ownerJsonBody, ownerPostGuard } from '@/lib/bast-chat/route-helpers';
 
 const UUID = z.string().uuid();
 /** `{}` starts the general chat; `{task_id}` opens (or reopens) that card's own conversation. Nothing else is accepted. */
-const startBody = z.object({ task_id: UUID.optional() }).strict();
+/** `fresh` (with a task_id): close the card's open conversation (kept as history) and open a new, empty one on the same card. */
+const startBody = z.object({ task_id: UUID.optional(), fresh: z.boolean().optional() }).strict();
 
 const summaryJson = (c: { id: string; title: string | null; status: string; last_message_at: Date | null; created_at: Date; task_id: string | null }) => ({
   id: c.id,
@@ -21,7 +22,7 @@ const summaryJson = (c: { id: string; title: string | null; status: string; last
 
 /**
  * GET /api/bast-chat/conversations: the last 20 conversations. `?task_id=<uuid>` returns only that card's conversation
- * (zero or one row), for the card page.
+ * (the newest, zero or one row), for the card page; add `&all=1` for every conversation about it, newest first.
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
@@ -30,6 +31,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     if (raw !== null) {
       const parsed = UUID.safeParse(raw);
       if (!parsed.success) throw new ApiError('That card id is not valid.', 400, 'bad_task_id');
+      if (request.nextUrl.searchParams.get('all') === '1') {
+        const all = await conversationsForTask(auth.userId, parsed.data.toLowerCase(), prisma);
+        return chatJson({ conversations: all.map(summaryJson) });
+      }
       const one = await conversationForTask(auth.userId, parsed.data.toLowerCase(), prisma);
       return chatJson({ conversations: one ? [summaryJson(one)] : [] });
     }
@@ -51,11 +56,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const refused = ownerPostGuard(request);
     if (refused) return refused;
     const body = await ownerJsonBody(request, startBody);
+    if (body.fresh && !body.task_id) throw new ApiError('Start fresh needs a card.', 400, 'fresh_needs_card');
     if (!body.task_id) return chatJson({ id: (await startConversation(auth.userId)).id }, 201);
     const taskId = body.task_id.toLowerCase();
     const task = await prisma.task.findFirst({ where: { id: taskId, is_deleted: false }, select: { id: true } });
     if (!task) throw new ApiError('That card was not found.', 404, 'not_found');
-    const r = await startConversation(auth.userId, new Date(), prisma, taskId);
+    const r = await startConversation(auth.userId, new Date(), prisma, taskId, { fresh: body.fresh === true });
     return chatJson({ id: r.id, reopened: r.reopened }, r.reopened ? 200 : 201);
   } catch (error) {
     return chatError(error);

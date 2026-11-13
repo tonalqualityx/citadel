@@ -22,7 +22,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const now = new Date();
     // Lapse old waiting messages here too: the machine may be off, so nothing else would.
     await expireStaleMessages(settings.stale_after_minutes, now);
-    const [page, worker, actions] = await Promise.all([panelFeed(conv.id, after, prisma), workerStatus(now), panelActions(conv.id, now, prisma)]);
+    const earlier = conv.task_id
+      ? (await prisma.bastChatConversation.findMany({ where: { owner_id: auth.userId, task_id: conv.task_id, id: { not: conv.id } }, select: { id: true }, take: 20 })).map((c) => c.id)
+      : [];
+    const [page, worker, actions] = await Promise.all([panelFeed(conv.id, after, prisma), workerStatus(now), panelActions(conv.id, now, prisma, earlier)]);
     return chatJson({
       conversation: { id: conv.id, status: conv.status },
       events: page.events,

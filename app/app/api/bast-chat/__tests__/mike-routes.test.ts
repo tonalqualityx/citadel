@@ -207,7 +207,7 @@ describe('Mike routes: shapes the panel hook reads', () => {
     expect(Object.keys(b.events[1]).sort()).toEqual(['created_at', 'kind', 'payload', 'role', 'seq']);
     expect(b.events[2].payload).toEqual({});
     expect(b.waiting).toEqual([{ seq: 1, delivered: false, expired: false }]);
-    expect(Object.keys(b.actions[0]).sort()).toEqual(['card', 'error', 'event_seq', 'id', 'proposal_kind', 'proposed_assignee', 'status', 'summary', 'target_type', 'tool', 'undo_until']);
+    expect(Object.keys(b.actions[0]).sort()).toEqual(['card', 'conversation_id', 'created_at', 'error', 'event_seq', 'id', 'proposal_kind', 'proposed_assignee', 'status', 'summary', 'target_type', 'tool', 'undo_until']);
     expect(b.actions[0]).toMatchObject({ target_type: 'task', proposal_kind: 'bast_start', card: { kind: 'bast_start' }, error: null });
     expect(Object.keys(b.worker).sort()).toEqual(['auth_state', 'online', 'pause_reason', 'paused']);
   });
