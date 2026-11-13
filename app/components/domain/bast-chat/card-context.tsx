@@ -23,6 +23,8 @@ export interface OpenCardInput {
   /** HomeItem.opened.task_id, when there is one. */
   task_id?: string | null;
   tile?: string;
+  /** Operating model S4: open this task's own conversation (reopened if it exists) instead of the general chat. */
+  own_conversation?: boolean;
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

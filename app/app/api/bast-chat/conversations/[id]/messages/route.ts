@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireChatOwner } from '@/lib/bast-chat/access';
 import { appendMikeMessage, ownedConversation } from '@/lib/bast-chat/events';
-import { resolveCardContext } from '@/lib/bast-chat/card-context';
+import { resolveCardContext, type CardContext } from '@/lib/bast-chat/card-context';
 import { prisma } from '@/lib/db/prisma';
 import { chatError, chatJson, ownerJsonBody, ownerPostGuard } from '@/lib/bast-chat/route-helpers';
 
@@ -18,7 +18,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const { id } = await params;
     const conv = await ownedConversation(id, auth.userId, prisma);
     const body = await ownerJsonBody(request, bodySchema);
-    const context = await resolveCardContext(body.context);
+    // A card conversation is always about its own card, whatever the browser sent (it may have dropped the About line).
+    const context: CardContext = conv.task_id ? { screen: 'home', tile: 'triage', kind: 'task', id: conv.task_id.toLowerCase() } : await resolveCardContext(body.context);
     const r = await appendMikeMessage({ conversationId: conv.id, ownerId: auth.userId, text: body.text, context, clientRef: body.client_ref, settings });
     return chatJson({ seq: r.seq }, r.duplicate ? 200 : 201);
   } catch (error) {

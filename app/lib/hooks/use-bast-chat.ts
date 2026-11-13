@@ -12,6 +12,8 @@
  *        200 ChatStatus.  403 or 404: not enabled or not the owner; the dock then renders nothing.
  *   POST /api/bast-chat/conversations            {}
  *        201 {id} (also accepted: {conversation:{id}}).  Starts a new conversation (closes the current one).
+ *   POST /api/bast-chat/conversations            {task_id}
+ *        201 or 200 {id, reopened}.  Opens (or reopens) the conversation about one card; closes nothing.
  *   GET  /api/bast-chat/conversations/:id/feed?after=<seq>
  *        200 ChatFeed.  403 or 404: the status is read again.
  *   POST /api/bast-chat/conversations/:id/messages   {client_ref, text, context:{screen,tile?,kind,id?}}
@@ -303,6 +305,12 @@ export interface UseBastChat {
   sendAgain: (item: TimelineMessage, card: BastChatCard | null) => Promise<boolean>;
   stop: () => Promise<void>;
   newChat: () => Promise<void>;
+  /** Show the conversation about one card (created the first time, reopened after). False when it could not be opened. */
+  openCardConversation: (taskId: string) => Promise<boolean>;
+  /** Leave a card's conversation and show the general chat again (the current one, if there is one). Closes nothing. */
+  leaveCardConversation: () => Promise<void>;
+  /** The card the open conversation is tied to, or null for the general chat. */
+  cardTaskId: string | null;
   actOn: (id: string, verb: 'undo' | 'release' | 'decline') => Promise<void>;
   actionError: (id: string) => string | null;
   /** What Mike's last tap on a card did, until the feed catches up. */
@@ -335,7 +343,9 @@ export function useBastChat({ open }: { open: boolean }): UseBastChat {
   const [now, setNow] = useState(() => Date.now());
 
   // Refs so the poll loop always reads the latest values without restarting.
-  const live = useRef({ open, conversationId, convStatus, pending: 0, maxSeq: 0, availability });
+  const [cardTaskId, setCardTaskId] = useState<string | null>(null);
+  // taskId: the card the shown conversation is tied to. While set, the status poll never swaps it for the general chat.
+  const live = useRef({ open, conversationId, convStatus, pending: 0, maxSeq: 0, availability, taskId: null as string | null });
   useEffect(() => {
     live.current.open = open;
     live.current.conversationId = conversationId;
@@ -376,7 +386,7 @@ export function useBastChat({ open }: { open: boolean }): UseBastChat {
     setAvailability('available');
     live.current.availability = 'available';
     const id = r.data.conversation_id ?? null;
-    if (id && id !== live.current.conversationId) {
+    if (id && id !== live.current.conversationId && live.current.taskId === null) {
       live.current.conversationId = id;
       setConversationId(id);
     }
@@ -469,8 +479,8 @@ export function useBastChat({ open }: { open: boolean }): UseBastChat {
     return () => clearInterval(t);
   }, [gone]);
 
-  const startConversation = useCallback(async (): Promise<string | null> => {
-    const r = await chatFetch<{ id?: string; conversation?: { id?: string } }>('POST', '/conversations', {});
+  const startConversation = useCallback(async (taskId: string | null = null): Promise<string | null> => {
+    const r = await chatFetch<{ id?: string; conversation?: { id?: string } }>('POST', '/conversations', taskId ? { task_id: taskId } : {});
     if (r.status === 403 || r.status === 404) {
       hide();
       return null;
@@ -480,6 +490,8 @@ export function useBastChat({ open }: { open: boolean }): UseBastChat {
       setError(errorSentence(r.data, SEND_FAILED_TEXT));
       return null;
     }
+    live.current.taskId = taskId;
+    setCardTaskId(taskId);
     resetConversation(id);
     return id;
   }, [hide, resetConversation]);
@@ -495,7 +507,8 @@ export function useBastChat({ open }: { open: boolean }): UseBastChat {
       const drop = () => setPending((p) => p.filter((m) => m.client_ref !== ref));
       let id = live.current.conversationId;
       if (!id || live.current.convStatus === 'closed') {
-        id = await startConversation();
+        // A card's conversation reopens (same id); the general chat starts fresh.
+        id = await startConversation(live.current.taskId);
         // startConversation resets the pending list, so put this message back.
         if (id) setPending([{ client_ref: ref, text: t }]);
       }
@@ -545,8 +558,27 @@ export function useBastChat({ open }: { open: boolean }): UseBastChat {
 
   const newChat = useCallback(async () => {
     setError(null);
-    await startConversation();
+    await startConversation(null);
   }, [startConversation]);
+
+  const leaveCardConversation = useCallback(async () => {
+    setError(null);
+    live.current.taskId = null;
+    setCardTaskId(null);
+    resetConversation(null);
+    await readStatus();
+  }, [resetConversation, readStatus]);
+
+  const openCardConversation = useCallback(
+    async (taskId: string): Promise<boolean> => {
+      setError(null);
+      if (live.current.taskId === taskId && live.current.conversationId && live.current.convStatus !== 'closed') return true;
+      const id = await startConversation(taskId);
+      if (id) void pollOnce(); // show its earlier turns now, not at the next slow poll
+      return id !== null;
+    },
+    [startConversation, pollOnce],
+  );
 
   const actOn = useCallback(
     async (id: string, verb: 'undo' | 'release' | 'decline') => {
@@ -670,6 +702,9 @@ export function useBastChat({ open }: { open: boolean }): UseBastChat {
     sendAgain,
     stop,
     newChat,
+    openCardConversation,
+    leaveCardConversation,
+    cardTaskId,
     actOn,
     actionError: (id) => actionErrors[id] ?? null,
     actionOutcome: (id) => outcomes[id] ?? null,

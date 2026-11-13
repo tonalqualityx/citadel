@@ -196,6 +196,22 @@ function HomeBody(p: BodyProps) {
       setTalkCard(c);
       setTalkOpen((n) => n + 1);
     });
+  // The card page's Reopen link: /dashboard?talk=<task id>&title=<title> opens that card's own conversation once, then tidies the address.
+  React.useEffect(() => {
+    try {
+      const q = new URLSearchParams(window.location.search);
+      const id = q.get('talk');
+      if (!id || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return;
+      const title = (q.get('title') ?? '').slice(0, 120) || 'This card';
+      q.delete('talk');
+      q.delete('title');
+      const rest = q.toString();
+      window.history.replaceState(null, '', `${window.location.pathname}${rest ? `?${rest}` : ''}`);
+      onTalk({ key: `task:${id.toLowerCase()}`, title, type: 'task', task_id: id.toLowerCase(), tile: 'triage' });
+    } catch {
+      // an address that cannot be read just means no chat opens
+    }
+  }, []);
   const selectItemKey = (key: string) => {
     setTalkCard(null);
     p.setChosen({ key, index: Math.max(keys.indexOf(key), 0) });

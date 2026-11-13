@@ -25,6 +25,8 @@ import type { HomeActRequest } from '@/lib/home/types';
 import type { OpContext, PreparedOp } from '../actions';
 import { opSummary, type OpLine } from '../actions';
 import { cleanLine, quoted } from '../card-context';
+import { TRIAGE_ACTIONS } from '@/lib/tasks/triage';
+import { TRIAGE_UNDO_HOURS } from '@/lib/tasks/triage-copy';
 import { checkOp, type ReachOrigin } from '../worker-reach';
 import type { OpDef, OpJson, OpRun, OpDb } from './index';
 
@@ -184,6 +186,8 @@ async function run(ctx: OpContext, input: HomeInput): Promise<OpRun> {
     summary,
     result: { message: res.message, item_key: key },
     undoable: true,
+    // A Triage tap keeps its own 72 hour undo whichever door it came through (lib/tasks/triage-copy.ts).
+    ...((TRIAGE_ACTIONS as readonly string[]).includes(input.action) ? { undo_hours: TRIAGE_UNDO_HOURS } : {}),
   };
 }
 

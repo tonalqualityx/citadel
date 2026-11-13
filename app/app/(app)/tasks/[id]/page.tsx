@@ -75,6 +75,7 @@ import { ReviewSection } from '@/components/domain/tasks/review-section';
 import { TimeEntriesSection } from '@/components/domain/tasks/time-entries-section';
 import { ResourceLinks } from '@/components/domain/projects/resource-links';
 import { TaskDependencies } from '@/components/domain/tasks/task-dependencies';
+import { TaskBastChat } from '@/components/domain/tasks/task-bast-chat';
 import { isClientVisibleTask } from '@/lib/portal/visibility';
 
 // ============================================
@@ -728,6 +729,9 @@ export default function QuestDetailPage() {
 
         {/* Sidebar */}
         <div className="space-y-6">
+          {/* The Bast conversation about this card (chat owner only; renders nothing for anyone else) */}
+          <TaskBastChat taskId={taskId} title={task.title} status={task.status} />
+
           {/* Dependencies */}
           <TaskDependencies
             taskId={taskId}

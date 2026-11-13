@@ -5515,10 +5515,12 @@ model BastChatConversation {
   created_at      DateTime                   @default(now())
   updated_at      DateTime                   @updatedAt
   closed_at       DateTime?
+  task_id         String?                    @db.Uuid // a conversation about one Triage card: set once, never changed; no relation on purpose (Task unchanged); null = the general home chat
 
   events  BastChatEvent[]
   actions BastChatAction[]
 
+  @@unique([owner_id, task_id]) // one conversation per card per owner (NULLs never collide, so the general chats are unaffected)
   @@index([owner_id, updated_at])
   @@index([status])
   @@map("bast_chat_conversations")

@@ -9,11 +9,14 @@ export function triageTalkCard(group: HomeTriageGroup, task?: HomeTriageTask): O
   return { key: group.project_id ?? `triage:${group.key}`, title: talkAboutLine(group.label, group.count), tile: 'triage' };
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
- * SEAM (operating model slice S4, one chat per card). Today "Talk about this" opens the existing Bast chat with the card referenced
- * in its About line. When S4 lands the per-card conversation API (a nullable task_id on the conversation, reopen instead of start
- * fresh), replace the body of this function so it reopens or starts that card's own conversation, and keep the call sites as they are.
+ * "Talk about this" (operating model S4, one chat per card). One idea (a task id) gets its own conversation: the dock
+ * opens it, reopening the earlier one if there is one, so the card carries its discussion. A group row spans several
+ * cards, so it keeps using the general chat with the group in its About line.
  */
-export function openTriageConversation(card: OpenCardInput, openExistingChat: (card: OpenCardInput) => void): void {
-  openExistingChat(card);
+export function openTriageConversation(card: OpenCardInput, openChat: (card: OpenCardInput) => void): void {
+  const own = typeof card.task_id === 'string' && UUID_RE.test(card.task_id);
+  openChat(own ? { ...card, own_conversation: true } : card);
 }
