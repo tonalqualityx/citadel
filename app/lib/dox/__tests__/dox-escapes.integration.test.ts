@@ -154,7 +154,7 @@ describe.skipIf(!SCRATCH)('Dox escape attempts (real database)', () => {
       }
     });
 
-    it('a pass started through the Dox lane (the passes route) opens it, and finishing it closes it again', async () => {
+    it('a pass started through the Dox lane (the passes route) opens it, and finishing it closes it again; a dry pass opens nothing', async () => {
       const { POST: startPass } = await import('@/app/api/engagement-briefs/[id]/passes/route');
       const { PATCH: patchPass } = await import('@/app/api/engagement-passes/[id]/route');
       const p = await fx.mkProject('Sweep', { status: 'ready' });
@@ -163,7 +163,14 @@ describe.skipIf(!SCRATCH)('Dox escape attempts (real database)', () => {
       const brief = await json(await startBrief(call(undefined), idParams(p)));
       expect(brief.status).toBe(201);
       expect((await json(await patchTask(call(p, { assignee_id: staff }, 'PATCH'), idParams(t)))).body.code).toBe('dox_no_pass');
-      const pass = await json(await startPass(call(undefined, { mode: 'dry' }), idParams(brief.body.id)));
+      // a dry pass is read-only: it is open, but it does not let a write through
+      const dry = await json(await startPass(call(undefined, { mode: 'dry' }), idParams(brief.body.id)));
+      expect(dry.status, JSON.stringify(dry.body)).toBe(201);
+      expect((await json(await patchTask(call(p, { assignee_id: staff }, 'PATCH'), idParams(t)))).body.code).toBe('dox_pass_dry');
+      expect((await patchPass(call(undefined, { finished: true }, 'PATCH'), idParams(dry.body.id))).status).toBe(200);
+      // the owner switches the brief to live; a live pass started through the lane opens writes
+      await prisma.engagementBrief.update({ where: { id: brief.body.id }, data: { owner_mode: 'live' } });
+      const pass = await json(await startPass(call(undefined, { mode: 'live', kind: 'sweep' }), idParams(brief.body.id)));
       expect(pass.status, JSON.stringify(pass.body)).toBe(201);
       expect((await prisma.engagementPass.findUniqueOrThrow({ where: { id: pass.body.id } })).lane).toBe('dox');
       expect((await patchTask(call(p, { assignee_id: staff }, 'PATCH'), idParams(t))).status).toBe(200);

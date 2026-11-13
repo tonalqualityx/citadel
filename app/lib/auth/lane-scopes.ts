@@ -422,6 +422,9 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('PUT', '/api/tasks/:id/triage/shape'),
     // Item-level sitemap edits on a project in any status but done or cancelled (add, change, drop a page; the portal showing it does not matter)
     r('PATCH', '/api/projects/:id/sitemap'),
+    // A project's Dox brief: create it (POST) and change its cadence or mode (PATCH), on the owner's word. The Dox lane itself is refused the PATCH.
+    r('POST', '/api/projects/:id/engagement-brief'),
+    r('PATCH', '/api/engagement-briefs/:id'),
     // The card's plan: read it, replace a section (PUT) or change one item (PATCH). Mike's words go in as "Mike, typed in chat"; a document's words keep their source.
     r('GET', '/api/tasks/:id/plan'),
     r('PUT', '/api/tasks/:id/plan/:section'),
@@ -483,6 +486,9 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('GET', '/api/engagement-briefs/:id/snapshot'),
     r('POST', '/api/engagement-briefs/:id/passes'),
     r('PATCH', '/api/engagement-passes/:id'),
+    // The projects that have a next-step refresh queued (an @Dox mention stamps one), and the next-step line for the project in play (lib/dox/guard.ts requireProjectInPlay, checked in the route)
+    r('GET', '/api/oracle/projects/refresh-requests'),
+    r('PUT', '/api/oracle/projects/:id/next-step/write'),
   ],
   // Triage desk (PLAN-triage-investigations decision 5). Bast user, always enforced. A session reads a task, its comments and questions, the /triage card and the card's
   // conversation; edits a Triage card (kind, project link, dates, shape); asks, edits (its own) and withdraws questions; adds internal comments; marks looks-done.

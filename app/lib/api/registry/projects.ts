@@ -518,7 +518,7 @@ export const projectEndpoints: ApiEndpoint[] = [
         summary: 'Start the engagement brief of the project (one per project) with cadence auto, owner_mode dry and no allowed actions. Idempotent.',
         auth: 'required',
         responseExample: { id: 'uuid', project_id: 'uuid', cadence: 'auto', owner_mode: 'dry', last_pass_at: 'ISO-8601|null' },
-        responseNotes: '201 created, 200 the existing brief unchanged. The Dox lane or the owner session only. Cadence values (auto, daily, every_2_days, every_3_days, weekly, every_2_weeks, none) are validated by PUT /api/engagement-briefs.',
+        responseNotes: '201 created, 200 the existing brief unchanged. The Dox lane, the owner session or the owner\'s chat lane only. Cadence values (auto, daily, every_2_days, every_3_days, weekly, every_2_weeks, none) are validated by PUT /api/engagement-briefs.',
       },
     ],
   },
@@ -532,6 +532,41 @@ export const projectEndpoints: ApiEndpoint[] = [
         auth: 'required',
         responseExample: { brief: '{id, cadence, owner_mode, last_pass_at}', project: '{...}', phases: '[...]', tasks: '[...]', waits: '[...]', questions: '[...]' },
         responseNotes: 'The enforced Dox lane or the owner session only. 400 brief_not_project for a charter brief.',
+      },
+    ],
+  },
+  {
+    path: '/api/engagement-briefs/:id',
+    group: 'projects',
+    methods: [
+      {
+        method: 'PATCH',
+        summary: 'Change a brief\'s sweep cadence and/or mode (owner_mode off, dry or live). The owner session or the owner\'s chat lane only; the Dox lane is refused (403 dox_brief_closed).',
+        auth: 'required',
+        bodySchema: [
+          { name: 'cadence', type: 'string', required: false, description: 'auto, daily, every_2_days, every_3_days, weekly, every_2_weeks or none' },
+          { name: 'owner_mode', type: 'string', required: false, description: 'off, dry or live' },
+        ],
+        responseExample: { id: 'uuid', cadence: 'weekly', owner_mode: 'dry', last_pass_at: 'ISO-8601|null', version: 2 },
+        responseNotes: 'Send at least one of cadence and owner_mode. Bumps version. GET /api/engagement-briefs returns owner_mode and last_pass_at on every brief.',
+      },
+    ],
+  },
+  {
+    path: '/api/engagement-briefs/:id/passes',
+    group: 'projects',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Start a pass record on a brief. `kind` (setup, sweep or report) says what the pass is for. A live pass needs a live brief, except that the Dox lane may start a live setup or report pass on a dry brief while the project holds the released card it is for.',
+        auth: 'required',
+        bodySchema: [
+          { name: 'mode', type: 'string', required: true, description: 'dry or live' },
+          { name: 'kind', type: 'string', required: false, description: 'setup, sweep or report' },
+          { name: 'model', type: 'string', required: false, description: 'Model name, 80 characters at most' },
+        ],
+        responseExample: { id: 'uuid', brief_id: 'uuid', mode: 'live', kind: 'setup', started_at: 'ISO-8601', finished_at: null },
+        responseNotes: '409 brief_off, 409 brief_not_live. A dry pass writes nothing: Dox\'s task, project, wait and comment writes need an open LIVE pass (403 dox_pass_dry otherwise).',
       },
     ],
   },

@@ -947,6 +947,7 @@ export function formatTaskResponse(task: any) {
     time_spent_minutes: timeSpentMinutes,
     // Bast triage: classification + provenance + staging approval
     tags: task.tags ?? [],
+    plan_item_ids: task.plan_item_ids ?? [],
     source: task.source,
     source_ref: task.source_ref,
     requested_by_contact_id: task.requested_by_contact_id,

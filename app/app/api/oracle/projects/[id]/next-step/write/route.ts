@@ -5,6 +5,7 @@ import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { logActivity } from '@/lib/services/activity';
 import { lintNextStepFields } from '@/lib/oracle/projects/next-step-lint';
+import { isDoxLane, requireProjectInPlay } from '@/lib/dox/guard';
 
 // Oracle Projects Tab Phase 3 — PUT used ONLY by the machine-side job
 // (~/.claude/tools/citadel-projects/next-step-refresh.py) to write a freshly-inferred
@@ -50,6 +51,8 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     const auth = await requireAuth();
     requireRole(auth, ['pm', 'admin']);
     const { id: projectId } = await params;
+    // The Dox lane writes the next-step line only for the project it is working on (header, live project, open live pass).
+    if (isDoxLane(auth)) await requireProjectInPlay(request.headers, projectId);
 
     const project = await prisma.project.findUnique({
       where: { id: projectId, is_deleted: false },

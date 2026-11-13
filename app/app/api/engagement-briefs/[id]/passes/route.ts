@@ -4,9 +4,10 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { serializePass } from '@/lib/engagement/serialize';
+import { guardDoxPassStart, isDoxLane, PASS_KINDS } from '@/lib/dox/guard';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const bodySchema = z.object({ mode: z.enum(['dry', 'live']), model: z.string().max(80).optional() });
+const bodySchema = z.object({ mode: z.enum(['dry', 'live']), model: z.string().max(80).optional(), kind: z.enum(PASS_KINDS).optional() });
 
 /** GET /api/engagement-briefs/[id]/passes: newest first (default 20, max 100). */
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -25,7 +26,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
 /**
  * POST /api/engagement-briefs/[id]/passes: start a pass record. A `live` pass is refused unless the
- * brief's owner_mode is `live`; a `dry` pass needs `dry` or `live`. An `off` brief runs nothing.
+ * brief's owner_mode is `live`; a `dry` pass needs `dry` or `live`. An `off` brief runs nothing. `kind` (setup, sweep or report) says what the pass is for;
+ * the Dox lane may run a live setup or report pass on a dry brief while the project holds the released card it is for (lib/dox/guard.ts guardDoxPassStart).
  */
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -37,10 +39,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const brief = await prisma.engagementBrief.findUnique({ where: { id } });
     if (!brief) throw new ApiError('Brief not found', 404);
     if (brief.owner_mode === 'off') throw new ApiError('This brief is off.', 409, 'brief_off');
-    if (body.mode === 'live' && brief.owner_mode !== 'live') {
+    if (isDoxLane(auth)) {
+      await guardDoxPassStart(auth, brief, body);
+    } else if (body.mode === 'live' && brief.owner_mode !== 'live') {
       throw new ApiError('This brief is not in live mode.', 409, 'brief_not_live');
     }
-    const row = await prisma.engagementPass.create({ data: { brief_id: id, mode: body.mode, model: body.model ?? null, lane: auth.lane ? auth.lane.slice(0, 40) : null } });
+    const row = await prisma.engagementPass.create({ data: { brief_id: id, mode: body.mode, model: body.model ?? null, kind: body.kind ?? null, lane: auth.lane ? auth.lane.slice(0, 40) : null } });
     return NextResponse.json(serializePass(row), { status: 201 });
   } catch (error) {
     return handleApiError(error);

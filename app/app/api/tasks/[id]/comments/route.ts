@@ -11,6 +11,7 @@ import { OWNER_ONLY_COMMENT_WHERE } from '@/lib/tasks/looks-done';
 import { guardDoxComment, guardDoxTaskWrite } from '@/lib/dox/guard';
 import { guardDeskComment, isTriageDeskLane } from '@/lib/triage-desk/guard';
 import { isDoxLane } from '@/lib/dox/guard';
+import { markAskedDox } from '@/lib/dox/ask';
 import { isChatLane } from '@/lib/tasks/questions';
 import { isChangeLineImitation, CHANGE_LINE_IMITATION_MESSAGE } from '@/lib/tasks/triage-rev';
 
@@ -271,6 +272,9 @@ export async function POST(
     if (comment.client_visible) {
       await afterReplyShared({ id: comment.id, task_id: taskId, client_question: comment.client_question });
     }
+
+    // A mention of Dox is a question for him: tag the task asked-dox and ask for a pass on its project now.
+    await markAskedDox(prisma, task, { userId: auth.userId, lane: auth.lane }, { mentionedUserIds, content: data.content });
 
     // Get the commenter's name for notification
     const commenter = await prisma.user.findUnique({
