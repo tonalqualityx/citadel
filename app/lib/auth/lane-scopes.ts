@@ -357,6 +357,8 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('GET', '/api/bast-chat/worker/conversations/:id'),
     r('PATCH', '/api/bast-chat/worker/conversations/:id'),
     r('POST', '/api/bast-chat/worker/conversations/:id/events'),
+    // Redact one stored turn (the owner pasted connection details); the text becomes "[connection info received]"
+    r('POST', '/api/bast-chat/worker/conversations/:id/redact'),
     r('POST', '/api/bast-chat/worker/actions'),
     r('GET', '/api/bast-chat/worker/today'),
     // v2 (specs/bast-chat-v2-plan.md 2.2 and 4.4): one narrow route for every named op that is not a task PATCH

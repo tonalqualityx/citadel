@@ -3,6 +3,8 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth } from '@/lib/auth/middleware';
 import { ApiError, handleApiError } from '@/lib/api/errors';
 import { assertCanReadPlan } from '@/lib/tasks/plan';
+import { viewOf } from '@/lib/tasks/plan-policy';
+import { PLAN_SECTIONS } from '@/lib/tasks/plan-schema';
 
 /**
  * GET /api/projects/:id/plan
@@ -20,8 +22,10 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
       select: { id: true, title: true, status: true },
     });
     if (!card) throw new ApiError('No plan for this project.', 404);
-    assertCanReadPlan(card, auth);
-    const lines = await prisma.taskPlanItem.count({ where: { task_id: card.id } });
+    const { reader } = assertCanReadPlan(card, auth);
+    // Only the sections this reader may read count (a contractor's count leaves out billing and decisions).
+    const sections = PLAN_SECTIONS.filter((sec) => viewOf(reader, sec) !== 'none');
+    const lines = await prisma.taskPlanItem.count({ where: { task_id: card.id, section: { in: sections } } });
     return NextResponse.json({ task_id: card.id, title: card.title, status: card.status, href: `/tasks/${card.id}?tab=plan`, plan_lines: lines });
   } catch (error) {
     return handleApiError(error);

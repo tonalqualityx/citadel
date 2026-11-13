@@ -11,6 +11,7 @@
  * source states them: nothing here computes, converts or changes a price.
  */
 import { z } from 'zod';
+import type { DealSection } from '@/lib/deals/read';
 
 export const PLAN_SECTIONS = ['requirements', 'dates', 'team', 'billing', 'planned_tasks', 'risks', 'examples', 'decisions'] as const;
 export type PlanSectionName = (typeof PLAN_SECTIONS)[number];
@@ -20,11 +21,22 @@ export const PLAN_SECTION_TITLES: Record<PlanSectionName, string> = {
   dates: 'Dates',
   team: 'Team',
   billing: 'Billing model',
-  planned_tasks: 'Planned tasks',
+  planned_tasks: 'Work to note',
   risks: 'Risks',
   examples: 'Examples',
   decisions: 'Decisions',
 };
+
+/**
+ * The purpose of the Work to note section (stored under the key `planned_tasks`; renaming the key would need a data migration). It is shown in the
+ * empty state and in the registry text the chat's tool builder reads. The plan is NOT a task list: Dox builds the routine tasks from the shape and
+ * the sitemap when it sets the project up.
+ */
+export const WORK_TO_NOTE_PURPOSE =
+  'Only work that is unusual for this kind of project: something the shape would not produce on its own, something that must start early, or something with a catch. Routine work comes from the shape and the sitemap when Dox sets the project up.';
+/** More than this many noted items and the tab says routine work belongs to the shape (the write route still accepts them). */
+export const WORK_TO_NOTE_SOFT_CAP = 8;
+export const WORK_TO_NOTE_LONG_LINE = 'This is getting long: routine work belongs to the shape';
 
 /** One muted line per empty section: what goes there, so the shape is visible before it is filled. */
 export const PLAN_EMPTY_LINES: Record<PlanSectionName, string> = {
@@ -32,7 +44,7 @@ export const PLAN_EMPTY_LINES: Record<PlanSectionName, string> = {
   dates: 'Start, design handoff, staging, launch and any other date, with where each came from.',
   team: 'Who is on it and as what. What will be yours is listed first.',
   billing: 'How this is billed: retainer, hourly, milestones, or not billed. Milestones with amount and trigger.',
-  planned_tasks: 'Work that has to happen, one line each. Nothing is created until you release; Dox makes the tasks from this list.',
+  planned_tasks: WORK_TO_NOTE_PURPOSE,
   risks: 'What could go wrong and what covers it. Uncovered risks come first.',
   examples: 'Links to example sites or pages, with what each is an example of.',
   decisions: 'What was decided, by whom and from what.',
@@ -59,7 +71,7 @@ const oneLine = (max: number) =>
     .trim()
     .min(1)
     .max(max)
-    .refine((v) => !/[\r\n]/.test(v), { message: 'One line only: no line breaks.' });
+    .refine((v) => !/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(v), { message: 'One line only: no line breaks, line or paragraph separators, or control characters.' });
 const optLine = (max: number) => oneLine(max).optional();
 
 /** A calendar day, YYYY-MM-DD and a real date. */
@@ -99,6 +111,8 @@ const markFields = {
 };
 
 function markRules<T extends { mark: PlanMark; was?: string; changed_by?: string }>(v: T, ctx: z.RefinementCtx) {
+  // "was" is the earlier wording of a CHANGED line; on any other line it would be stored and served but never shown.
+  if (v.was && v.mark !== 'changed') ctx.addIssue({ code: 'custom', path: ['was'], message: '"was" belongs to a changed line only.' });
   if (v.mark === 'changed') {
     if (!v.was) ctx.addIssue({ code: 'custom', path: ['was'], message: 'A changed line says what it was ("was ...").' });
     if (!v.changed_by) ctx.addIssue({ code: 'custom', path: ['changed_by'], message: 'A changed line says what changed it.' });
@@ -163,7 +177,7 @@ export const billingMilestone = z
   .strict();
 export const billingItem = z.discriminatedUnion('type', [billingBasis, billingMilestone]);
 
-/** Who a planned task is for: a Citadel user, Bast, "Dox decides", or a named outside party as text. */
+/** Who a noted item is for: a Citadel user, Bast, "Dox decides", or a named outside party as text. */
 export const forSchema = z.union([
   z.object({ user_id: z.string().uuid() }).strict(),
   z.object({ kind: z.enum(['bast', 'dox_decides']) }).strict(),
@@ -172,16 +186,18 @@ export const forSchema = z.union([
 export const plannedTaskItem = z
   .object({
     title: oneLine(120),
-    /** What done looks like. */
-    done_when: optLine(200),
-    for: forSchema,
-    /** Ids of other planned task lines in this plan that come first. */
-    depends_on: z.array(z.string().uuid()).max(12).default([]),
-    /** A date (YYYY-MM-DD), a phase name, or free text such as "before design handoff". */
+    /** One line: why it needs saying, or the catch. */
+    note: optLine(200),
+    /** Who it is for, when that matters. */
+    for: forSchema.optional(),
+    /** A date (YYYY-MM-DD), a phase name, or free text such as "before design handoff", when that matters. */
     when: optLine(120),
     source: sourceSchema,
-    /** The real task Dox created from this line (set later through the plan route). */
+    /** The real task Dox created for this line after release (set later through the plan route). */
     task_id: z.string().uuid().nullable().optional(),
+    /** Accepted and ignored (dependencies are Dox's call at setup); older writers and the old `done_when` still validate. */
+    depends_on: z.array(z.string()).max(50).optional(),
+    done_when: optLine(200),
     ...markFields,
   })
   .strict()
@@ -296,6 +312,8 @@ export interface PlanProjectBlock {
   phases: { id: string; name: string; summary: string | null; mike_part: string | null }[];
   sitemap: { id: string; name: string; page_type: string | null; needs_design: boolean; notes: string | null }[];
   deal: { id: string; name: string; href: string } | null;
+  /** The deal with its items and prices: the owner's session and the chat lane only (never staff, contractors or Dox here). */
+  deal_detail?: DealSection | null;
 }
 
 export interface PlanOut {

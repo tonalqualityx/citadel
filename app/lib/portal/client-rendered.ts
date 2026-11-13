@@ -39,8 +39,10 @@ export const CLIENT_RENDERED_TASK_FIELDS: Record<string, { kind: RenderedKind; w
  *   client-cancelled        the cancelled label and history (lib/portal/status-labels.ts CLIENT_CANCELLED_TAG)
  *   marketing-plan          the retainer card's "plan ready for you" (lib/portal/retainer.ts PLAN_TAG)
  *   chat-question           a portal chat question marker (lib/portal/chat)
+ *   quote                   the request label "We will quote this" (lib/portal/status-labels.ts REQUEST_LABELS.quote)
+ *   emergency               the request label "Urgent" and the urgent line (lib/portal/status-labels.ts, lib/portal/chat/view.ts)
  */
-export const PORTAL_RENDERED_TAGS: readonly string[] = ['awaiting-clarification', 'client-approved', 'client-sent-back', 'client-cancelled', 'marketing-plan', 'chat-question'];
+export const PORTAL_RENDERED_TAGS: readonly string[] = ['awaiting-clarification', 'client-approved', 'client-sent-back', 'client-cancelled', 'marketing-plan', 'chat-question', 'quote', 'emergency'];
 
 /** The free-text and routing fields: a chat change to one of these on a task a client can see needs the owner's tap; a strict lane may not make it at all. */
 export const CLIENT_TEXT_FIELDS: readonly string[] = Object.entries(CLIENT_RENDERED_TASK_FIELDS).filter(([, v]) => v.kind === 'text').map(([k]) => k);
@@ -91,3 +93,17 @@ export function renderedFieldsTouched(
   if (changed.includes('tags') && portalTagsChanged(tags?.before, tags?.after).length > 0) out.push('tags');
   return out;
 }
+
+/**
+ * Every PROJECT column or child row the portal renders, read from lib/portal/project-detail.ts, app/api/portal/home and app/api/portal/projects:
+ * name, status (as a label), target_date, completed_date, and the phase names (the phase track). start_date is not rendered, but it is a date
+ * the owner sets with the launch date, so it is guarded with them. A lane that must not change what a client reads refuses these on a project the
+ * portal shows (isProjectShownInPortal); the chat lane's status change is already a tap (lib/bast-chat/ops/project.ts), its date change through a
+ * Triage card is refused here and left to the owner's own session.
+ */
+export const CLIENT_RENDERED_PROJECT_FIELDS: readonly string[] = ['name', 'status', 'start_date', 'target_date', 'completed_date', 'phases'];
+/** The portal's own rule (lib/portal/access.ts projectAccessScope): hidden statuses, or visibility set to hidden. */
+export function isProjectShownInPortal(p: { status: string; portal_visibility: string }): boolean {
+  return p.portal_visibility !== 'hidden' && !(HIDDEN_PROJECT_STATUSES as readonly string[]).includes(p.status);
+}
+const HIDDEN_PROJECT_STATUSES = ['quote', 'queue', 'suspended', 'cancelled'] as const;

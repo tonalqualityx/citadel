@@ -3,11 +3,11 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth } from '@/lib/auth/middleware';
 import { ApiError, handleApiError } from '@/lib/api/errors';
+import { cardForCaller } from '@/lib/deals/access';
 import { loadCards } from '@/lib/tasks/triage-card';
 import { requireTriageEditor } from '@/lib/tasks/triage-auth';
-import { actorOf, recordTriageChange } from '@/lib/tasks/triage-rev';
-import { isTriageDeskLane, guardDeskShape } from '@/lib/triage-desk/guard';
-import { recordSessionChange } from '@/lib/triage-desk/changes';
+import { actorOf, recordTriageChange, recordProjectChange } from '@/lib/tasks/triage-rev';
+import { guardDeskShape } from '@/lib/triage-desk/guard';
 
 const line = (max: number) => z.string().trim().max(max);
 const bodySchema = z
@@ -68,13 +68,11 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
         });
       }
       const parts = [body.phases ? 'Shape' : null, body.pages ? 'Sitemap' : null].filter(Boolean).join(' and ');
-      await recordTriageChange(tx, id, 'shape', `${parts} changed by ${actor.by}`, actor);
+      await recordProjectChange(tx, projectId, `The project's ${parts.toLowerCase()} changed by ${actor.by}`, actor, id);
+      await recordTriageChange(tx, id, 'shape', `${parts} redrawn by ${actor.by} (${[body.phases ? `${body.phases.length} phases` : null, body.pages ? `${body.pages.length} pages` : null].filter(Boolean).join(', ')})`, actor);
     });
-    if (isTriageDeskLane(auth)) {
-      await recordSessionChange(auth.userId, id, `redrew the shape (${[body.phases ? `${body.phases.length} phases` : null, body.pages ? `${body.pages.length} pages` : null].filter(Boolean).join(', ')})`);
-    }
     const [card] = await loadCards(prisma, [id]);
-    return NextResponse.json(card);
+    return NextResponse.json(card ? await cardForCaller(auth, request.headers, card) : card);
   } catch (error) {
     return handleApiError(error);
   }

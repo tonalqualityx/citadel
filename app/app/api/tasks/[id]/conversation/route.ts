@@ -17,6 +17,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const auth = await requireAuth();
     if (!isTriageDeskLane(auth)) requireTriageOwner(auth);
     const { id } = await params;
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) throw new ApiError('That is not a task id.', 400, 'bad_id');
     const task = await prisma.task.findFirst({ where: { id, is_deleted: false }, select: { id: true } });
     if (!task) throw new ApiError('Task not found', 404);
     const sp = request.nextUrl.searchParams;

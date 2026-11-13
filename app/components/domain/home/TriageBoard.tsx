@@ -34,12 +34,12 @@ export interface TriageBoardProps {
 }
 
 /** The "On release" line, or why Release is off. Shared with the card page panel. */
-export function ReleaseLine({ card, showDetails = false }: { card: HomeTriageCard; showDetails?: boolean }) {
+export function ReleaseLine({ card, showDetails = false, clamp = false }: { card: HomeTriageCard; showDetails?: boolean; clamp?: boolean }) {
   if (card.looks_done) return null;
   if (card.release_ready) {
     return (
       <>
-        <p className="home-small home-trelease" data-testid="release-line">
+        <p className="home-small home-trelease" data-clamp={clamp ? 'true' : undefined} data-testid="release-line">
           <strong>{ON_RELEASE}</strong> {plain(card.release_line)}
         </p>
         {showDetails && card.release_details?.length > 0 ? (
@@ -56,7 +56,7 @@ export function ReleaseLine({ card, showDetails = false }: { card: HomeTriageCar
     );
   }
   return (
-    <p className="home-small home-trelease" data-blocked={card.release_block ?? 'blocked'} data-testid="release-line">
+    <p className="home-small home-trelease" data-clamp={clamp ? 'true' : undefined} data-blocked={card.release_block ?? 'blocked'} data-testid="release-line">
       <strong>{RELEASE_OFF_PREFIX}</strong> {card.release_block === 'unsorted' ? RELEASE_OFF_UNSORTED : plain(card.release_line)}
     </p>
   );
@@ -69,13 +69,13 @@ function shortUrl(u: string): string {
 }
 
 /** The evidence a session left on a looks-done card, with the web addresses in it as links, in place. */
-/** "Changed by a session": a session edited this card through the triage-desk lane. The newest change, in words. */
-export function SessionChanged({ card }: { card: Pick<HomeTriageCard, 'session_changes'> }) {
-  const latest = card.session_changes?.[0];
+/** A session edited this card through the triage-desk lane: the newest change line the SERVER wrote for it (rendered from change rows, never from a comment). */
+export function SessionChanged({ card }: { card: Pick<HomeTriageCard, 'recent_changes'> }) {
+  const latest = (card.recent_changes ?? []).find((c) => c.by === 'a session');
   if (!latest) return null;
   return (
     <p className="home-small" data-testid="triage-session-changed">
-      <strong>Changed by a session:</strong> {plain(latest.line)}
+      {plain(latest.line)}
     </p>
   );
 }

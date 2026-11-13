@@ -3,7 +3,7 @@
 import * as React from 'react';
 import type { HomeActRequest, HomeTriageCard } from '@/lib/home/types';
 import type { OpenCardInput } from '@/components/domain/bast-chat/card-context';
-import { CARD_CHANGED_MESSAGE, CARD_CHANGED_NOTE, TRIAGE_BUTTONS } from '@/lib/tasks/triage-copy';
+import { CARD_CHANGED_MESSAGE, cardChangedNote, TRIAGE_BUTTONS } from '@/lib/tasks/triage-copy';
 import { cardTalk } from './triage-talk';
 
 export interface TriageActionsProps {
@@ -53,13 +53,7 @@ export function TriageActions({ card, onAct, onTalk, busy = false, onDone, child
     <>
       {changed ? (
         <p className="home-small home-tnote" role="status" data-testid="triage-changed">
-          {CARD_CHANGED_NOTE}
-          {(card.recent_changes ?? []).length > 0 ? (
-            <>
-              {' '}
-              <span data-testid="triage-what-changed">{`What changed: ${Array.from(new Set((card.recent_changes ?? []).map((l) => l.line))).join('; ')}.`}</span>
-            </>
-          ) : null}
+          <span data-testid="triage-what-changed">{cardChangedNote((card.recent_changes ?? []).map((l) => l.line))}</span>
         </p>
       ) : null}
       <div className="home-actions home-tactions">

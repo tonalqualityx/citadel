@@ -309,7 +309,14 @@ export async function readDeals(db: Db, input: { projectId?: string | null; clie
     }
     if (rows.length === 0 && clientId) {
       const found = (await db.accord.findMany({
-        where: { client_id: clientId, is_deleted: false, status: { in: ['signed', 'active'] } },
+        // Candidates only: a deal already tied to ANOTHER project (its own deal link, or a commission item that points at one) is that project's, not this one's.
+        where: {
+          client_id: clientId,
+          is_deleted: false,
+          status: { in: ['signed', 'active'] },
+          projects: { none: { id: { not: project.id }, is_deleted: false } },
+          commission_items: { none: { is_deleted: false, project_id: { not: null, notIn: [project.id] } } },
+        },
         select: ACCORD_SELECT,
         orderBy: NEWEST_SIGNED,
         take: DEALS_MAX,

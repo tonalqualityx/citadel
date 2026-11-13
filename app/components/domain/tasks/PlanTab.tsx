@@ -5,9 +5,12 @@ import '@/components/domain/home/home-tokens.css';
 import { useTaskPlan, usePlanItemActions } from '@/lib/hooks/use-task-plan';
 import { plain } from '@/components/domain/home/home-screen-logic';
 import { shortDay } from '@/lib/tasks/plan-summary';
+import { DealItems } from '@/components/domain/home/TriageProject';
 import {
   MARK_LABELS,
   PLAN_EMPTY_LINES,
+  WORK_TO_NOTE_LONG_LINE,
+  WORK_TO_NOTE_SOFT_CAP,
   WRONG_NOTE,
   type PlanItemOut,
   type PlanOut,
@@ -36,6 +39,9 @@ export const PLAN_COPY = {
   doneReviewing: 'Done reviewing',
   shape: 'Shape',
   sitemap: 'Sitemap',
+  /** The plan-level line on a project card: what Dox builds from, without listing tasks. */
+  planLine: (shape: string, pages: number, noted: number) =>
+    `Shape: ${shape}. ${pages} ${pages === 1 ? 'page' : 'pages'}. Dox builds the tasks from the shape and the sitemap at setup.${noted > 0 ? ` ${noted} ${noted === 1 ? 'thing' : 'things'} to note.` : ''}`,
 } as const;
 
 function dayLong(iso: string): string {
@@ -348,18 +354,25 @@ function forWords(i: PlanItemOut): string {
   return f.name ? `${f.name}${f.org ? `, ${f.org}` : ''}` : '';
 }
 
-/** A compact numbered list: title, then who and when in small type, "after 3" for what it waits on. Numbers follow the order of the list, dropped lines keep theirs. */
-function PlannedTasks({ s, c }: { s: PlanSectionOut; c: Controls }) {
-  const number = new Map(s.items.map((i, k) => [i.id, k + 1]));
+/** A when that is a calendar day shows in the short format ("Dec 4"), never ISO; a phase name or free text stays as written. */
+function whenText(v: string): string {
+  return /^\d{4}-\d{2}-\d{2}$/.test(v) ? shortDay(v) : v;
+}
+
+/**
+ * Work to note (stored as planned_tasks): only the unusual work. Title, a one-line note (why it needs saying, the catch), who it is for and when, in small
+ * type ("For Bast · before design handoff", "For Lisa · Dec 4"). No numbers and no dependencies: those are Dox's call at setup. A quiet line when the
+ * section grows past the soft cap.
+ */
+function WorkToNote({ s, c }: { s: PlanSectionOut; c: Controls }) {
   const live = s.items.filter((i) => str(i.mark) !== 'dropped');
   const render = (i: PlanItemOut) => {
-    const deps = ((i.depends_on as string[] | undefined) ?? []).map((d) => number.get(d)).filter((n): n is number => !!n);
-    const meta = [forWords(i) ? `For ${forWords(i)}` : '', i.when ? `when ${plain(str(i.when))}` : '', deps.length ? `after ${deps.join(', ')}` : ''].filter(Boolean).join(' · ');
+    const meta = [forWords(i) ? `For ${forWords(i)}` : '', i.when ? whenText(plain(str(i.when))) : ''].filter(Boolean).join(' \u00b7 ');
     return (
       <>
-        <span className="home-plan-num" data-testid="plan-task-num">{number.get(i.id)}.</span> <strong>{plain(str(i.title))}</strong>
+        <strong>{plain(str(i.title))}</strong>
+        {i.note ? <span className="home-small home-muted home-plan-sub">{plain(str(i.note))}</span> : null}
         {meta ? <span className="home-small home-muted home-plan-sub" data-testid="plan-task-meta">{meta}</span> : null}
-        {i.done_when ? <span className="home-small home-muted home-plan-sub">Done when {plain(str(i.done_when))}</span> : null}
         {i.task_id ? (
           <a className="home-small home-plan-sub" href={`/tasks/${str(i.task_id)}`} data-testid="plan-task-link">
             Task created
@@ -370,7 +383,9 @@ function PlannedTasks({ s, c }: { s: PlanSectionOut; c: Controls }) {
   };
   return (
     <Block title={s.title} count={live.length} testid="plan-planned-tasks">
-      {s.items.length === 0 ? (
+      {s.withheld ? (
+        <p className="home-small home-muted">{PLAN_COPY.withheld}</p>
+      ) : s.items.length === 0 ? (
         <Empty section="planned_tasks" />
       ) : (
         <>
@@ -381,6 +396,11 @@ function PlannedTasks({ s, c }: { s: PlanSectionOut; c: Controls }) {
               </Line>
             ))}
           </ul>
+          {live.length > WORK_TO_NOTE_SOFT_CAP ? (
+            <p className="home-small home-muted" data-testid="plan-long">
+              {WORK_TO_NOTE_LONG_LINE}
+            </p>
+          ) : null}
           <Dropped items={droppedOf(s)} section="planned_tasks" c={c} render={render} />
         </>
       )}
@@ -443,7 +463,9 @@ function Decisions({ s, c, answered }: { s: PlanSectionOut; c: Controls; answere
   const total = s.items.length + answered.length;
   return (
     <Block title={s.title} count={total} testid="plan-decisions">
-      {total === 0 ? (
+      {s.withheld ? (
+        <p className="home-small home-muted">{PLAN_COPY.withheld}</p>
+      ) : total === 0 ? (
         <Empty section="decisions" />
       ) : (
         <ul className="home-plan-list">
@@ -488,6 +510,11 @@ function ProjectBlocks({ project }: { project: NonNullable<PlanOut['project']> }
           </ol>
         )}
       </Block>
+      {project.deal_detail && project.deal_detail.deals.length > 0 ? (
+        <Block title="Deal" testid="plan-deal">
+          <DealItems project={{ deal_detail: project.deal_detail }} />
+        </Block>
+      ) : null}
       <Block title={PLAN_COPY.sitemap} count={project.sitemap.length} testid="plan-sitemap">
         {project.sitemap.length === 0 ? (
           <p className="home-small home-muted">No pages drafted yet.</p>
@@ -537,11 +564,20 @@ export function PlanView({
           </button>
         ) : null}
       </div>
+      {plan.project ? (
+        <p className="home-small" data-testid="plan-shape-line">
+          {PLAN_COPY.planLine(
+            plan.project.phases.length > 0 ? plain(plan.project.phases.map((p) => p.name).join(', ')) : 'not drafted yet',
+            plan.project.sitemap.length,
+            by('planned_tasks').items.filter((i) => str(i.mark) !== 'dropped' && !i.marked_wrong && !i.task_id).length,
+          )}
+        </p>
+      ) : null}
       <Requirements s={by('requirements')} c={c} />
       <Dates s={by('dates')} c={c} project={plan.project} />
       <Team s={by('team')} c={c} project={plan.project} />
       <Billing s={by('billing')} c={c} />
-      <PlannedTasks s={by('planned_tasks')} c={c} />
+      <WorkToNote s={by('planned_tasks')} c={c} />
       <Risks s={by('risks')} c={c} />
       <Examples s={by('examples')} c={c} />
       <Decisions s={by('decisions')} c={c} answered={plan.answered_questions} />

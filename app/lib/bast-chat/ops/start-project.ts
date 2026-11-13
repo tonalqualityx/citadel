@@ -243,6 +243,10 @@ export const startProjectOp: OpDef<StartProjectInput> = {
             data: { project_id: null, triage_kind: (a.card_before.triage_kind ?? null) as never, client_id: a.card_before.client_id, site_id: a.card_before.site_id },
           });
           if (c.count !== 1) throw new ApiError(CHANGED, 409, 'changed_since');
+          // A defaulted one-hour estimate (and its marker tag) goes with the project link; a number he set stays.
+          const now = await tx.task.findUnique({ where: { id: a.task_id }, select: { estimated_minutes: true, energy_estimate: true, mystery_factor: true, battery_impact: true, tags: true } });
+          const clear = now && a.card_before.triage_kind !== 'project_setup' ? estimatePatchForKind('project_setup', a.card_before.triage_kind ?? null, now as never) : null;
+          if (clear) await tx.task.update({ where: { id: a.task_id }, data: clear as never });
         } else if (!(await abandonStartTask(tx, a.task_id, ctx.ownerId))) throw new ApiError(CHANGED, 409, 'changed_since');
       });
     } catch (e) {

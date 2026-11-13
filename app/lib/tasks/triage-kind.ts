@@ -48,8 +48,11 @@ export interface ReleaseInput {
   open_wait?: number;
   /** Add PM_RELEASE_TAG to a card that ends assigned to Bast. Callers pass pmReleaseHold(). Default false (pure). */
   pm_hold?: boolean;
-  /** Planned task lines in the card's plan (not dropped). The line says Dox will create them. Part of release_version through triage_rev. Default 0. */
-  planned_tasks?: number;
+  /**
+   * Items in the card's Work to note section that count: not dropped, not marked wrong, no task made for them yet. Only the sentence about Dox reads it, and
+   * only when the card is actually held for Dox. Part of release_version through triage_rev. Default 0.
+   */
+  noted_items?: number;
 }
 
 export interface ReleaseEffects {
@@ -137,6 +140,18 @@ export function describeRelease(fx: ReleaseEffects): string {
   return parts.join(' ');
 }
 
+/**
+ * The sentence about what Dox does with the plan. Only when the card is actually held for Dox (it ends with Bast and the worker hold is on): a card that
+ * lands on a person, or a release with the hold off, says nothing about Dox. The plan is not a task list: Dox builds the routine tasks from the shape and the
+ * sitemap, and sets up the few things noted in the plan.
+ */
+export function doxBuildsSentence(fx: ReleaseEffects, noted: number): string {
+  if (!fx.held_for_dox || fx.closes_card) return '';
+  const things = `${noted} ${plural(noted, 'thing', 'things')}`;
+  if (fx.kind === 'project_setup') return ` ${PM_NAME} builds the tasks from the shape and the sitemap${noted > 0 ? `, including the ${things} noted in the plan` : ''}.`;
+  return noted > 0 ? ` ${PM_NAME} sets up the ${things} noted in the plan.` : '';
+}
+
 /** The technical lines for the Details disclosure on the card page. */
 function detailsOf(fx: ReleaseEffects, project: { name: string; status: string } | null): string[] {
   const out = [`Status: ${fx.to_status === 'done' ? 'Done' : 'Not started'}`];
@@ -154,11 +169,11 @@ export function planRelease(input: ReleaseInput): ReleasePlan {
   const blocked = (block: ReleaseBlock, line: string): ReleasePlan => ({ ready: false, block, line, details: [], effects: null });
   if (kind === null) return blocked('unsorted', NOT_SORTED_LINE);
   const hold = input.pm_hold === true;
-  const planned = input.planned_tasks ?? 0;
+  const noted = input.noted_items ?? 0;
   const finish = (effects: ReleaseEffects): ReleasePlan => ({
     ready: true,
     block: null,
-    line: describeRelease(effects) + (planned > 0 && kind !== 'question_only' ? ` ${PM_NAME} will create the ${planned} planned ${plural(planned, 'task', 'tasks')}.` : ''),
+    line: describeRelease(effects) + doxBuildsSentence(effects, noted),
     details: detailsOf(effects, project),
     effects,
   });

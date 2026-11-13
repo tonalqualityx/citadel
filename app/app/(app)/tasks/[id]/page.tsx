@@ -229,7 +229,8 @@ export default function QuestDetailPage() {
   const openQuestions = questionData?.open_count ?? 0;
   // The plan of a Triage card, kept after release: a Plan tab after Questions for whoever may read it (the route answers 404 to everyone else).
   const { data: planData, isLoading: planLoading } = useTaskPlan(taskId);
-  const planHasLines = !!planData && (planData.sections.some((x) => x.items.length > 0) || planData.answered_questions.length > 0);
+  // Plan items only: an answered question alone is no plan, and a card that never was in Triage looks exactly as on main.
+  const planHasLines = !!planData && planData.sections.some((x) => x.items.length > 0);
   const planShown = !!planData && (task?.status === 'triage' || planHasLines);
   const [cardTab, setCardTab] = React.useState<'card' | 'questions' | 'plan' | null>(null);
   React.useEffect(() => {

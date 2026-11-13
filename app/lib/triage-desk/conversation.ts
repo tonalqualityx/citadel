@@ -16,6 +16,7 @@
  */
 import type { PrismaClient } from '@prisma/client';
 import { prisma } from '@/lib/db/prisma';
+import { scrubSecrets as scrubText } from './scrub';
 
 type Db = Pick<PrismaClient, 'bastChatConversation' | 'bastChatEvent' | 'bastChatSettings'>;
 
@@ -45,15 +46,9 @@ export interface CardConversation {
 
 const MARKER = /^\s*\[\s*(?:redacted|removed|withheld)[^\]]*\]\s*$/i;
 
-/** Strip credential-looking text. Linear time: every quantifier is bounded. */
+/** Strip credential-looking text with the daemon's scrubber (lib/triage-desk/scrub.ts), which also catches a pull URL plus its bare key, name=value without word boundaries, key pairs and "pw hunter2". */
 export function scrubSecrets(text: string): string {
-  return text
-    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{8,512}/gi, 'Bearer [redacted]')
-    .replace(/\bcitadel_[A-Za-z0-9_]{8,128}\b/g, '[redacted]')
-    .replace(/\b(?:sk|rk|pk)_(?:live|test)_[A-Za-z0-9]{8,128}\b/g, '[redacted]')
-    .replace(/\b(?:ghp|gho|ghs|github_pat)_[A-Za-z0-9_]{16,255}\b/g, '[redacted]')
-    .replace(/\bsk-(?:ant-)?[A-Za-z0-9_-]{16,200}\b/g, '[redacted]')
-    .replace(/\b(api[_-]?key|secret|token|passw(?:or)?d|pwd|salt|signature)(\s*[:=]\s*|\s+is\s+)["']?[A-Za-z0-9+/=_-]{16,256}["']?/gi, '$1$2[redacted]');
+  return scrubText(text).text;
 }
 
 export function turnOf(e: { seq: number; role: string; payload: unknown; created_at: Date; expired_at: Date | null }): ConversationTurn {

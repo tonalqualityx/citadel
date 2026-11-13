@@ -7,11 +7,11 @@ import { requireTriageEditor, requireTriageOwner } from '@/lib/tasks/triage-auth
 import { TRIAGE_KINDS } from '@/lib/tasks/triage-kind';
 import { loadCards } from '@/lib/tasks/triage-card';
 import { isDoxLane } from '@/lib/dox/guard';
-import { actorOf, recordTriageChange } from '@/lib/tasks/triage-rev';
+import { actorOf, recordTriageChange, recordProjectChange } from '@/lib/tasks/triage-rev';
+import { assertLinkableProject, guardChatProjectDates, linkIsNarrowed } from '@/lib/tasks/triage-link';
 import { isTriageDeskLane, guardDeskTriagePatch } from '@/lib/triage-desk/guard';
-import { recordSessionChange } from '@/lib/triage-desk/changes';
 import { estimatePatchForKind } from '@/lib/tasks/triage-estimate';
-import { mayReadDeal } from '@/lib/deals/access';
+import { cardForCaller } from '@/lib/deals/access';
 
 async function cardOr404(id: string) {
   const [card] = await loadCards(prisma, [id]);
@@ -31,11 +31,8 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     if (!isDoxLane(auth) && !isTriageDeskLane(auth)) requireTriageOwner(auth);
     const { id } = await params;
     const card = await cardOr404(id);
-    // The deal's items carry prices: Dox sees them only inside its project binding (the same rule as the deal read on the project routes).
-    if (isDoxLane(auth) && card.project?.deal_detail && !(await mayReadDeal(auth, _request.headers, { projectId: card.project.project_id }))) {
-      return NextResponse.json({ ...card, project: { ...card.project, deal_detail: null } });
-    }
-    return NextResponse.json(card);
+    // The deal's items carry prices: only the owner's session, the chat lane and Dox inside its binding keep them.
+    return NextResponse.json(await cardForCaller(auth, _request.headers, card));
   } catch (error) {
     return handleApiError(error);
   }
@@ -73,10 +70,11 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const { id } = await params;
     const rawBody = await request.json();
     const body = bodySchema.parse(rawBody);
-    const task = await prisma.task.findFirst({ where: { id, is_deleted: false }, select: { id: true, status: true, project_id: true, triage_kind: true, estimated_minutes: true, energy_estimate: true, mystery_factor: true, battery_impact: true, tags: true } });
+    const task = await prisma.task.findFirst({ where: { id, is_deleted: false }, select: { id: true, status: true, project_id: true, client_id: true, triage_kind: true, estimated_minutes: true, energy_estimate: true, mystery_factor: true, battery_impact: true, tags: true } });
     if (!task || task.status !== 'triage') throw new ApiError('That card is not in Triage.', 404, 'not_in_triage');
     // The triage desk may not change the dates of a project the portal shows.
     await guardDeskTriagePatch(auth, rawBody, task.project_id);
+    await guardChatProjectDates(prisma, auth, body.target_start_date !== undefined || body.target_launch_date !== undefined, body.project_id !== undefined ? body.project_id : task.project_id);
     const data: Record<string, unknown> = {};
     if (body.kind !== undefined) {
       data.triage_kind = body.kind;
@@ -95,6 +93,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       } else {
         const p = await prisma.project.findFirst({ where: { id: body.project_id, is_deleted: false }, select: { id: true, client_id: true, site_id: true } });
         if (!p) throw new ApiError('That project does not exist.', 404, 'project_missing');
+        if (linkIsNarrowed(auth)) await assertLinkableProject(prisma, id, task.client_id, p.id);
         data.project_id = p.id;
         data.client_id = p.client_id;
         // Always the new project's site, including none: the card must not keep the old project's site.
@@ -128,17 +127,10 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         });
       }
       await recordTriageChange(tx, id, 'card', `${changed.join(' and ')} ${changed.length > 1 ? 'changed' : body.kind !== undefined ? 'set' : 'changed'} by ${actor.by}`, actor);
+      // Any other Triage card pointing at this project sees the change too (a project is shared state).
+      if (datesGiven && dateProject) await recordProjectChange(tx, dateProject, `The project's dates changed by ${actor.by}`, actor, id);
     });
-    if (isTriageDeskLane(auth)) {
-      const said = [
-        body.kind !== undefined ? `set the kind to ${body.kind ?? 'not sorted'}` : null,
-        body.project_id !== undefined ? (body.project_id === null ? 'unlinked the project' : 'linked a project') : null,
-        body.target_start_date !== undefined ? `set the start date to ${body.target_start_date ?? 'none'}` : null,
-        body.target_launch_date !== undefined ? `set the launch date to ${body.target_launch_date ?? 'none'}` : null,
-      ].filter(Boolean);
-      await recordSessionChange(auth.userId, id, said.join('; '));
-    }
-    return NextResponse.json(await cardOr404(id));
+    return NextResponse.json(await cardForCaller(auth, request.headers, await cardOr404(id)));
   } catch (error) {
     return handleApiError(error);
   }

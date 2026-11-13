@@ -5,7 +5,6 @@ import { checkTaskAccess } from '@/lib/services/task-patch';
 import { patchQuestion } from '@/lib/tasks/questions';
 import { questionPatchSchema } from '@/lib/tasks/question-context';
 import { guardDeskQuestionPatch, isTriageDeskLane } from '@/lib/triage-desk/guard';
-import { recordSessionChange } from '@/lib/triage-desk/changes';
 
 /**
  * PATCH /api/tasks/:id/questions/:qid  { ...context parts } or { withdraw: true, reason? }
@@ -20,7 +19,6 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const body = questionPatchSchema.parse(await request.json());
     await guardDeskQuestionPatch(auth, { id, status: task.status }, qid, body);
     const out = await patchQuestion(task, qid, auth, body);
-    if (isTriageDeskLane(auth)) await recordSessionChange(auth.userId, id, `${body.withdraw ? `withdrew a question (${(body.reason ?? '').trim()})` : 'edited a question'}: ${out.question}`);
     return NextResponse.json(out);
   } catch (error) {
     return handleApiError(error);

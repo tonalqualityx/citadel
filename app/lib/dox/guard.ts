@@ -21,7 +21,7 @@ import { prisma } from '@/lib/db/prisma';
 import { BAST_USER_ID, BOT_USER_IDS } from '@/lib/oracle/projects/gate-constants';
 import { LOOKS_DONE_TAG } from '@/lib/tasks/looks-done';
 import { FROM_TRIAGE_TAG, PM_RELEASE_TAG } from '@/lib/tasks/triage-kind';
-import { isShownInPortal, renderedFieldsTouched } from '@/lib/portal/client-rendered';
+import { isProjectShownInPortal, isShownInPortal, renderedFieldsTouched } from '@/lib/portal/client-rendered';
 import { getTemplate } from '@/lib/waits/templates';
 import { liveSessionTaskIds } from '@/lib/work/state';
 import { DOX_LANE, isDoxLaneValue } from './identity';
@@ -355,6 +355,7 @@ export async function guardDoxProjectPatch(auth: LaneAuth, headers: Hdrs, rawBod
     if (keys.length !== 1) refuse('Send a status change on its own.', 'dox_field_closed');
     const to = body.status;
     const from = existing.status;
+    await refuseIfPortalShows(db, existing.id, 'status');
     if (to === 'in_progress' && from === 'ready') return;
     if (to === 'done' && (from === 'in_progress' || from === 'review')) {
       if (existing.done_task_count === 0 || existing.open_task_count > 0) {
@@ -367,6 +368,13 @@ export async function guardDoxProjectPatch(auth: LaneAuth, headers: Hdrs, rawBod
   for (const k of keys) {
     if (!PROJECT_PATCH_FIELDS.has(k)) refuse(`Dox cannot change "${k}" on a project.`, 'dox_field_closed');
   }
+  await refuseIfPortalShows(db, existing.id, 'dates');
+}
+
+/** A project the client's portal shows: its name, dates, status and phase names are what a client reads, so Dox does not change them (lib/portal/client-rendered.ts). */
+async function refuseIfPortalShows(db: Db, projectId: string, what: string): Promise<void> {
+  const p = await db.project.findFirst({ where: { id: projectId, is_deleted: false }, select: { status: true, portal_visibility: true } });
+  if (p && isProjectShownInPortal(p)) refuse(`A client can see this project in their portal, so Dox does not change its ${what}. Raise it with Mike.`, 'dox_client_closed');
 }
 
 const PROJECT_CREATE_FIELDS = new Set(['name', 'description', 'status', 'type', 'client_id', 'start_date', 'target_date', 'dependencies_ordering_only', 'notes']);

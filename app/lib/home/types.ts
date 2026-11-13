@@ -834,7 +834,7 @@ export interface HomeTriageCard {
   /** Goes up on every change the owner should see before releasing (kind, project, shape, sitemap, dates, questions, plan). Part of release_version. */
   triage_rev: number;
   /** The last few change lines, newest first ("Plan: Billing model updated by the chat"). */
-  recent_changes: { line: string; at: string }[];
+  recent_changes: { line: string; at: string; by: string }[];
   /** "Plan: 12 requirements, launch Jan 19, milestones billing"; null when the card has no plan yet. */
   plan_line: string | null;
   /** Target start and launch dates of the card's project, YYYY-MM-DD; null when the card has no project or the date is not set. */
@@ -844,8 +844,6 @@ export interface HomeTriageCard {
   looks_done: { evidence: string; links: { text: string; href: string }[] } | null;
   /** project_setup cards only (and only when a project is linked). */
   project: HomeTriageProject | null;
-  /** What a session changed on this card through the triage-desk lane, newest first (at most 3). The card shows "changed by a session". Absent in older payloads. */
-  session_changes?: { at: string; line: string }[];
 }
 
 /** A released card (tag from-triage) that still has questions waiting for his answer. */

@@ -12,6 +12,7 @@ import type { AuthPayload } from '@/lib/auth/middleware';
 import { prisma } from '@/lib/db/prisma';
 import { CHAT_LANE } from '@/lib/bast-chat/task-filter';
 import { isDoxLane, requireProjectInPlay } from '@/lib/dox/guard';
+import { MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
 
 type Auth = Pick<AuthPayload, 'via' | 'lane' | 'laneEnforced'>;
 type Hdrs = Pick<Headers, 'get'>;
@@ -33,4 +34,16 @@ export async function mayReadDeal(auth: Auth, headers: Hdrs, about: { projectId?
     }
   }
   return false;
+}
+
+/**
+ * A Triage card for this caller: the deal's detail (line items, prices, retainers) stays only for the owner's own session, the enforced chat lane
+ * and the Dox lane inside its project binding. Everyone else (the triage desk, any other key) gets `deal_detail: null` on EVERY route and reply
+ * that returns a card (GET, PATCH and PUT of /triage), because a lane that can link a card to a project could otherwise read that project's prices.
+ */
+export async function cardForCaller<T extends { project: { project_id: string; deal_detail?: unknown } | null }>(auth: Auth & { userId?: string }, headers: Hdrs, card: T): Promise<T> {
+  if (!card.project || !card.project.deal_detail) return card;
+  if (auth.via === 'session' && auth.userId === MIKE_USER_ID) return card;
+  if (await mayReadDeal(auth, headers, { projectId: card.project.project_id })) return card;
+  return { ...card, project: { ...card.project, deal_detail: null } };
 }

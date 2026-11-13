@@ -17,6 +17,7 @@ import type { AuthPayload } from '@/lib/auth/middleware';
 import { MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import { guardDoxTaskWrite, isDoxLane } from '@/lib/dox/guard';
 import { mayLeaveTriage } from '@/lib/services/task-patch';
+import { contractorItem, isPlanOwner, planReaderOf, viewOf, type PlanReader } from './plan-policy';
 import { isChatLane } from './questions';
 import { actorOf, recordTriageChange, type Actor } from './triage-rev';
 import { projectBlocks } from './triage-card';
@@ -46,15 +47,14 @@ export interface PlanTaskHead {
 
 const notFound = () => new ApiError('Task not found', 404);
 
-/** Throws a 404 unless this caller may read the plan. Returns whether the billing section is withheld from them. */
-export function assertCanReadPlan(task: Pick<PlanTaskHead, 'status'>, auth: Auth): { withholdBilling: boolean } {
-  if (auth.role === 'designer') throw notFound();
-  if (task.status === 'triage') {
-    if (auth.role === 'tech') throw notFound();
-    if (auth.userId === MIKE_USER_ID || isChatLane(auth) || isDoxLane(auth)) return { withholdBilling: false };
-    throw notFound();
-  }
-  return { withholdBilling: auth.role === 'tech' };
+/**
+ * Throws a 404 unless this caller may read the plan (planReaderOf in plan-policy.ts is the one policy). Returns the kind of reader and, for the
+ * callers that only need a yes or no on billing, whether it is withheld.
+ */
+export function assertCanReadPlan(task: Pick<PlanTaskHead, 'status'>, auth: Auth): { reader: PlanReader; withholdBilling: boolean } {
+  const reader = planReaderOf(task, auth);
+  if (!reader) throw notFound();
+  return { reader, withholdBilling: viewOf(reader, 'billing') === 'none' };
 }
 
 export const PLAN_FORBIDDEN = 'Only Mike, the chat and Dox write the plan.';
@@ -84,7 +84,16 @@ export function parseItem(section: PlanSectionName, raw: unknown): Record<string
     const where = i.path.length ? `${i.path.join('.')}: ` : '';
     bad(`${PLAN_SECTION_TITLES[section]}: ${where}${i.message}`);
   }
-  return (r as { data: Record<string, unknown> }).data;
+  const data = { ...(r as { data: Record<string, unknown> }).data };
+  if (section === 'planned_tasks') {
+    // Dependencies are Dox's call at setup: accepted, never kept. The old `done_when` becomes the one-line note.
+    delete data.depends_on;
+    if (data.done_when !== undefined) {
+      if (data.note === undefined) data.note = data.done_when;
+      delete data.done_when;
+    }
+  }
+  return data;
 }
 
 /** Checks that need the card or the database: project dates, team members, the billing shape. Throws a 400. */
@@ -103,15 +112,15 @@ async function sectionChecks(db: Pick<PrismaClient, 'user' | 'task'>, task: Plan
     }
   }
   if (section === 'planned_tasks') {
-    const ids = items.map((i) => (i.for as { user_id?: string }).user_id).filter((x): x is string => !!x);
+    const ids = items.map((i) => (i.for as { user_id?: string } | undefined)?.user_id).filter((x): x is string => !!x);
     if (ids.length) {
       const have = new Set((await db.user.findMany({ where: { id: { in: ids } }, select: { id: true } })).map((u) => u.id));
-      if (ids.some((x) => !have.has(x))) bad('Planned tasks: that user does not exist.', 'plan_unknown_user');
+      if (ids.some((x) => !have.has(x))) bad('Work to note: that user does not exist.', 'plan_unknown_user');
     }
     const taskIds = items.map((i) => i.task_id).filter((x): x is string => typeof x === 'string');
     if (taskIds.length) {
       const found = await (db as unknown as Pick<PrismaClient, 'task'>).task.findMany({ where: { id: { in: taskIds }, is_deleted: false }, select: { id: true } });
-      if (found.length !== new Set(taskIds).size) bad('Planned tasks: task_id is not a task.', 'plan_unknown_task');
+      if (found.length !== new Set(taskIds).size) bad('Work to note: task_id is not a task.', 'plan_unknown_task');
     }
   }
   if (section === 'billing') {
@@ -126,16 +135,6 @@ async function sectionChecks(db: Pick<PrismaClient, 'user' | 'task'>, task: Plan
 function orderItems(section: PlanSectionName, items: Record<string, unknown>[]): Record<string, unknown>[] {
   if (section !== 'billing') return items;
   return [...items.filter((i) => i.type === 'basis'), ...items.filter((i) => i.type !== 'basis')];
-}
-
-/** Planned task dependencies point only at other planned task lines of this plan, never at the line itself. */
-function checkDependencies(lines: { id: string | null; data: Record<string, unknown> }[], validIds: Set<string>): void {
-  for (const l of lines) {
-    for (const d of (l.data.depends_on as string[] | undefined) ?? []) {
-      if (l.id && d === l.id) bad('Planned tasks: a task cannot depend on itself.', 'plan_bad_dependency');
-      if (!validIds.has(d)) bad('Planned tasks: depends_on must be the id of another planned task line in this plan.', 'plan_bad_dependency');
-    }
-  }
 }
 
 type ItemRow = Prisma.TaskPlanItemGetPayload<object>;
@@ -179,7 +178,6 @@ export async function putSection(task: PlanTaskHead, auth: Auth, section: PlanSe
       if (!byId.has(w.__id)) bad(`${PLAN_SECTION_TITLES[section]}: id ${w.__id} is not a line of this section.`, 'plan_bad_id');
       keep.add(w.__id);
     }
-    if (section === 'planned_tasks') checkDependencies(withIds.map(({ __id, ...data }) => ({ id: __id ?? null, data })), keep);
     await tx.taskPlanItem.deleteMany({ where: { task_id: task.id, section, id: { notIn: Array.from(keep) } } });
     const out: ItemRow[] = [];
     for (let i = 0; i < withIds.length; i++) {
@@ -224,7 +222,6 @@ export async function patchSection(task: PlanTaskHead, auth: Auth, section: Plan
     if (body.op === 'add') {
       const merged = [...existing.map((e) => e.data as Record<string, unknown>), data!];
       await sectionChecks(tx as never, task, section, merged);
-      if (section === 'planned_tasks') checkDependencies([{ id: null, data: data! }], new Set(existing.map((e) => e.id)));
       if (section === 'billing' && data!.type === 'basis') {
         // the basis line goes first
         await tx.taskPlanItem.updateMany({ where: { task_id: task.id, section }, data: { position: { increment: 1 } } });
@@ -235,7 +232,6 @@ export async function patchSection(task: PlanTaskHead, auth: Auth, section: Plan
     } else if (body.op === 'change') {
       const merged = existing.map((e) => (e.id === body.id ? data! : (e.data as Record<string, unknown>)));
       await sectionChecks(tx as never, task, section, merged);
-      if (section === 'planned_tasks') checkDependencies([{ id: body.id, data: data! }], new Set(existing.map((e) => e.id)));
       const unchanged = same(target!.data, JSON.parse(JSON.stringify(data)));
       await tx.taskPlanItem.update({
         where: { id: body.id },
@@ -243,13 +239,6 @@ export async function patchSection(task: PlanTaskHead, auth: Auth, section: Plan
       });
     } else if (body.op === 'remove') {
       await tx.taskPlanItem.delete({ where: { id: body.id } });
-      if (section === 'planned_tasks') {
-        // Lines that came after the removed one no longer wait for it.
-        for (const e of existing) {
-          const deps = (e.data as { depends_on?: string[] }).depends_on ?? [];
-          if (e.id !== body.id && deps.includes(body.id)) await tx.taskPlanItem.update({ where: { id: e.id }, data: { data: { ...(e.data as object), depends_on: deps.filter((d) => d !== body.id) } as Prisma.InputJsonValue } });
-        }
-      }
       const left = existing.filter((e) => e.id !== body.id);
       for (let i = 0; i < left.length; i++) if (left[i].position !== i) await tx.taskPlanItem.update({ where: { id: left[i].id }, data: { position: i } });
       verb = 'line removed';
@@ -279,7 +268,7 @@ async function canWriteNow(task: PlanTaskHead, auth: Auth, headers: Hdrs): Promi
 
 /** The whole plan: sections in fixed order, each with its items and its last-change line; the answered questions and the project block read through. */
 export async function loadPlan(task: PlanTaskHead, auth: Auth, headers: Hdrs): Promise<PlanOut> {
-  const { withholdBilling } = assertCanReadPlan(task, auth);
+  const { reader } = assertCanReadPlan(task, auth);
   const [items, changes, answered, canWrite] = await Promise.all([
     prisma.taskPlanItem.findMany({ where: { task_id: task.id }, orderBy: [{ position: 'asc' }, { created_at: 'asc' }] }),
     prisma.triageChange.findMany({ where: { task_id: task.id, area: { startsWith: 'plan:' } }, orderBy: [{ created_at: 'desc' }, { id: 'desc' }], take: 200 }),
@@ -292,23 +281,24 @@ export async function loadPlan(task: PlanTaskHead, auth: Auth, headers: Hdrs): P
   const people = teamIds.length ? await prisma.user.findMany({ where: { id: { in: teamIds } }, select: { id: true, name: true } }) : [];
   const nameOf = new Map(people.map((u) => [u.id, u.name]));
   const sections: PlanSectionOut[] = PLAN_SECTIONS.map((section) => {
+    const view = viewOf(reader, section);
     const last = changes.find((c) => c.area === `plan:${section}`);
-    const withheld = section === 'billing' && withholdBilling;
+    if (view === 'none') {
+      // Withheld: no lines and no note either (the writer's note on a billing write names the figures).
+      return { section, title: PLAN_SECTION_TITLES[section], items: [], withheld: true, updated_at: null, updated_by: null, note: null };
+    }
+    const lines = items
+      .filter((i) => i.section === section)
+      .map((i) => {
+        const out = formatItem(i);
+        const uid = personOf(i)?.user_id;
+        const named = uid ? { ...out, person_name: nameOf.get(uid) ?? 'Unknown user', is_mike: uid === MIKE_USER_ID } : out;
+        return section === 'planned_tasks' && uid ? { ...named, for_name: (named as { person_name?: string }).person_name } : named;
+      });
     return {
       section,
       title: PLAN_SECTION_TITLES[section],
-      items: withheld
-        ? []
-        : items
-            .filter((i) => i.section === section)
-            .map((i) => {
-              const out = formatItem(i);
-              const uid = personOf(i)?.user_id;
-              if (!uid) return out;
-              const named = { ...out, person_name: nameOf.get(uid) ?? 'Unknown user', is_mike: uid === MIKE_USER_ID };
-              return section === 'planned_tasks' ? { ...named, for_name: named.person_name } : named;
-            }),
-      ...(withheld ? { withheld: true } : {}),
+      items: view === 'full' ? lines : lines.map((l) => contractorItem(section, l)).filter((l): l is PlanItemOut => l !== null),
       updated_at: last ? last.created_at.toISOString() : null,
       updated_by: last ? last.by : null,
       note: last?.note ?? null,
@@ -327,11 +317,13 @@ export async function loadPlan(task: PlanTaskHead, auth: Auth, headers: Hdrs): P
         mike_parts: blk.mike_parts,
         phases: blk.phases,
         sitemap: blk.sitemap,
-        deal: blk.deal,
+        deal: reader === 'contractor' ? null : blk.deal,
+        deal_detail: isPlanOwner(auth) || isChatLane(auth) ? (blk.deal_detail ?? null) : null,
       };
     }
   }
-  const latest = changes[0];
+  // The latest change line the reader may know about: lines about withheld sections are not theirs.
+  const latest = changes.find((c) => PLAN_SECTIONS.some((sec) => c.area === `plan:${sec}` && viewOf(reader, sec) !== 'none'));
   return {
     task_id: task.id,
     status: task.status,
@@ -340,7 +332,7 @@ export async function loadPlan(task: PlanTaskHead, auth: Auth, headers: Hdrs): P
     sections,
     updated_at: latest ? latest.created_at.toISOString() : null,
     updated_by: latest ? latest.by : null,
-    answered_questions: answered
+    answered_questions: reader === 'contractor' ? [] : answered
       .filter((q) => q.answer_text)
       .map((q) => ({ id: q.id, question: q.question, answer: q.answer_text as string, answered_at: q.answered_at ? q.answered_at.toISOString() : null, by_mike: true as const })),
     project,

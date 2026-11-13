@@ -37,7 +37,7 @@ function priceWords(v: string | null): string {
 }
 
 /** What the deal sold, line by line, amounts as Citadel stores them. Read only; empty when the card has no deal detail. */
-export function DealItems({ project }: { project: HomeTriageProject }) {
+export function DealItems({ project }: { project: Pick<HomeTriageProject, 'deal_detail'> }) {
   const detail = project.deal_detail;
   if (!detail || detail.deals.length === 0) return null;
   return (
@@ -72,7 +72,7 @@ export function DealItems({ project }: { project: HomeTriageProject }) {
  * "Yours" on the ones that need him, and the page count with the first few page names. Full (the card page): the shape with every
  * phase's summary, what will be his, the contract with its link, and the whole sitemap. Never a task and never the plan folder.
  */
-export function TriageProjectBlock({ project, variant }: { project: HomeTriageProject; variant: 'compact' | 'full' }) {
+export function TriageProjectBlock({ project }: { project: HomeTriageProject; variant?: 'compact' }) {
   const deal = dealLink(project);
   const pages = project.sitemap;
   const phases = project.phases;
@@ -94,11 +94,10 @@ export function TriageProjectBlock({ project, variant }: { project: HomeTriagePr
     </p>
   );
 
-  if (variant === 'compact') {
-    const shown = phases.slice(0, PHASES_SHOWN);
-    const names = pages.slice(0, PAGES_SHOWN).map((x) => plain(x.name));
-    const more = pages.length - names.length;
-    return (
+  const shown = phases.slice(0, PHASES_SHOWN);
+  const names = pages.slice(0, PAGES_SHOWN).map((x) => plain(x.name));
+  const more = pages.length - names.length;
+  return (
       <div className="home-tproject" data-testid="triage-project-compact">
         {contract}
         {datesNode}
@@ -119,68 +118,41 @@ export function TriageProjectBlock({ project, variant }: { project: HomeTriagePr
           {pages.length === 0 ? 'No pages drafted yet.' : `${pages.length} ${pages.length === 1 ? 'page' : 'pages'}: ${names.join(', ')}${more > 0 ? `, and ${more} more` : ''}`}
         </p>
       </div>
-    );
-  }
+  );
+}
 
+/** The contract state in as few words as fit on a summary line: "No deal linked", "Signed Oct 20", "Contract sent", "Contract draft", "No contract yet". */
+export function contractShort(p: HomeTriageProject): string {
+  const c = p.contract;
+  if (!c) return p.deal ? 'No contract yet' : 'No deal linked';
+  if (c.status === 'signed') {
+    const d = c.signed_at ? new Date(c.signed_at) : null;
+    return d && !Number.isNaN(d.getTime()) ? `Signed ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : 'Signed';
+  }
+  return c.status === 'sent' ? 'Contract sent' : 'Contract draft';
+}
+
+/**
+ * The one summary line of the card page panel: facts laid out horizontally with separators, wrapping when it must. Zero counts say what is missing
+ * ("0 phases"), so there are no placeholder sentences. The shape, what will be his, the sitemap and the deal's items live in the Plan tab.
+ */
+export function TriageFacts({ project, openQuestions }: { project: HomeTriageProject | null; openQuestions: number }) {
+  const facts: string[] = [];
+  if (project) {
+    facts.push(contractShort(project));
+    const launch = dateWords(project.target_date);
+    facts.push(launch ? `Launch ${launch}` : 'No launch date');
+    facts.push(`${project.phases.length} ${project.phases.length === 1 ? 'phase' : 'phases'}`);
+    facts.push(`${project.sitemap.length} ${project.sitemap.length === 1 ? 'page' : 'pages'}`);
+    facts.push(`${project.mike_parts.length} yours`);
+  }
+  if (openQuestions > 0) facts.push(`${openQuestions} open ${openQuestions === 1 ? 'question' : 'questions'}`);
+  if (facts.length === 0) return null;
   return (
-    <div className="home-tproject home-tproject-full" data-testid="triage-project-full">
-      <div className="home-blk">
-        <h3>Contract</h3>
-        {contract}
-        {datesNode}
-        <DealItems project={project} />
-      </div>
-      <div className="home-blk">
-        <h3>Shape of the plan</h3>
-        {phases.length === 0 ? (
-          <p className="home-small home-muted">No phases drafted yet.</p>
-        ) : (
-          <ol className="home-tphases-full">
-            {phases.map((ph) => (
-              <li key={ph.id}>
-                <strong>{plain(ph.name)}</strong>
-                {ph.summary ? <span className="home-small"> {plain(ph.summary)}</span> : null}
-                {ph.mike_part ? (
-                  <span className="home-small">
-                    {' '}
-                    <span className="home-yours">Yours</span> {plain(ph.mike_part)}
-                  </span>
-                ) : null}
-              </li>
-            ))}
-          </ol>
-        )}
-      </div>
-      <div className="home-blk">
-        <h3>What will be yours</h3>
-        {project.mike_parts.length === 0 ? (
-          <p className="home-small home-muted">Nothing is marked as yours yet.</p>
-        ) : (
-          <ul>
-            {project.mike_parts.map((m, i) => (
-              <li key={i} className="home-small">
-                <strong>{plain(m.phase)}:</strong> {plain(m.text)}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-      <div className="home-blk">
-        <h3>Sitemap ({pages.length})</h3>
-        {pages.length === 0 ? (
-          <p className="home-small home-muted">No pages drafted yet.</p>
-        ) : (
-          <ul>
-            {pages.map((x) => (
-              <li key={x.id} className="home-small">
-                {plain(x.name)}
-                {x.page_type ? <span className="home-muted">{` (${plain(x.page_type)})`}</span> : null}
-                {x.notes ? <span className="home-muted">{`: ${plain(x.notes)}`}</span> : null}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </div>
+    <ul className="home-tfacts home-small" data-testid="triage-facts" aria-label="Summary">
+      {facts.map((f) => (
+        <li key={f}>{f}</li>
+      ))}
+    </ul>
   );
 }

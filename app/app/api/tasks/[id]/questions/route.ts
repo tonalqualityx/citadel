@@ -4,7 +4,6 @@ import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError } from '@/lib/api/errors';
 import { guardDoxTaskWrite } from '@/lib/dox/guard';
 import { guardDeskQuestionAsk, isTriageDeskLane } from '@/lib/triage-desk/guard';
-import { recordSessionChange } from '@/lib/triage-desk/changes';
 import { checkTaskAccess } from '@/lib/services/task-patch';
 import { addQuestion, listQuestions, CAUSE_KEY_MAX, CAUSE_SCOPES } from '@/lib/tasks/questions';
 import { questionContextSchema } from '@/lib/tasks/question-context';
@@ -51,7 +50,6 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const cause = withCause.parse({ cause_key, cause_scope });
     const body = questionContextSchema.parse(rest);
     const out = await addQuestion(task, auth, body, conv, cause.cause_key ? { key: cause.cause_key, scope: cause.cause_scope } : null);
-    if (isTriageDeskLane(auth) && !out.deduped) await recordSessionChange(auth.userId, id, `asked a question: ${out.question}`);
     // A repeat of a cause that is still open answers 200 with the question that already exists; a new question is 201.
     return NextResponse.json(out, { status: out.deduped ? 200 : 201 });
   } catch (error) {
