@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { MessageSquare, ChevronLeft, ChevronsLeft, ChevronsRight, X, Plus } from 'lucide-react';
 import '@/components/domain/home/home-tokens.css';
 import { BastChatPanel } from './BastChatPanel';
+import { DOX_NAME } from '@/lib/tasks/triage-copy';
 import { cardFromInput, type OpenCardInput } from './card-context';
 import {
   BAST_CHAT_WIDTH_KEY,
@@ -458,7 +459,7 @@ export function BastChatProvider({ children }: { children: React.ReactNode }) {
       draft,
       setDraft,
       touch,
-      title: inCardChat && cardChat ? cardChat.title : 'Bast',
+      title: inCardChat && cardChat ? DOX_NAME : 'Bast',
     }),
     [chat, card, inCardChat, cardChat, aboutDropped, cardKey, draft, touch],
   );
@@ -668,6 +669,11 @@ function ChatBody({ layout, onClose }: { layout: 'full' | 'split'; onClose: () =
           style={{ flex: 1, minWidth: 0, fontSize: '0.95rem', textAlign: layout === 'full' ? 'center' : 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
         >
           {v.title}
+          {v.cardChatTitle !== null ? (
+            <span className="home-muted" data-testid="bast-chat-subtitle" style={{ fontWeight: 400 }}>
+              {` · ${v.cardChatTitle}`}
+            </span>
+          ) : null}
         </h2>
         {layout === 'split' ? <WidthToggle /> : null}
         <button
@@ -703,6 +709,7 @@ function ChatBody({ layout, onClose }: { layout: 'full' | 'split'; onClose: () =
 function FullSheet({ onClose, surfaceRef }: { onClose: () => void; surfaceRef: React.MutableRefObject<HTMLElement | null> }) {
   const { box: vv, baseline } = useVisualViewport(true);
   const sheet = computeSheetBox(vv, typeof window === 'undefined' ? 0 : window.innerHeight, baseline);
+  const sheetName = React.useContext(ViewContext)?.cardChatTitle != null ? DOX_NAME : 'Bast';
   // Only ever rendered after the chat was opened in the browser, so document exists.
   return createPortal(
     <section
@@ -716,7 +723,7 @@ function FullSheet({ onClose, surfaceRef }: { onClose: () => void; surfaceRef: R
       data-keyboard={sheet.keyboardOpen ? 'open' : 'closed'}
       role="dialog"
       aria-modal="true"
-      aria-label="Chat with Bast"
+      aria-label={`Chat with ${sheetName}`}
       style={{
         position: 'fixed',
         top: 0,
@@ -750,6 +757,7 @@ function FullSheet({ onClose, surfaceRef }: { onClose: () => void; surfaceRef: R
 export function BastChatSplitColumn() {
   const shell = useBastChatShell();
   const close = shell.closeChat;
+  const splitName = React.useContext(ViewContext)?.cardChatTitle != null ? DOX_NAME : 'Bast';
   if (shell.mode !== 'split') return null;
   return (
     <Boundary>
@@ -758,7 +766,7 @@ export function BastChatSplitColumn() {
         data-home
         data-testid="bast-chat-split"
         data-layout="split"
-        aria-label="Chat with Bast"
+        aria-label={`Chat with ${splitName}`}
         style={{
           position: 'relative',
           margin: 0,

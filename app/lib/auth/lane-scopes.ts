@@ -37,6 +37,7 @@ export const LANES = [
   'design-track',
   'design-notes',
   'dox',
+  'triage-desk',
 ] as const;
 
 export type Lane = (typeof LANES)[number];
@@ -47,7 +48,7 @@ export type Lane = (typeof LANES)[number];
  * lib/auth/key-scopes.ts), and a key planted without it is still refused outside the lane instead of running in
  * shadow. The fleet-6 lanes keep shadow mode for their staged rollout, so they are not listed here.
  */
-export const ALWAYS_ENFORCED_LANES: readonly Lane[] = ['design-worker', 'bast-chat', 'design-track', 'design-notes', 'dox'];
+export const ALWAYS_ENFORCED_LANES: readonly Lane[] = ['design-worker', 'bast-chat', 'design-track', 'design-notes', 'dox', 'triage-desk'];
 export type LaneMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 export interface LaneRoute {
@@ -75,6 +76,7 @@ export const LANE_IDENTITY: Record<Lane, 'bast' | 'troubador' | 'oracle' | 'desi
   'design-track': 'bast', // the Bast runner (portal v2, SPEC 6.1a); never the design worker
   'design-notes': 'bast', // the meeting intake's design statements (portal v2, SPEC 8.1); never the design worker
   dox: 'bast', // the office manager (operating model, PLAN-dox-office-manager): runs as the Bast user, stamped as lane dox
+  'triage-desk': 'bast', // a Claude session reading a card's chat and editing the card (PLAN-triage-investigations decision 5): Bast user, stamped as lane triage-desk
 };
 
 export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
@@ -200,6 +202,8 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('GET', '/api/tasks/:id/comments'),
     // Card questions: read only, so a session knows whether Mike answered (never a triage card; never ask or answer)
     r('GET', '/api/tasks/:id/questions'),
+    // The plan of a card: read only (after release; a Triage card's plan is the owner's, the chat's and Dox's)
+    r('GET', '/api/tasks/:id/plan'),
     r('POST', '/api/tasks/:id/comments'),
     r('POST', '/api/tasks/:id/live'),
     r('POST', '/api/tasks/:id/staged'),
@@ -353,6 +357,8 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('GET', '/api/bast-chat/worker/conversations/:id'),
     r('PATCH', '/api/bast-chat/worker/conversations/:id'),
     r('POST', '/api/bast-chat/worker/conversations/:id/events'),
+    // Redact one stored turn (the owner pasted connection details); the text becomes "[connection info received]"
+    r('POST', '/api/bast-chat/worker/conversations/:id/redact'),
     r('POST', '/api/bast-chat/worker/actions'),
     r('GET', '/api/bast-chat/worker/today'),
     // v2 (specs/bast-chat-v2-plan.md 2.2 and 4.4): one narrow route for every named op that is not a task PATCH
@@ -414,6 +420,10 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('GET', '/api/tasks/:id/triage'),
     r('PATCH', '/api/tasks/:id/triage'),
     r('PUT', '/api/tasks/:id/triage/shape'),
+    // The card's plan: read it, replace a section (PUT) or change one item (PATCH). Mike's words go in as "Mike, typed in chat"; a document's words keep their source.
+    r('GET', '/api/tasks/:id/plan'),
+    r('PUT', '/api/tasks/:id/plan/:section'),
+    r('PATCH', '/api/tasks/:id/plan/:section'),
     r('GET', '/api/projects'),
     r('GET', '/api/projects/:id'),
     r('GET', '/api/oracle/projects'),
@@ -455,6 +465,10 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('POST', '/api/tasks/:id/questions'),
     // Read only: a Triage card with its project block and dates (sorting it stays with Mike and the chat)
     r('GET', '/api/tasks/:id/triage'),
+    // The card's plan: read it and write it (a Triage card, or a released card inside the project in play: lib/tasks/plan.ts via guardDoxTaskWrite)
+    r('GET', '/api/tasks/:id/plan'),
+    r('PUT', '/api/tasks/:id/plan/:section'),
+    r('PATCH', '/api/tasks/:id/plan/:section'),
     r('GET', '/api/work/task/:id/state'),
     r('GET', '/api/waits'),
     r('POST', '/api/waits'),
@@ -465,6 +479,26 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('GET', '/api/engagement-briefs/:id/snapshot'),
     r('POST', '/api/engagement-briefs/:id/passes'),
     r('PATCH', '/api/engagement-passes/:id'),
+  ],
+  // Triage desk (PLAN-triage-investigations decision 5). Bast user, always enforced. A session reads a task, its comments and questions, the /triage card and the card's
+  // conversation; edits a Triage card (kind, project link, dates, shape); asks, edits (its own) and withdraws questions; adds internal comments; marks looks-done.
+  // lib/triage-desk/guard.ts narrows each write. It can NOT: release, drop or close a card (no status change), answer a question, call chat ops, send, delete,
+  // change what a client reads on a client-visible task, or touch a task that is not in Triage beyond reading it and commenting. GET /api/projects is here only so
+  // a session can find the project id it links a card to.
+  'triage-desk': [
+    r('GET', '/api/auth/me'),
+    r('GET', '/api/tasks/:id'),
+    r('PATCH', '/api/tasks/:id'),
+    r('GET', '/api/tasks/:id/comments'),
+    r('POST', '/api/tasks/:id/comments'),
+    r('GET', '/api/tasks/:id/questions'),
+    r('POST', '/api/tasks/:id/questions'),
+    r('PATCH', '/api/tasks/:id/questions/:qid'),
+    r('GET', '/api/tasks/:id/triage'),
+    r('PATCH', '/api/tasks/:id/triage'),
+    r('PUT', '/api/tasks/:id/triage/shape'),
+    r('GET', '/api/tasks/:id/conversation'),
+    r('GET', '/api/projects'),
   ],
 };
 

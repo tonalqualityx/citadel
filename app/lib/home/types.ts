@@ -1,3 +1,5 @@
+import type { DealSection } from '@/lib/deals/read';
+
 /**
  * Home screen Slice 1: the shared contract (plan task H3). Every later builder codes against
  * this file; read it with your own task in the plan and you have what you need.
@@ -802,6 +804,8 @@ export interface HomeTriageProject {
   contract: { status: 'draft' | 'sent' | 'signed'; signed_at: string | null; version: number; deal_id: string; deal_href: string } | null;
   /** The deal the project came from, even without a contract yet. */
   deal: { id: string; name: string; href: string } | null;
+  /** The deal with its line items, the client's retainers and how the deal is tied to the project (lib/deals/read.ts). Read-only. Absent for a caller that may not read prices. */
+  deal_detail?: DealSection | null;
   sitemap: { id: string; name: string; page_type: string | null; needs_design: boolean; notes: string | null }[];
 }
 
@@ -827,6 +831,12 @@ export interface HomeTriageCard {
   release_ready: boolean;
   release_block: 'unsorted' | 'no_project' | 'still_quote' | 'project_closed' | null;
   open_questions: number;
+  /** Goes up on every change the owner should see before releasing (kind, project, shape, sitemap, dates, questions, plan). Part of release_version. */
+  triage_rev: number;
+  /** The last few change lines, newest first ("Plan: Billing model updated by the chat"). */
+  recent_changes: { line: string; at: string; by: string }[];
+  /** "Plan: 12 requirements, launch Jan 19, milestones billing"; null when the card has no plan yet. */
+  plan_line: string | null;
   /** Target start and launch dates of the card's project, YYYY-MM-DD; null when the card has no project or the date is not set. */
   target_start_date: string | null;
   target_launch_date: string | null;

@@ -3,7 +3,7 @@
 import * as React from 'react';
 import type { HomeActRequest, HomeTriageCard } from '@/lib/home/types';
 import type { OpenCardInput } from '@/components/domain/bast-chat/card-context';
-import { CARD_CHANGED_MESSAGE, CARD_CHANGED_NOTE, TRIAGE_BUTTONS } from '@/lib/tasks/triage-copy';
+import { CARD_CHANGED_MESSAGE, cardChangedNote, TRIAGE_BUTTONS } from '@/lib/tasks/triage-copy';
 import { cardTalk } from './triage-talk';
 
 export interface TriageActionsProps {
@@ -34,7 +34,10 @@ export function TriageActions({ card, onAct, onTalk, busy = false, onDone, child
       await onAct(req);
       onDone?.();
     } catch (e) {
-      if (e instanceof Error && e.message === CARD_CHANGED_MESSAGE) setChanged(true);
+      if (e instanceof Error && e.message === CARD_CHANGED_MESSAGE) {
+        setChanged(true);
+        onDone?.(); // a caller with its own copy of the card (the card page panel) refetches it, so the new line and the new version are on screen
+      }
       // Any other failure: the hook already showed one plain sentence and nothing on the card moved.
     } finally {
       setWorking(false);
@@ -50,7 +53,7 @@ export function TriageActions({ card, onAct, onTalk, busy = false, onDone, child
     <>
       {changed ? (
         <p className="home-small home-tnote" role="status" data-testid="triage-changed">
-          {CARD_CHANGED_NOTE}
+          <span data-testid="triage-what-changed">{cardChangedNote((card.recent_changes ?? []).map((l) => l.line))}</span>
         </p>
       ) : null}
       <div className="home-actions home-tactions">

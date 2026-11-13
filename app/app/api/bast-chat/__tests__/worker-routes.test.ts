@@ -10,6 +10,7 @@ vi.mock('@/lib/auth/middleware', () => ({ requireAuth: vi.fn() }));
 vi.mock('@/lib/db/prisma', () => {
   const db: Record<string, unknown> = {
     bastChatConversation: { findUnique: vi.fn(async () => h.conv) },
+    bastChatEvent: { findUnique: vi.fn(async () => ({ id: 'e1', kind: 'text', payload: { text: 'pasted' } })), update: vi.fn(async () => ({})) },
     user: { findUnique: vi.fn(async () => ({ is_active: true, role: 'admin' })) },
     bastChatAction: { create: vi.fn(async () => ({ id: '22222222-2222-4222-8222-222222222222', undo_until: new Date('2026-11-11T00:00:00Z') })) },
   };
@@ -68,6 +69,7 @@ import * as inbox from '../worker/inbox/route';
 import * as heartbeat from '../worker/heartbeat/route';
 import * as conv from '../worker/conversations/[id]/route';
 import * as events from '../worker/conversations/[id]/events/route';
+import * as redact from '../worker/conversations/[id]/redact/route';
 import * as actions from '../worker/actions/route';
 import * as today from '../worker/today/route';
 import * as ops from '../worker/ops/route';
@@ -84,6 +86,7 @@ const rows: Row[] = [
   { name: 'GET conversation', lane: 'GET /api/bast-chat/worker/conversations/:id', h: conv.GET as Handler, method: 'GET', path: `${P}/conversations/${CONV}?history=20`, c: ctx({ id: CONV }), keys: ['messages'], owned: true },
   { name: 'PATCH conversation', lane: 'PATCH /api/bast-chat/worker/conversations/:id', h: conv.PATCH as Handler, method: 'PATCH', path: `${P}/conversations/${CONV}`, body: { status: 'running', live_text: 'x' }, c: ctx({ id: CONV }), keys: ['ok'], owned: true },
   { name: 'POST events', lane: 'POST /api/bast-chat/worker/conversations/:id/events', h: events.POST as Handler, method: 'POST', path: `${P}/conversations/${CONV}/events`, body: { acks: [1], events: [{ role: 'assistant', kind: 'text', payload: { text: 'hi' } }] }, c: ctx({ id: CONV }), keys: ['acked', 'first_seq', 'last_seq'], owned: true },
+  { name: 'POST redact', lane: 'POST /api/bast-chat/worker/conversations/:id/redact', h: redact.POST as Handler, method: 'POST', path: `${P}/conversations/${CONV}/redact`, body: { seq: 1 }, c: ctx({ id: CONV }), keys: ['redacted', 'seq'], owned: true },
   { name: 'POST actions', lane: 'POST /api/bast-chat/worker/actions', h: actions.POST as Handler, method: 'POST', path: `${P}/actions`, body: ACT, c: {}, keys: ['id', 'status', 'undo_until'] },
   { name: 'GET today', lane: 'GET /api/bast-chat/worker/today', h: today.GET as Handler, method: 'GET', path: `${P}/today`, c: {}, keys: ['arc_name', 'counts', 'date', 'emergencies', 'group_key', 'lighter', 'parked', 'pinned', 'quick', 'size_line', 'steps', 'swap', 'why'] },
   { name: 'POST ops', lane: 'POST /api/bast-chat/worker/ops', h: ops.POST as Handler, method: 'POST', path: `${P}/ops`, body: OPS_BODY, c: {}, keys: ['action_id', 'can_undo', 'line', 'result', 'status', 'undo_until'] },
@@ -97,12 +100,12 @@ beforeEach(() => {
   vi.mocked(requireAuth).mockResolvedValue(WORKER);
 });
 
-describe('the eight worker routes', () => {
+describe('the nine worker routes', () => {
   it('are exactly the lane list (method and path)', () => {
     // The keeper route has its own test file (worker/home-keeper/__tests__/route.test.ts and worker/home-keeper/summaries/__tests__/route.test.ts); the owed route has its own too (worker/owed/__tests__/route.test.ts, and worker/owed/bookings/__tests__/route.test.ts for 4d), and so has home-watch with its ack and its scan result (worker/home-watch/__tests__/route.test.ts, worker/home-watch/ack/__tests__/route.test.ts and worker/home-watch/scan/__tests__/route.test.ts), and so has the session read (worker/session-asks/[id]/__tests__/route.test.ts), and so has the sends listing (worker/sends/__tests__/route.test.ts), and so has the sent-mail reconciler (worker/reconcile/__tests__/route.test.ts and worker/reconcile/candidates/__tests__/route.test.ts), and so has the looks-finished sweep (worker/finished/__tests__/route.test.ts), and so has the decision replay (worker/decision-replay/__tests__/route.test.ts).
     const lane = LANE_ROUTES['bast-chat'].filter((r) => r.pattern.startsWith('/api/bast-chat/worker/') && !r.pattern.startsWith('/api/bast-chat/worker/home-keeper') && !r.pattern.startsWith('/api/bast-chat/worker/owed') && !r.pattern.startsWith('/api/bast-chat/worker/home-watch') && !r.pattern.startsWith('/api/bast-chat/worker/session-asks') && !r.pattern.startsWith('/api/bast-chat/worker/sends') && !r.pattern.startsWith('/api/bast-chat/worker/reconcile') && !r.pattern.startsWith('/api/bast-chat/worker/finished') && !r.pattern.startsWith('/api/bast-chat/worker/decision-replay')).map((r) => `${r.method} ${r.pattern}`).sort();
     expect(rows.map((r) => r.lane).sort()).toEqual(lane);
-    expect(lane).toHaveLength(8);
+    expect(lane).toHaveLength(9);
   });
 
   for (const r of rows) {

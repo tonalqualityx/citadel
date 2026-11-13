@@ -4,6 +4,10 @@
 
 export const TRIAGE_UNDO_HOURS = 72;
 
+/** The conversation on a card (a Triage card, before or after release) is with Dox, the office manager. Display only. The general chat stays Bast. */
+export const DOX_NAME = 'Dox';
+export const DOX_EMPTY_HINT = "Dox has the card, its questions and the plan. Tell him what you're thinking.";
+
 export const TRIAGE_HEADING = 'Triage';
 export const TRIAGE_SUBHEAD = 'Ideas parked for your release. Nothing here is worked until you release it.';
 export const TRIAGE_EMPTY = 'Nothing in Triage. Tell Bast and it lands here.';
@@ -11,7 +15,14 @@ export const TRIAGE_EMPTY = 'Nothing in Triage. Tell Bast and it lands here.';
 /** The server's 409 card_changed sentence. Lives here (not in triage-version.ts, which needs node:crypto) so the browser can match it. */
 export const CARD_CHANGED_MESSAGE = 'That card changed after you read it. Nothing was released. Look at it again.';
 /** Shown on the card itself after a refused Release, once the new line is on screen. */
-export const CARD_CHANGED_NOTE = 'This card changed after you read it. Nothing was released. Read the new line above, then tap Release again.';
+export const CARD_CHANGED_NOTE = 'This card changed after you read it. Nothing was released. Look at the card again, then tap Release again.';
+/** The refused-Release note with what changed and where to look. Plan changes point at the Plan tab. */
+export function cardChangedNote(lines: string[]): string {
+  const distinct = Array.from(new Set(lines));
+  if (distinct.length === 0) return CARD_CHANGED_NOTE;
+  if (distinct.every((l) => l.startsWith('Plan:'))) return `The plan changed: ${distinct.map((l) => l.replace(/^Plan:\s*/, '')).join('; ')}. Nothing was released. Open the Plan tab, then tap Release again.`;
+  return `This card changed after you read it: ${distinct.join('; ')}. Nothing was released. Look at the card again, then tap Release again.`;
+}
 
 /** What Bast thinks a card is, in plain words. null = not sorted yet. */
 export const TRIAGE_KIND_LABELS: Record<string, string> = {
@@ -47,7 +58,7 @@ export const TRIAGE_BUTTONS = {
   drop: 'Drop',
   closeDone: 'Close as done',
   notDone: 'Not done',
-  talk: 'Talk about this',
+  talk: 'Talk to Dox',
   questions: 'Questions',
   showAll: 'Show all',
   showLess: 'Show fewer',

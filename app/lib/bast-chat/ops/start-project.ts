@@ -14,8 +14,10 @@
  * owner's and `not_started`, and nothing waits on it. Then, in one transaction with compare-and-set, the project goes
  * to `cancelled` and the task to `abandoned`. A client the op created stays: nothing is deleted.
  */
+import { recordTriageChange } from '@/lib/tasks/triage-rev';
 import { randomUUID } from 'crypto';
 import { z } from 'zod';
+import { estimatePatchForKind } from '@/lib/tasks/triage-estimate';
 import { ApiError } from '@/lib/api/errors';
 import { opSummary, type OpContext, type PreparedOp } from '../actions';
 import { cleanLine, quoted } from '../card-context';
@@ -90,12 +92,17 @@ interface CardRow {
   triage_kind: string | null;
   client_id: string | null;
   site_id: string | null;
+  estimated_minutes: number | null;
+  energy_estimate: number | null;
+  mystery_factor: string;
+  battery_impact: string;
+  tags: string[];
 }
 
 async function loadCard(db: OpDb, id: string): Promise<CardRow> {
   const c = (await db.task.findFirst({
     where: { id, status: 'triage', is_deleted: false },
-    select: { id: true, title: true, project_id: true, triage_kind: true, client_id: true, site_id: true },
+    select: { id: true, title: true, project_id: true, triage_kind: true, client_id: true, site_id: true, estimated_minutes: true, energy_estimate: true, mystery_factor: true, battery_impact: true, tags: true },
   })) as CardRow | null;
   if (!c) throw new ApiError(CARD_GONE, 404, 'card_missing');
   if (c.project_id) throw new ApiError('That card already has a project.', 409, 'card_has_project');
@@ -167,9 +174,11 @@ async function run(ctx: OpContext, input: StartProjectInput, expect: unknown): P
     const card = await loadCard(db, input.card_task_id);
     const linked = await db.task.updateMany({
       where: { id: card.id, status: 'triage', project_id: null, is_deleted: false },
-      data: { project_id: project.id, triage_kind: 'project_setup', client_id: clientId, ...(r.site_id ? { site_id: r.site_id } : {}) },
+      data: { project_id: project.id, triage_kind: 'project_setup', client_id: clientId, ...(r.site_id ? { site_id: r.site_id } : {}), ...((estimatePatchForKind(card.triage_kind, 'project_setup', card) ?? {}) as Record<string, never>) },
     });
     if (linked.count !== 1) throw new ApiError(CHANGED, 409, 'changed_since');
+    // The card's kind and project changed: part of what the owner must see before Release (triage_rev).
+    await recordTriageChange(db as never, card.id, 'card', 'Kind and project link set by the chat', { by: 'the chat', userId: null, lane: 'bast-chat' });
     taskId = card.id;
     cardBefore = { triage_kind: card.triage_kind, client_id: card.client_id, site_id: card.site_id };
   } else await createStartTask(db, {
@@ -234,6 +243,10 @@ export const startProjectOp: OpDef<StartProjectInput> = {
             data: { project_id: null, triage_kind: (a.card_before.triage_kind ?? null) as never, client_id: a.card_before.client_id, site_id: a.card_before.site_id },
           });
           if (c.count !== 1) throw new ApiError(CHANGED, 409, 'changed_since');
+          // A defaulted one-hour estimate (and its marker tag) goes with the project link; a number he set stays.
+          const now = await tx.task.findUnique({ where: { id: a.task_id }, select: { estimated_minutes: true, energy_estimate: true, mystery_factor: true, battery_impact: true, tags: true } });
+          const clear = now && a.card_before.triage_kind !== 'project_setup' ? estimatePatchForKind('project_setup', a.card_before.triage_kind ?? null, now as never) : null;
+          if (clear) await tx.task.update({ where: { id: a.task_id }, data: clear as never });
         } else if (!(await abandonStartTask(tx, a.task_id, ctx.ownerId))) throw new ApiError(CHANGED, 409, 'changed_since');
       });
     } catch (e) {

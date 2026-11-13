@@ -7,6 +7,8 @@ import { formatProjectResponse } from '@/lib/api/formatters';
 import { canTransitionProjectStatus } from '@/lib/calculations/status';
 import { healBlockedTasks } from '@/lib/services/dependencies';
 import { guardDoxProjectPatch, isDoxLane } from '@/lib/dox/guard';
+import { mayReadDeal } from '@/lib/deals/access';
+import { readDeals } from '@/lib/deals/read';
 
 const updateProjectSchema = z.object({
   name: z.string().min(1).max(255).optional(),
@@ -113,7 +115,9 @@ export async function GET(
       throw new ApiError('Project not found', 404);
     }
 
-    return NextResponse.json(formatProjectResponse(project));
+    // The signed deal (read-only), for the chat lane and for Dox inside its project binding. Nobody else gets the key.
+    const deal = (await mayReadDeal(auth, request.headers, { projectId: id })) ? await readDeals(prisma, { projectId: id }) : undefined;
+    return NextResponse.json(deal ? { ...formatProjectResponse(project), deal } : formatProjectResponse(project));
   } catch (error) {
     return handleApiError(error);
   }

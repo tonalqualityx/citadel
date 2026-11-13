@@ -145,13 +145,13 @@ describe.skipIf(!SCRATCH)('triage review fixes (real database)', () => {
   // 2 ----------------------------------------------------------------------------------------------------------------
   it('2. relinking copies the new project site (including none) and client; unlinking clears both', async () => {
     const pA = await mkProject('in_progress', { client_id: client2, site_id: siteA });
-    const pB = await mkProject('queue');
+    const pB = await mkProject('queue', { client_id: client2 }); // a card may be linked only to a project of its own client (A2)
     const id = await mk('relink');
     authMock.mockResolvedValue(chatLane());
     expect((await triagePatch(req(`http://localhost/api/tasks/${id}/triage`, 'PATCH', { kind: 'task', project_id: pA }), params(id))).status).toBe(200);
     expect(await snap(id)).toMatchObject({ site_id: siteA, client_id: client2, project_id: pA });
     expect((await triagePatch(req(`http://localhost/api/tasks/${id}/triage`, 'PATCH', { project_id: pB }), params(id))).status).toBe(200);
-    expect(await snap(id)).toMatchObject({ site_id: null, client_id: clientId, project_id: pB });
+    expect(await snap(id)).toMatchObject({ site_id: null, client_id: client2, project_id: pB });
     expect((await triagePatch(req(`http://localhost/api/tasks/${id}/triage`, 'PATCH', { project_id: null }), params(id))).status).toBe(200);
     expect(await snap(id)).toMatchObject({ site_id: null, client_id: null, project_id: null });
     expect((await card(id)).release_line).not.toMatch(/The work is on|internal/);

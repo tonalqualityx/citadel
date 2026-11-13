@@ -7,6 +7,7 @@ import { WorkerNotice } from './WorkerNotice';
 import { ActionsHistory, ActionsSummaryLine } from './ActionsTab';
 import { buildChatItems, buildHistory, undoableCount } from './action-history';
 import type { BastChatCard } from './card-context';
+import { DOX_EMPTY_HINT, DOX_NAME } from '@/lib/tasks/triage-copy';
 import { MAX_MESSAGE_CHARS, type TimelineMessage, type UseBastChat } from '@/lib/hooks/use-bast-chat';
 
 export interface BastChatPanelProps {
@@ -37,10 +38,15 @@ function appliedFrom(timeline: UseBastChat['timeline'], from: number): number {
   return n;
 }
 
-function MessageRow({ m, onResend }: { m: TimelineMessage; onResend: (m: TimelineMessage) => void }) {
+function MessageRow({ m, onResend, speaker = null }: { m: TimelineMessage; onResend: (m: TimelineMessage) => void; speaker?: string | null }) {
   const mine = m.role === 'mike';
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: mine ? 'flex-end' : 'flex-start', gap: 2 }} data-testid={`msg-${m.role}`}>
+      {!mine && speaker ? (
+        <span className="home-small home-muted" data-testid="speaker-label">
+          {speaker}
+        </span>
+      ) : null}
       <div
         className="home-small"
         style={{
@@ -74,6 +80,8 @@ export function BastChatPanel({ chat, card, cardChatTitle = null, onLeaveCardCha
   const scroller = React.useRef<HTMLDivElement | null>(null);
   const input = React.useRef<HTMLTextAreaElement | null>(null);
   const stick = React.useRef(true);
+  // A conversation tied to a card (a Triage card, before or after release) is with Dox, the office manager. The general chat stays Bast.
+  const dox = cardChatTitle !== null;
   const aboutCard = card && (cardChatTitle !== null || !aboutDropped) ? card : null;
 
   // Two tabs: the conversation, and the history of what the chat did. The actions are the same rows, drawn in another place.
@@ -203,20 +211,23 @@ export function BastChatPanel({ chat, card, cardChatTitle = null, onLeaveCardCha
       <div
         ref={scroller}
         role="log"
-        aria-label="Conversation with Bast"
+        aria-label={dox ? `Conversation with ${DOX_NAME}` : 'Conversation with Bast'}
         onScroll={(e) => {
           const el = e.currentTarget;
           stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
         }}
         style={{ flex: 1, minHeight: 0, overflowY: 'auto', overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch', display: 'flex', flexDirection: 'column', gap: 10 }}
       >
-        {empty ? <p className="home-small home-muted">Ask about a task or a project. Bast answers from what is in Citadel.</p> : null}
+        {empty ? (
+          <p className="home-small home-muted">{dox ? DOX_EMPTY_HINT : 'Ask about a task or a project. Bast answers from what is in Citadel.'}</p>
+        ) : null}
         {chatItems.map((item) => {
           if (item.type === 'message') {
             return (
               <MessageRow
                 key={item.key}
                 m={item.message}
+                speaker={dox ? DOX_NAME : null}
                 onResend={(m) => void chat.sendAgain(m, aboutCard)}
               />
             );
@@ -247,7 +258,7 @@ export function BastChatPanel({ chat, card, cardChatTitle = null, onLeaveCardCha
         ) : null}
         {chat.working ? (
           <p role="status" data-testid="working-line" className="home-small home-muted">
-            {chat.liveAction ? chat.liveAction : 'Bast is working on it'}
+            {chat.liveAction ? chat.liveAction : `${dox ? DOX_NAME : 'Bast'} is working on it`}
             {chat.conversationStatus === 'running' ? (
               <>
                 {' '}
@@ -294,7 +305,7 @@ export function BastChatPanel({ chat, card, cardChatTitle = null, onLeaveCardCha
         style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 'none' }}
       >
         <label htmlFor="bast-chat-input" className="sr-only">
-          Message to Bast
+          {dox ? `Message to ${DOX_NAME}` : 'Message to Bast'}
         </label>
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
         <textarea
@@ -305,7 +316,7 @@ export function BastChatPanel({ chat, card, cardChatTitle = null, onLeaveCardCha
           rows={1}
           enterKeyHint={touch ? 'enter' : 'send'}
           autoCapitalize="sentences"
-          placeholder="Message Bast"
+          placeholder={dox ? `Message ${DOX_NAME}` : 'Message Bast'}
           maxLength={MAX_MESSAGE_CHARS + 200}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {

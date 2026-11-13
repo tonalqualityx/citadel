@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError } from '@/lib/api/errors';
 import { guardDoxTaskWrite } from '@/lib/dox/guard';
+import { guardDeskQuestionAsk, isTriageDeskLane } from '@/lib/triage-desk/guard';
 import { checkTaskAccess } from '@/lib/services/task-patch';
 import { addQuestion, listQuestions, CAUSE_KEY_MAX, CAUSE_SCOPES } from '@/lib/tasks/questions';
 import { questionContextSchema } from '@/lib/tasks/question-context';
@@ -42,6 +43,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const { id } = await params;
     const task = await checkTaskAccess(id, auth);
     await guardDoxTaskWrite(auth, request.headers, { status: task.status, project_id: task.project_id ?? null });
+    guardDeskQuestionAsk(auth, { status: task.status });
     const raw = (await request.json()) as Record<string, unknown>;
     const { chat_conversation_id, cause_key, cause_scope, ...rest } = raw ?? {};
     const conv = withConversation.parse({ chat_conversation_id }).chat_conversation_id ?? null;

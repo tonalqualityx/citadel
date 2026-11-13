@@ -9,6 +9,10 @@ import { afterReplyShared, assertShareable } from '@/lib/portal/share-reply';
 import { actorLaneField } from '@/lib/auth/actor-lane';
 import { OWNER_ONLY_COMMENT_WHERE } from '@/lib/tasks/looks-done';
 import { guardDoxComment, guardDoxTaskWrite } from '@/lib/dox/guard';
+import { guardDeskComment, isTriageDeskLane } from '@/lib/triage-desk/guard';
+import { isDoxLane } from '@/lib/dox/guard';
+import { isChatLane } from '@/lib/tasks/questions';
+import { isChangeLineImitation, CHANGE_LINE_IMITATION_MESSAGE } from '@/lib/tasks/triage-rev';
 
 const createCommentSchema = z.object({
   content: z.string().min(1, 'Comment cannot be empty').max(10000),
@@ -165,6 +169,12 @@ export async function POST(
     // Dox lane: always an internal note, never shared with a client.
     const doxForce = guardDoxComment(auth, data);
     if (doxForce) data.is_internal = true;
+    // Triage-desk lane: the same, always an internal note (stamped actor_lane = triage-desk below).
+    if (guardDeskComment(auth, data)) data.is_internal = true;
+    // A lane's comment can never look like a change line the server wrote (those come from change rows only).
+    if ((isTriageDeskLane(auth) || isDoxLane(auth) || isChatLane(auth)) && isChangeLineImitation(data.content)) {
+      throw new ApiError(CHANGE_LINE_IMITATION_MESSAGE, 400, 'comment_imitates_change_line');
+    }
     if (data.client_question && !data.client_visible) {
       throw new ApiError('A question for the client must also be client_visible.', 400, 'question_not_visible');
     }
@@ -216,7 +226,9 @@ export async function POST(
     // Mentions are team-only by construction — this route is team-auth (requireAuth), so a
     // client-portal session never reaches here. Clients can comment but cannot tag. Mention
     // suggestions are scoped per task via GET /api/tasks/[id]/mention-suggestions.
-    const requestedMentionIds = [...new Set(data.mentioned_user_ids ?? [])].filter(
+    // The triage desk, and Dox on a card in Triage, notify nobody (a note from a session is not a message to staff).
+    const silent = isTriageDeskLane(auth) || (isDoxLane(auth) && task.status === 'triage');
+    const requestedMentionIds = (silent ? [] : [...new Set(data.mentioned_user_ids ?? [])]).filter(
       (uid) => uid !== auth.userId
     );
     const mentionedUsers =
@@ -284,6 +296,7 @@ export async function POST(
     // Send notification to task assignee if different from commenter — but skip if they
     // were already notified via a mention above (no double notification).
     if (
+      !silent &&
       task.assignee_id &&
       task.assignee_id !== auth.userId &&
       !mentionedUserIds.includes(task.assignee_id)

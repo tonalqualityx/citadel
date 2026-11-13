@@ -3,8 +3,11 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth } from '@/lib/auth/middleware';
 import { ApiError, handleApiError } from '@/lib/api/errors';
+import { cardForCaller } from '@/lib/deals/access';
 import { loadCards } from '@/lib/tasks/triage-card';
-import { requireTriageOwner } from '@/lib/tasks/triage-auth';
+import { requireTriageEditor } from '@/lib/tasks/triage-auth';
+import { actorOf, recordTriageChange, recordProjectChange } from '@/lib/tasks/triage-rev';
+import { guardDeskShape } from '@/lib/triage-desk/guard';
 
 const line = (max: number) => z.string().trim().max(max);
 const bodySchema = z
@@ -39,7 +42,7 @@ const bodySchema = z
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const auth = await requireAuth();
-    requireTriageOwner(auth);
+    requireTriageEditor(auth);
     const { id } = await params;
     const body = bodySchema.parse(await request.json());
     const task = await prisma.task.findFirst({ where: { id, is_deleted: false }, select: { id: true, status: true, project: { select: { id: true, status: true } } } });
@@ -47,6 +50,8 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     if (!task.project) throw new ApiError('Link the card to its project first.', 409, 'no_project');
     if (task.project.status !== 'queue') throw new ApiError('Only a project still in the queue can be reshaped from its card.', 409, 'project_not_queue');
     const projectId = task.project.id;
+    const actor = await actorOf(auth);
+    await guardDeskShape(auth, projectId);
     await prisma.$transaction(async (tx) => {
       if (body.phases) {
         const withTasks = await tx.projectPhase.count({ where: { project_id: projectId, tasks: { some: {} } } });
@@ -62,9 +67,12 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
           data: body.pages.map((p, i) => ({ project_id: projectId, name: p.name, page_type: p.page_type || null, needs_design: p.needs_design ?? false, notes: p.notes || null, sort_order: i })),
         });
       }
+      const parts = [body.phases ? 'Shape' : null, body.pages ? 'Sitemap' : null].filter(Boolean).join(' and ');
+      await recordProjectChange(tx, projectId, `The project's ${parts.toLowerCase()} changed by ${actor.by}`, actor, id);
+      await recordTriageChange(tx, id, 'shape', `${parts} redrawn by ${actor.by} (${[body.phases ? `${body.phases.length} phases` : null, body.pages ? `${body.pages.length} pages` : null].filter(Boolean).join(', ')})`, actor);
     });
     const [card] = await loadCards(prisma, [id]);
-    return NextResponse.json(card);
+    return NextResponse.json(card ? await cardForCaller(auth, request.headers, card) : card);
   } catch (error) {
     return handleApiError(error);
   }

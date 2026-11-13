@@ -59,6 +59,9 @@ const ALLOWED: [string, string][] = [
   ['GET', '/api/tasks/7f1c/questions'],
   ['POST', '/api/tasks/7f1c/questions'],
   ['GET', '/api/tasks/7f1c/triage'],
+  ['GET', '/api/tasks/7f1c/plan'],
+  ['PUT', '/api/tasks/7f1c/plan/billing'],
+  ['PATCH', '/api/tasks/7f1c/plan/billing'],
   ['GET', '/api/work/task/7f1c/state'],
   ['GET', '/api/waits'],
   ['POST', '/api/waits'],
@@ -138,17 +141,17 @@ describe('lane dox', () => {
   it('no allowed route is a DELETE, and no write reaches an answer, approval, outbox or portal path', () => {
     for (const r of LANE_ROUTES.dox) {
       expect(r.method).not.toBe('DELETE');
-      expect(r.method).not.toBe('PUT');
+      if (r.method === 'PUT') expect(r.pattern).toBe('/api/tasks/:id/plan/:section'); // the plan is the one PUT Dox has
       if (r.method !== 'GET') expect(r.pattern).not.toMatch(/answer|approval|outbox|portal|notice|triage|live|staged|notify|send/);
     }
   });
 
   it('only Dox, bast-chat and bast reach what they should of the Triage card read and the question write', () => {
     expect(laneAllows('dox', 'GET', '/api/tasks/7f1c/triage')).toBe(true);
-    for (const lane of LANES.filter((l) => l !== 'bast-chat' && l !== 'dox')) {
+    for (const lane of LANES.filter((l) => l !== 'bast-chat' && l !== 'dox' && l !== 'triage-desk')) {
       expect(laneAllows(lane, 'GET', '/api/tasks/7f1c/triage'), lane).toBe(false);
     }
-    for (const lane of LANES.filter((l) => l !== 'bast-chat' && l !== 'dox')) {
+    for (const lane of LANES.filter((l) => l !== 'bast-chat' && l !== 'dox' && l !== 'triage-desk')) {
       expect(laneAllows(lane, 'POST', '/api/tasks/7f1c/questions'), lane).toBe(false);
     }
   });

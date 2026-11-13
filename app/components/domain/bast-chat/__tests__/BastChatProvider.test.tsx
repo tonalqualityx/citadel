@@ -317,7 +317,7 @@ describe('Bast chat shell: a card page and its conversation', () => {
     expect(screen.getByTestId('bast-chat-title').textContent).toBe('Bast');
     r.rerender(app(triage));
     await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/conversations') && JSON.stringify(c.body) === JSON.stringify({ task_id: U }))).toBe(true));
-    await waitFor(() => expect(screen.getByTestId('bast-chat-title').textContent).toBe('Idea about invoices'));
+    await waitFor(() => expect(screen.getByTestId('bast-chat-title').textContent).toBe('Dox · Idea about invoices'));
     expect(screen.getByTestId('card-chat-line').textContent).toContain('Talking about: Idea about invoices');
     const statusBefore = calls.filter((c) => c.url.endsWith('/status')).length;
     r.rerender(app(null));
@@ -330,7 +330,7 @@ describe('Bast chat shell: a card page and its conversation', () => {
     responder = cardResponder;
     render(app(triage));
     await openIt();
-    await waitFor(() => expect(screen.getByTestId('bast-chat-title').textContent).toBe('Idea about invoices'));
+    await waitFor(() => expect(screen.getByTestId('bast-chat-title').textContent).toBe('Dox · Idea about invoices'));
     const btn = screen.getByRole('button', { name: 'Start fresh' });
     expect(btn.getAttribute('title')).toMatch(/about this card/);
     expect(screen.queryByRole('button', { name: 'New chat' })).toBeNull();
@@ -340,7 +340,7 @@ describe('Bast chat shell: a card page and its conversation', () => {
     const post = calls.find((c) => c.method === 'POST' && c.url.endsWith('/conversations'))!;
     expect(post.body).toEqual({ task_id: U, fresh: true });
     // still about the same card
-    expect(screen.getByTestId('bast-chat-title').textContent).toBe('Idea about invoices');
+    expect(screen.getByTestId('bast-chat-title').textContent).toBe('Dox · Idea about invoices');
   });
   it('the general chat keeps New chat, posting an empty body', async () => {
     mq.split = true;
@@ -380,7 +380,7 @@ describe('Bast chat shell: a card page and its conversation', () => {
     );
     await screen.findByTestId('bast-chat-button');
     fireEvent.click(screen.getByText('card'));
-    await waitFor(() => expect(screen.getByTestId('bast-chat-title').textContent).toBe('Idea about invoices'));
+    await waitFor(() => expect(screen.getByTestId('bast-chat-title').textContent).toBe('Dox · Idea about invoices'));
     fireEvent.click(screen.getByText('group'));
     await waitFor(() => expect(screen.getByTestId('bast-chat-title').textContent).toBe('Bast'));
   });
@@ -399,8 +399,39 @@ describe('Bast chat shell: a card page and its conversation', () => {
     await screen.findByTestId('bast-chat-button');
     fireEvent.click(screen.getByText('talk'));
     await screen.findByTestId('bast-chat-sheet');
-    await waitFor(() => expect(screen.getByTestId('bast-chat-title').textContent).toBe('Idea about invoices'));
+    await waitFor(() => expect(screen.getByTestId('bast-chat-title').textContent).toBe('Dox · Idea about invoices'));
     expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/conversations'))).toBe(true);
+  });
+
+  it('a card conversation is with Dox: name, card title beside it, composer, empty hint and dialog label; the general chat stays Bast', async () => {
+    responder = cardResponder;
+    function Talker() {
+      const shell = useBastChatShell();
+      return (
+        <>
+          <button onClick={() => shell.talkAbout(triage, { bindToPage: true })}>talk</button>
+          <button onClick={() => shell.openChat()}>general</button>
+        </>
+      );
+    }
+    render(
+      <BastChatProvider>
+        <Page card={triage} />
+        <Talker />
+      </BastChatProvider>,
+    );
+    await screen.findByTestId('bast-chat-button');
+    fireEvent.click(screen.getByText('talk'));
+    await screen.findByTestId('bast-chat-sheet');
+    await waitFor(() => expect(screen.getByTestId('bast-chat-title').textContent).toBe('Dox · Idea about invoices'));
+    expect(screen.getByTestId('bast-chat-subtitle').textContent).toContain('Idea about invoices');
+    expect((screen.getByTestId('bast-chat-input') as HTMLTextAreaElement).placeholder).toBe('Message Dox');
+    expect(screen.getByTestId('bast-chat-sheet').getAttribute('aria-label')).toBe('Chat with Dox');
+    expect(screen.getByRole('log').getAttribute('aria-label')).toBe('Conversation with Dox');
+    fireEvent.click(screen.getByText('Back to the general chat'));
+    await waitFor(() => expect(screen.getByTestId('bast-chat-title').textContent).toBe('Bast'));
+    expect((screen.getByTestId('bast-chat-input') as HTMLTextAreaElement).placeholder).toBe('Message Bast');
+    expect(screen.getByTestId('bast-chat-sheet').getAttribute('aria-label')).toBe('Chat with Bast');
   });
 });
 
@@ -551,7 +582,7 @@ describe('Bast chat shell: a slow read of the general chat never lands in a card
     render(<BastChatProvider><Page card={null} /><Talker /></BastChatProvider>);
     await screen.findByTestId('bast-chat-button');
     fireEvent.click(screen.getByText('go'));
-    await waitFor(() => expect(screen.getByTestId('bast-chat-title').textContent).toBe('Idea about invoices'));
+    await waitFor(() => expect(screen.getByTestId('bast-chat-title').textContent).toBe('Dox · Idea about invoices'));
     releaseGeneral();
     await act(async () => { await new Promise((r) => setTimeout(r, 30)); });
     expect(screen.queryByText('GENERAL TURN')).toBeNull();

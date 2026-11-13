@@ -150,7 +150,9 @@ export async function POST(request: NextRequest) {
         dependencies_ordering_only: data.dependencies_ordering_only || false,
         notes: data.notes,
         plan_folder: data.plan_folder,
-        ...(data.portal_visibility ? { portal_visibility: data.portal_visibility } : {}),
+        // A project Dox creates starts hidden from the portal (the default is `inherit`, which shows a ready project): its name reaches a client only
+        // when a person makes it visible.
+        ...(doxCard ? { portal_visibility: 'hidden' as const } : data.portal_visibility ? { portal_visibility: data.portal_visibility } : {}),
         created_by_id: auth.userId,
       },
       include: {

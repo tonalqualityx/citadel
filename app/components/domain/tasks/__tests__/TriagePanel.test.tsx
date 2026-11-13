@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import * as React from 'react';
 
 const m = vi.hoisted(() => ({ card: undefined as unknown, act: vi.fn(), talkAbout: vi.fn() }));
@@ -12,8 +12,14 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
 import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { TriagePanel } from '../TriagePanel';
+import { TriagePanel, TRIAGE_PANEL_STORAGE_KEY } from '../TriagePanel';
+
+const store = new Map<string, string>();
+beforeAll(() => {
+  vi.stubGlobal('localStorage', { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) });
+});
 import type { HomeTriageCard } from '@/lib/home/types';
+import { CARD_CHANGED_MESSAGE } from '@/lib/tasks/triage-copy';
 
 const ID = '7aa4a01a-1111-4222-8333-944445555666';
 const base: HomeTriageCard = {
@@ -30,6 +36,9 @@ const base: HomeTriageCard = {
   release_ready: true,
   release_block: null,
   open_questions: 0,
+  triage_rev: 0,
+  recent_changes: [],
+  plan_line: null,
   target_start_date: null,
   target_launch_date: null,
   looks_done: null,
@@ -55,7 +64,11 @@ describe('TriagePanel', () => {
     const p = screen.getByTestId('triage-panel');
     expect(within(p).getByText('Single task')).toBeTruthy();
     expect(within(p).getByTestId('release-line').textContent).toBe('On release: Hands this to Bast to do.');
-    // The technical detail lives behind a Details disclosure on the page panel only.
+    // Compact by default: the Details disclosure is behind More; the buttons are always there.
+    expect(within(p).queryByTestId('release-details')).toBeNull();
+    expect(p.getAttribute('data-expanded')).toBe('false');
+    fireEvent.click(within(p).getByTestId('triage-more'));
+    expect(p.getAttribute('data-expanded')).toBe('true');
     const details = within(p).getByTestId('release-details');
     expect(within(details).getByText('Details')).toBeTruthy();
     expect(details.textContent).toContain('Tags added: from-triage');
@@ -66,10 +79,18 @@ describe('TriagePanel', () => {
     await waitFor(() => expect(m.act).toHaveBeenCalledWith({ action: 'triage_drop', task_ids: [ID] }));
   });
 
-  it('Talk about this opens the card conversation in place, bound to the page', () => {
+  it('a Release refused as card_changed says what changed, from the card\'s last change lines', async () => {
+    m.card = { ...base, recent_changes: [{ line: 'Plan: Billing model updated by the chat', at: '2026-11-13T12:00:00Z', by: 'the chat' }] };
+    m.act.mockRejectedValueOnce(new Error(CARD_CHANGED_MESSAGE));
+    wrap(<TriagePanel taskId={ID} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Release' }));
+    await waitFor(() => expect(screen.getByTestId('triage-what-changed').textContent).toBe('The plan changed: Billing model updated by the chat. Nothing was released. Open the Plan tab, then tap Release again.'));
+  });
+
+  it('Talk to Dox opens the card conversation in place, bound to the page', () => {
     m.card = base;
     wrap(<TriagePanel taskId={ID} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Talk about this' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Talk to Dox' }));
     expect(m.talkAbout).toHaveBeenCalledWith(expect.objectContaining({ task_id: ID, own_conversation: true, tile: 'triage' }), { bindToPage: true });
   });
 
@@ -89,14 +110,29 @@ describe('TriagePanel', () => {
     await waitFor(() => expect(m.act).toHaveBeenCalledWith({ action: 'triage_close_done', task_ids: [ID] }));
   });
 
-  it('a project card shows the full block: contract link, every phase with summary, what will be his, the whole sitemap, and no tasks', () => {
+  it('the panel remembers More or Less per device', () => {
+    m.card = base;
+    localStorage.removeItem(TRIAGE_PANEL_STORAGE_KEY);
+    const first = wrap(<TriagePanel taskId={ID} />);
+    fireEvent.click(screen.getByTestId('triage-more'));
+    expect(localStorage.getItem(TRIAGE_PANEL_STORAGE_KEY)).toBe('1');
+    first.unmount();
+    wrap(<TriagePanel taskId={ID} />);
+    expect(screen.getByTestId('triage-panel').getAttribute('data-expanded')).toBe('true');
+    localStorage.removeItem(TRIAGE_PANEL_STORAGE_KEY);
+  });
+
+  it('a project card shows ONE facts line (contract, launch, phases, pages, yours, open questions) and no placeholder sentences, shape or sitemap', () => {
     m.card = {
       ...base,
       kind: 'project_setup',
+      open_questions: 2,
       project: {
         project_id: 'p1',
         name: 'Grok',
         status: 'queue',
+        start_date: null,
+        target_date: '2027-01-19',
         phases: [
           { id: 'a', name: 'Design', summary: 'Lisa designs the pages', mike_part: null },
           { id: 'b', name: 'Content', summary: 'Copy gets written', mike_part: 'Approve the copy' },
@@ -111,15 +147,18 @@ describe('TriagePanel', () => {
       },
     };
     wrap(<TriagePanel taskId={ID} />);
-    const full = screen.getByTestId('triage-project-full');
-    expect(within(full).getByRole('link', { name: 'Grok deal' }).getAttribute('href')).toBe('/deals/d1');
-    expect(full.textContent).toContain('Contract signed Oct 20, 2026');
-    expect(full.textContent).toContain('Lisa designs the pages');
-    expect(full.textContent).toContain('Copy gets written');
-    expect(within(full).getByText('What will be yours')).toBeTruthy();
-    expect(full.textContent).toContain('Approve the copy');
-    expect(within(full).getByText('Sitemap (2)')).toBeTruthy();
-    expect(full.textContent).toContain('Home');
-    expect(full.textContent).toContain('Hero first');
+    const facts = screen.getByTestId('triage-facts');
+    expect(Array.from(facts.querySelectorAll('li')).map((l) => l.textContent)).toEqual(['Signed Oct 20', 'Launch Jan 19, 2027', '2 phases', '2 pages', '1 yours', '2 open questions']);
+    const p = screen.getByTestId('triage-panel');
+    expect(p.textContent).not.toContain('Lisa designs the pages');
+    expect(p.textContent).not.toContain('Hero first');
+    expect(p.textContent).not.toContain('What will be yours');
+  });
+
+  it('a project card with nothing drafted says it in counts, not sentences', () => {
+    m.card = { ...base, kind: 'project_setup', project: { project_id: 'p1', name: 'Bare', status: 'queue', start_date: null, target_date: '2027-01-19', phases: [], mike_parts: [], contract: null, deal: null, sitemap: [] } };
+    wrap(<TriagePanel taskId={ID} />);
+    expect(Array.from(screen.getByTestId('triage-facts').querySelectorAll('li')).map((l) => l.textContent)).toEqual(['No deal linked', 'Launch Jan 19, 2027', '0 phases', '0 pages', '0 yours']);
+    expect(screen.getByTestId('triage-panel').textContent).not.toMatch(/No phases drafted yet|No pages drafted yet|Nothing is marked/);
   });
 });

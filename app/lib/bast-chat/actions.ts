@@ -1830,6 +1830,7 @@ async function buildCard(db: Db, reach: ReachResult, copy: OpCopy, now: Date, se
     let l: string;
     if (c.rule === 'shares_task') l = `The client will see ${t ?? 'the task'} in their portal.`;
     else if (c.rule === 'moves_visible_task') l = `${t ?? 'The task'} shows in a client portal, and this moves it to another client or project.`;
+    else if (c.rule === 'edits_visible_task') l = `${t ?? 'The task'} shows in a client portal, and this changes what the client reads.`;
     else if (c.rule === 'project_goes_live') l = 'The client will see the project in their portal.';
     else if (c.rule === 'wait_sends') l = 'Finishing this opens the next step of the wait, and that step sends to a client.';
     else l = 'Citadel could not rule out that the client sees this.';

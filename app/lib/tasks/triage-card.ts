@@ -13,9 +13,12 @@ import { LOOKS_DONE_PREFIX, LOOKS_DONE_TAG, evidenceOf, evidenceParts } from './
 import { FROM_TRIAGE_TAG, planRelease, pmReleaseHold, type TriageKindName } from './triage-kind';
 import { releaseVersion } from './triage-version';
 import { openQuestionCounts } from './questions';
+import { recentChanges } from './triage-rev';
+import { planLine } from './plan-summary';
 import { SUMMARY_HEAD_CHARS, summaryFromHead } from './triage-summary';
+import { readDeals } from '@/lib/deals/read';
 
-type Db = Pick<PrismaClient, 'task' | 'comment' | 'taskQuestion' | 'project' | 'projectPhase' | 'projectPage' | 'contract' | '$queryRaw'>;
+type Db = Pick<PrismaClient, 'task' | 'comment' | 'taskQuestion' | 'project' | 'projectPhase' | 'projectPage' | 'contract' | 'accord' | 'accordCommissionItem' | 'charter' | 'client' | 'taskPlanItem' | '$queryRaw'>;
 
 const DAY_MS = 86_400_000;
 
@@ -79,7 +82,7 @@ export async function summariesFor(db: Pick<Db, '$queryRaw'>, taskIds: string[])
 }
 
 /** Project blocks for the given project ids. */
-async function projectBlocks(db: Db, projectIds: string[]): Promise<Map<string, HomeTriageProject>> {
+export async function projectBlocks(db: Db, projectIds: string[]): Promise<Map<string, HomeTriageProject>> {
   const out = new Map<string, HomeTriageProject>();
   if (projectIds.length === 0) return out;
   // plan_folder is deliberately not selected anywhere in this file.
@@ -105,6 +108,9 @@ async function projectBlocks(db: Db, projectIds: string[]): Promise<Map<string, 
         select: { accord_id: true, status: true, signed_at: true, version: true },
       })
     : [];
+  // The deal with its items, for each project (read-only; lib/deals/read.ts says how a project is tied to its deal).
+  const details = new Map<string, Awaited<ReturnType<typeof readDeals>>>();
+  for (const p of rows) details.set(p.id, await readDeals(db, { projectId: p.id }));
   for (const p of rows) {
     const ph = phases.filter((x) => x.project_id === p.id);
     const mine = contracts.filter((c) => c.accord_id === p.accord_id);
@@ -120,6 +126,7 @@ async function projectBlocks(db: Db, projectIds: string[]): Promise<Map<string, 
       mike_parts: ph.filter((x) => x.mike_part && x.mike_part.trim() !== '').map((x) => ({ phase: x.name, text: x.mike_part as string })),
       contract: c && p.accord_id ? { status: c.status, signed_at: c.signed_at ? c.signed_at.toISOString() : null, version: c.version, deal_id: p.accord_id, deal_href: `/deals/${p.accord_id}` } : null,
       deal: p.accord ? { id: p.accord.id, name: p.accord.name, href: `/deals/${p.accord.id}` } : null,
+      deal_detail: details.get(p.id) ?? null,
       sitemap: pages.filter((x) => x.project_id === p.id).map((x) => ({ id: x.id, name: x.name, page_type: x.page_type, needs_design: x.needs_design, notes: x.notes })),
     });
   }
@@ -142,6 +149,7 @@ export async function loadCards(db: Db, taskIds: string[], now: Date = new Date(
       tags: true,
       created_at: true,
       triage_kind: true,
+      triage_rev: true,
       assignee_id: true,
       site_id: true,
       client_id: true,
@@ -156,6 +164,8 @@ export async function loadCards(db: Db, taskIds: string[], now: Date = new Date(
   const [qCounts, summaries, evidence] = await Promise.all([openQuestionCounts(db, ids), summariesFor(db, ids), evidenceFor(db, tasks.filter((t) => t.tags.includes(LOOKS_DONE_TAG)).map((t) => t.id))]);
   const setupProjectIds = Array.from(new Set(tasks.filter((t) => t.triage_kind === 'project_setup' && t.project).map((t) => t.project!.id)));
   const blocks = await projectBlocks(db, setupProjectIds);
+  const changes = await recentChanges(db, ids);
+  const planRows = await db.taskPlanItem.findMany({ where: { task_id: { in: ids } }, select: { task_id: true, section: true, data: true, wrong_at: true } });
   const cards: HomeTriageCard[] = tasks.map((t) => {
     const plan = planRelease({
       kind: t.triage_kind as TriageKindName | null,
@@ -164,6 +174,7 @@ export async function loadCards(db: Db, taskIds: string[], now: Date = new Date(
       project: t.project ? { id: t.project.id, name: t.project.name, status: t.project.status } : null,
       bast_id: BAST_USER_ID,
       site: t.site ? { id: t.site.id, name: t.site.name } : null,
+      noted_items: planRows.filter((r) => r.task_id === t.id && r.section === 'planned_tasks' && countsAsNoted(r)).length,
       open_go: questionSplit(openQs.get(t.id)).go,
       open_wait: questionSplit(openQs.get(t.id)).wait,
       pm_hold: hold,
@@ -188,10 +199,14 @@ export async function loadCards(db: Db, taskIds: string[], now: Date = new Date(
         site_id: t.site_id,
         client_id: t.client_id,
         questions: openQs.get(t.id) ?? [],
+        triage_rev: t.triage_rev,
       }),
       release_ready: plan.ready,
       release_block: plan.block,
       open_questions: qCounts.get(t.id) ?? 0,
+      triage_rev: t.triage_rev,
+      recent_changes: changes.get(t.id) ?? [],
+      plan_line: planLineFor(planRows.filter((r) => r.task_id === t.id), t.project?.target_date ? dayOf(t.project.target_date) : null, t.triage_kind === 'project_setup' && t.project ? (blocks.get(t.project.id)?.sitemap.length ?? 0) : 0),
       target_start_date: dayOf(t.project?.start_date),
       target_launch_date: dayOf(t.project?.target_date),
       looks_done: ev === null ? null : { evidence: ev, links: evidenceParts(ev).filter((p) => p.href).map((p) => ({ text: p.text, href: p.href as string })) },
@@ -212,4 +227,20 @@ export async function askedAfterRelease(db: Db): Promise<HomeAskedAfterRelease[]
   });
   const counts = await openQuestionCounts(db, rows.map((r) => r.id));
   return rows.map((r) => ({ task_id: r.id, title: r.title, href: `/tasks/${r.id}`, status: r.status, open_questions: counts.get(r.id) ?? 0, released_at: r.updated_at.toISOString() }));
+}
+
+/** A Work to note item that still counts: not dropped, not marked wrong, no task made for it yet. */
+function countsAsNoted(r: { data: unknown; wrong_at: Date | null }): boolean {
+  const d = r.data as Record<string, unknown>;
+  return d.mark !== 'dropped' && r.wrong_at === null && !d.task_id;
+}
+
+/** The home card's plan line from this card's plan rows (and the project's launch date, the field of record). Requirements, pages, launch date, billing kind. */
+function planLineFor(rows: { section: string; data: unknown }[], projectLaunch: string | null, pages: number): string | null {
+  if (rows.length === 0 && pages === 0) return null;
+  const d = (r: { data: unknown }) => r.data as Record<string, unknown>;
+  const reqs = rows.filter((r) => r.section === 'requirements' && d(r).mark !== 'dropped').length;
+  const dates = rows.filter((r) => r.section === 'dates').map((r) => ({ label: String(d(r).label ?? ''), date: String(d(r).date ?? ''), mark: d(r).mark as string | undefined }));
+  const basis = rows.find((r) => r.section === 'billing' && d(r).type === 'basis');
+  return planLine({ requirements: reqs, project_launch: projectLaunch, dates, billing_kind: basis ? String(d(basis).kind) : null, pages, other_items: rows.length });
 }

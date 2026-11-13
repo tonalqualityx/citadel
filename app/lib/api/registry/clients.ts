@@ -1,4 +1,5 @@
 import type { ApiEndpoint } from './index';
+import { DEAL_RESPONSE_NOTE, DEAL_RESPONSE_SHAPE } from './deal-shape';
 
 export const clientEndpoints: ApiEndpoint[] = [
   {
@@ -74,9 +75,10 @@ export const clientEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'GET',
-        summary: 'Get client details including sites and sub-clients.',
+        summary: 'Get client details including sites and sub-clients.' + DEAL_RESPONSE_NOTE,
         auth: 'required',
         responseExample: {
+          deal: DEAL_RESPONSE_SHAPE,
           id: 'uuid',
           name: 'string',
           type: 'string',

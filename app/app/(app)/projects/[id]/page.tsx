@@ -82,6 +82,7 @@ import { ProjectWorkloadTab } from '@/components/domain/projects/project-workloa
 import { ProjectTimeTab } from '@/components/domain/projects/project-time-tab';
 import { MilestoneList } from '@/components/domain/projects/milestone-list';
 import { ResourceLinks } from '@/components/domain/projects/resource-links';
+import { ProjectPlanLink } from '@/components/domain/projects/project-plan-link';
 import { DriveFolderField } from '@/components/domain/clients/drive-folder-field';
 import { ProjectTeamTab } from '@/components/domain/projects/project-team-tab';
 import { ProjectBriefTab } from '@/components/domain/projects/project-brief-tab';
@@ -462,6 +463,7 @@ export default function ProjectDetailPage() {
                   {project.client.name}
                 </Link>
               )}
+              <ProjectPlanLink projectId={project.id} />
               {project.site && (
                 <Link
                   href={`/sites/${project.site.id}`}

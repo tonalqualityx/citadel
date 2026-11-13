@@ -359,13 +359,13 @@ describe.skipIf(!SCRATCH)('Dox escape attempts (real database)', () => {
 
   describe('projects', () => {
     it('a project whose tasks are all abandoned cannot be closed as done; one done task and nothing open can', async () => {
-      const ab = await fx.mkProject('All abandoned', { status: 'in_progress' });
+      const ab = await fx.mkProject('All abandoned', { status: 'in_progress', portal_visibility: 'hidden' });
       await fx.openPass(ab);
       await fx.mkTask('gone 1', { project_id: ab, status: 'abandoned' });
       await fx.mkTask('gone 2', { project_id: ab, status: 'abandoned' });
-      const empty = await fx.mkProject('Empty', { status: 'in_progress' });
+      const empty = await fx.mkProject('Empty', { status: 'in_progress', portal_visibility: 'hidden' });
       await fx.openPass(empty);
-      const withTriage = await fx.mkProject('Done plus a triage card', { status: 'in_progress' });
+      const withTriage = await fx.mkProject('Done plus a triage card', { status: 'in_progress', portal_visibility: 'hidden' });
       await fx.openPass(withTriage);
       await fx.mkTask('finished', { project_id: withTriage, status: 'done' });
       await fx.mkTask('parked', { project_id: withTriage, status: 'triage' });
@@ -393,9 +393,8 @@ describe.skipIf(!SCRATCH)('Dox escape attempts (real database)', () => {
       expect((await json(await make({ ...body, type: 'project', client_id: '7f1c0000-0000-4000-8000-0000000000dd' }))).body.code).toBe('dox_field_closed');
       const unreleased = await fx.mkTask('Never released', { status: 'not_started' });
       const inTriage = await fx.mkTask('Still in Triage', { status: 'triage', tags: ['from-triage'] });
-      const setup = await fx.mkTask('A setup card', { status: 'not_started', tags: ['from-triage'], triage_kind: 'project_setup' });
-      const addition = await fx.mkTask('An addition', { status: 'not_started', tags: ['from-triage'], triage_kind: 'project_addition' });
-      for (const c of [unreleased, inTriage, setup, addition]) expect((await json(await make(body, c))).body.code, c).toBe('dox_card_closed');
+      for (const c of [unreleased, inTriage]) expect((await json(await make(body, c))).body.code, c).toBe('dox_card_closed');
+      expect((await json(await make({ ...body, type: 'enterprise' }))).status).toBe(400);
       expect(await prisma.project.count({ where: { name: `${fx.tag} Small job` } })).toBe(0);
       // the allowed one
       const made = await json(await make(body));
@@ -412,6 +411,72 @@ describe.skipIf(!SCRATCH)('Dox escape attempts (real database)', () => {
       const m2 = await json(await make({ name: `${fx.tag} Client job`, type: 'project', client_id: fx.clientId, status: 'ready' }, card2));
       expect(m2.status, JSON.stringify(m2.body)).toBe(201);
       fx.projectIds.push(m2.body.id);
+    });
+
+    it('a project of any size: from a card of ANY kind, of any type the plan calls for, for the card\'s client or internal', async () => {
+      as(dox());
+      const make = (b: unknown, cardId: string) => projectsRoute.POST(call(undefined, b, 'POST', { 'x-dox-card': cardId }));
+      for (const [kind, type] of [['project_setup', 'project'], ['project_addition', 'retainer'], ['question_only', 'project'], ['reusable_tool', 'internal'], ['rule_proposal', 'project'], ['task', 'retainer'], [null, 'project']] as const) {
+        const card = await fx.mkTask(`Any size ${kind}`, { status: 'not_started', tags: ['from-triage'], client_id: fx.clientId, ...(kind ? { triage_kind: kind } : {}) });
+        const made = await json(await make({ name: `${fx.tag} Any ${kind} ${type}`, type, client_id: fx.clientId, status: 'ready' }, card));
+        expect(made.status, `${kind}/${type}: ${JSON.stringify(made.body)}`).toBe(201);
+        fx.projectIds.push(made.body.id);
+        const proj = await prisma.project.findUniqueOrThrow({ where: { id: made.body.id } });
+        expect([proj.status, proj.type]).toEqual(['ready', type]);
+        expect((await taskRow(card)).project_id).toBe(proj.id);
+      }
+      // a client project must be the card's own client even for the widened kinds
+      const card = await fx.mkTask('Wrong client', { status: 'not_started', tags: ['from-triage'], client_id: fx.clientId, triage_kind: 'project_setup' });
+      expect((await json(await make({ name: `${fx.tag} Wrong`, type: 'project', client_id: '7f1c0000-0000-4000-8000-0000000000dd', status: 'ready' }, card))).body.code).toBe('dox_field_closed');
+    });
+
+    it('a project_setup card whose release already made its queued project ready is not blocked and cannot get a second project', async () => {
+      // hidden from the portal: Dox does not change the status or dates of a project a client can see (A6)
+      const own = await fx.mkProject('Released setup project', { status: 'ready', portal_visibility: 'hidden' });
+      const card = await fx.mkTask('Setup card, released', { status: 'not_started', tags: ['from-triage'], client_id: fx.clientId, triage_kind: 'project_setup', project_id: own });
+      await fx.openPass(own);
+      as(dox());
+      // a second project for the same card is refused: one project per card
+      const second = await json(await projectsRoute.POST(call(undefined, { name: `${fx.tag} Second for setup`, type: 'project', client_id: fx.clientId, status: 'ready' }, 'POST', { 'x-dox-card': card })));
+      expect([second.status, second.body.code]).toEqual([403, 'dox_card_closed']);
+      expect(await prisma.project.count({ where: { name: `${fx.tag} Second for setup` } })).toBe(0);
+      // and Dox is not blocked from working the project the release made ready: its own binding opens it
+      const ok = await json(await patchProject(call(own, { status: 'in_progress' }, 'PATCH'), idParams(own)));
+      expect(ok.status, JSON.stringify(ok.body)).toBe(200);
+      const t = await json(await createTask(call(own, { title: `${fx.tag} first task`, project_id: own })));
+      expect(t.status, JSON.stringify(t.body)).toBe(201);
+    });
+  });
+
+  describe('a task a client can see: nothing the portal renders changes through this lane', () => {
+    it.each([
+      ['title'], ['description'], ['requirements'], ['client_title'], ['site_id'], ['project_id'], ['client_id'], ['phase_id'], ['client_visible'], ['approved'],
+    ])('PATCH %s is a closed field on any task', async (field) => {
+      const t = await fx.mkTask(`Visible ${field}`, { project_id: P, status: 'not_started', client_visible: true });
+      as(dox());
+      const res = await json(await patchTask(call(P, { [field]: field === 'requirements' ? [] : field === 'approved' || field === 'client_visible' ? false : 'x' }, 'PATCH'), idParams(t)));
+      expect([res.status, res.body.code]).toEqual([403, 'dox_field_closed']);
+    });
+
+    it('handing back a dead bot hold on a task shared with the client is refused (status is rendered), and the same hold on an unshared task goes through', async () => {
+      const mk = (e: Record<string, unknown>) => fx.mkTask('Dead hold', { project_id: P, status: 'in_progress', assignee_id: BOT_ID, ...e });
+      const shown = await mk({ client_visible: true });
+      const hidden = await mk({});
+      for (const id of [shown, hidden]) await prisma.$executeRaw`UPDATE tasks SET updated_at = now() - interval '72 hours' WHERE id = ${id}::uuid`;
+      as(dox());
+      const refused = await json(await patchTask(call(P, { status: 'not_started' }, 'PATCH'), idParams(shown)));
+      expect([refused.status, refused.body.code]).toEqual([403, 'dox_client_closed']);
+      expect((await taskRow(shown)).status).toBe('in_progress');
+      const allowed = await json(await patchTask(call(P, { status: 'not_started' }, 'PATCH'), idParams(hidden)));
+      expect(allowed.status, JSON.stringify(allowed.body)).toBe(200);
+    });
+
+    it('a client-approved task (in the client history) is protected too', async () => {
+      const t = await fx.mkTask('Approved by the client', { project_id: P, status: 'in_progress', assignee_id: BOT_ID, client_approved_at: new Date() });
+      await prisma.$executeRaw`UPDATE tasks SET updated_at = now() - interval '72 hours' WHERE id = ${t}::uuid`;
+      as(dox());
+      const res = await json(await patchTask(call(P, { status: 'not_started' }, 'PATCH'), idParams(t)));
+      expect([res.status, res.body.code]).toEqual([403, 'dox_client_closed']);
     });
   });
 
