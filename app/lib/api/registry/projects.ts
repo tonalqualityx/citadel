@@ -318,10 +318,10 @@ export const projectEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'GET',
-        summary: "Where a project's plan lives: its setup card and the link to the card's Plan tab, with the number of plan lines.",
+        summary: "Where a project's plan lives: its project card and the link to the card's Plan tab, with the number of plan lines.",
         auth: 'required',
         responseExample: { task_id: 'uuid', title: 'string', status: 'string', href: '/tasks/<id>?tab=plan', plan_lines: 'number' },
-        responseNotes: 'The plan itself is GET /api/tasks/:task_id/plan. 404 when the project has no setup card or the caller may not read its plan (same rule as the plan).',
+        responseNotes: 'The plan itself is GET /api/tasks/:task_id/plan. 404 when the project has no project card or the caller may not read its plan (same rule as the plan).',
       },
     ],
   },

@@ -38,8 +38,8 @@ const inputSchema = z
     // that work with its link; create_anyway is the owner's own "start a new one anyway".
     source: z.object({ kind: z.enum(['email', 'session']), ref: z.string().min(1).max(300) }).strict().optional(),
     create_anyway: z.boolean().optional(),
-    // Triage tab: the card in Triage that is this project's setup task. No separate kickoff task is made; the card is linked to the new
-    // queue project and becomes a project_setup card. Release (the card's own) then readies the project and hands the card to Bast.
+    // Triage tab: the card in Triage that describes this project. No separate kickoff task is made; the card is linked to the new
+    // queue project and becomes a project card (kind project_setup). Release (the card's own) then readies the project and hands it to Dox to set up.
     card_task_id: z.string().uuid().optional(),
   })
   .strict()
@@ -54,7 +54,7 @@ const afterSchema = z
     client_id: z.string().uuid().nullable(),
     client_created: z.boolean(),
     site_id: z.string().uuid().nullable(),
-    // Present only when the card was the setup task: what the card held before, so Undo can put it back.
+    // Present only when the card was the project's card: what the card held before, so Undo can put it back.
     card_before: z.object({ triage_kind: z.string().nullable(), client_id: z.string().uuid().nullable(), site_id: z.string().uuid().nullable() }).strict().optional(),
   })
   .strict();
@@ -170,7 +170,7 @@ async function run(ctx: OpContext, input: StartProjectInput, expect: unknown): P
   let taskId: string = randomUUID();
   let cardBefore: z.infer<typeof afterSchema>['card_before'];
   if (input.card_task_id) {
-    // The card is the setup task: link it (compare-and-set on "still in Triage, still no project") instead of creating a kickoff task.
+    // The card is the project's card: link it (compare-and-set on "still in Triage, still no project") instead of creating a kickoff task.
     const card = await loadCard(db, input.card_task_id);
     const linked = await db.task.updateMany({
       where: { id: card.id, status: 'triage', project_id: null, is_deleted: false },
@@ -219,7 +219,7 @@ export const startProjectOp: OpDef<StartProjectInput> = {
     const p = await (ctx.db as OpDb).project.findFirst({ where: { id: after.data.project_id, is_deleted: false }, select: { id: true, name: true, status: true } });
     if (!p || p.status !== 'queue') throw new ApiError(CHANGED, 409, 'changed_since');
     if (after.data.card_before) {
-      // The setup task is a Triage card: it must still be in Triage and still linked to this project. Nothing reaches the worker.
+      // The project's card is a Triage card: it must still be in Triage and still linked to this project. Nothing reaches the worker.
       const card = await (ctx.db as OpDb).task.findFirst({ where: { id: after.data.task_id, is_deleted: false, status: 'triage', project_id: p.id }, select: { id: true } });
       if (!card) throw new ApiError(CHANGED, 409, 'changed_since');
       const reach = reachOfNewTask(ctx, { title: p.name, description: null, requirements: null, client_id: null, site_id: null, tags: [] }, 'undo');

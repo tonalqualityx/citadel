@@ -349,3 +349,20 @@ describe('Plan tab: collapsible sections and date sources', () => {
     expect(screen.getByTestId('plan-date-changes').textContent).toContain('Launch moved from Mar 1, 2027 to May 5, 2027, from Signed SOW v2');
   });
 });
+
+describe('Plan tab: what this project is for', () => {
+  const proj = (over: Record<string, unknown> = {}) => ({ project_id: 'p1', name: 'P', status: 'queue', start_date: null, target_date: null, mike_parts: [], phases: [], sitemap: [], deal: null, ...over });
+  it('shows the project description at the top, read only, for a project card', () => {
+    render(<PlanView plan={plan({}, { project: proj({ description_lines: ['What this project is: A new site.', 'Why it matters: Leads.'] }) })} canEdit />);
+    const sec = screen.getByTestId('plan-purpose');
+    expect(sec.textContent).toContain('What this project is for');
+    expect(within(sec).getByTestId('plan-purpose-text').textContent).toContain('Why it matters: Leads.');
+    expect(within(sec).queryAllByRole('textbox').length).toBe(0);
+    const order = Array.from(document.querySelectorAll('section')).map((e) => e.getAttribute('data-testid'));
+    expect(order.indexOf('plan-purpose')).toBeLessThan(order.indexOf('plan-requirements'));
+  });
+  it('shows nothing when the project has no description, and nothing for a card with no project', () => {
+    render(<PlanView plan={plan({}, { project: proj({ description_lines: null }) })} />);
+    expect(screen.queryByTestId('plan-purpose')).toBeNull();
+  });
+});

@@ -178,37 +178,14 @@ describe('a write that needs no tap', () => {
   });
 });
 
-describe('a change that needs a tap', () => {
-  it('a project going live: 202, a proposal row, X-Bast-Chat-Action, nothing else written, one write counted', async () => {
+describe('a project going live (no tap: nothing waits on the portal)', () => {
+  it('applies at once, writes one row, and proposes nothing', async () => {
     project.status = 'queue';
     const res = await call(proj('ready'));
-    expect(res.status).toBe(202);
-    const j = await res.json();
-    expect(Object.keys(j).sort()).toEqual(['action_id', 'line', 'proposal_kind', 'status']);
-    expect(j).toMatchObject({ status: 'proposed', proposal_kind: 'client_show' });
-    expect(res.headers.get('X-Bast-Chat-Action')).toBe(j.action_id);
-    expect(project.status).toBe('queue');
-    expect(h.db.project.updateMany).not.toHaveBeenCalled();
-    expect(writes).toBe(1);
-    expect(actions).toHaveLength(1);
-    expect(actions[0]).toMatchObject({ status: 'proposed', proposal_kind: 'client_show', tool: 'change_project', target_type: 'project', target_id: PROJ });
-  });
-  it('the tap (releaseAction) then applies it as the owner through the op, and is not counted again', async () => {
-    project.status = 'queue';
-    const j = await (await call(proj('ready'))).json();
-    h.db.bastChatConversation.findUnique.mockResolvedValue({ owner_id: OWNER_ID });
-    const v = await releaseAction(j.action_id, OWNER_ID, new Date(), h.db);
-    expect(v.status).toBe('released');
+    expect(res.status).toBe(200);
     expect(project.status).toBe('ready');
+    expect(actions.every((x) => x.status !== 'proposed')).toBe(true);
     expect(writes).toBe(1);
-  });
-  it('a change between proposal and tap kills the tap and writes nothing', async () => {
-    project.status = 'queue';
-    const j = await (await call(proj('ready'))).json();
-    project.status = 'suspended';
-    h.db.bastChatConversation.findUnique.mockResolvedValue({ owner_id: OWNER_ID });
-    await expect(releaseAction(j.action_id, OWNER_ID, new Date(), h.db)).rejects.toMatchObject({ statusCode: 409 });
-    expect(project.status).toBe('suspended');
   });
 });
 

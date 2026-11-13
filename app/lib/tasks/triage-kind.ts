@@ -5,7 +5,7 @@
  * that describes them. The sentence is built from the effects by describeRelease, and `release()` in triage.ts applies exactly those effects, so the
  * "On release" line can never promise something the action does not do. Pure: no database, no React.
  *
- *   project_setup                                     project queue -> ready, card -> not_started, assigned to Bast, tags kickoff + from-triage
+ *   project_setup (a project card)                    project queue -> ready, card -> not_started, assigned to Bast, tags kickoff + from-triage
  *   (every card that ends assigned to Bast also gets needs-pm-release while the worker hold is on: see pmReleaseHold)
  *   task | project_addition | reusable_tool | rule_proposal   card -> not_started, assigned to Bast when nobody is, tag from-triage
  *   question_only                                     card closed as done; its questions and answers stay on it
@@ -57,7 +57,7 @@ export interface ReleaseInput {
 
 export interface ReleaseEffects {
   to_status: 'not_started' | 'done';
-  /** Set the assignee to Bast. For a setup card this is always; for the other kinds only when nobody is assigned. */
+  /** Set the assignee to Bast. For a project card this is always; for the other kinds only when nobody is assigned. */
   assign_bast: boolean;
   /** Tags Release makes sure are on the card. */
   add_tags: string[];
@@ -70,7 +70,7 @@ export interface ReleaseEffects {
   lands_on_bast: boolean;
   /** The project the card belongs to (setup, or an addition). Null otherwise. */
   project_name: string | null;
-  /** project_setup only: the project is made ready and set up by the office manager (Dox), who creates and assigns every task. */
+  /** Project card (kind project_setup) only: the project is made ready and handed to the office manager (Dox) to set up, who creates and assigns every task. */
   starts_project: boolean;
   /** The card waits until Dox picks it up (the worker hold, on a card that ends with Bast). */
   held_for_dox: boolean;
@@ -123,8 +123,8 @@ export function describeRelease(fx: ReleaseEffects): string {
   if (fx.kind === 'project_setup') {
     parts.push(
       fx.starts_project
-        ? `Starts the project: ${PM_NAME} sets up ${fx.project_name}, creating and assigning every task.`
-        : `Hands the setup of ${fx.project_name} to ${PM_NAME}, who creates and assigns every task.`,
+        ? `Starts the project: hands ${fx.project_name} to ${PM_NAME} to set up, creating and assigning every task.`
+        : `Hands ${fx.project_name} to ${PM_NAME} to set up, who creates and assigns every task.`,
     );
   } else {
     const to = fx.lands_on_bast ? 'Bast' : (fx.lands_on ?? 'its assignee');

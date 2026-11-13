@@ -46,8 +46,7 @@ describe('project op', () => {
     expect(r.summary).toBe('Moved the "VCDP site" project to suspended.');
     const rec = { before: r.before, after: r.after } as any;
     const u = await op.prepareUndo(ctx() as any, rec);
-    expect(u.reach.needs_tap).toBe(true); // putting it back makes it visible to the client again
-    expect(u.reach.proposal_kind).toBe('client_show');
+    expect(u.reach.needs_tap).toBe(false); // putting it back is not held for the portal either
   });
   it('done sets the completed date, leaving done clears it; Undo puts it back', async () => {
     const { input, prep } = await move('done');
@@ -58,13 +57,12 @@ describe('project op', () => {
     expect(await op.undo(ctx() as any, rec, u.expect)).toEqual({ ok: true });
     expect(p).toMatchObject({ status: 'in_progress', completed_date: null });
   });
-  it('a hidden project going live is a client show: a tap, nothing written', async () => {
+  it('a hidden project going live is no tap and no client show: nothing waits on the portal', async () => {
     for (const from of ['quote', 'queue', 'suspended', 'cancelled']) {
       p.status = from;
       const { prep } = await move('ready');
-      expect(prep.reach.needs_tap).toBe(true);
-      expect(prep.reach.proposal_kind).toBe('client_show');
-      expect(h.db.project.updateMany).not.toHaveBeenCalled();
+      expect(prep.reach.needs_tap).toBe(false);
+      expect(prep.reach.shows_client).toEqual([]);
     }
   });
   it('hidden to hidden and visible to visible do not tap', async () => {

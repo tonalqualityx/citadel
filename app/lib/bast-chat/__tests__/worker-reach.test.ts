@@ -659,15 +659,14 @@ describe('R5: shows the client', () => {
     delete t.staging_preview_url;
     expect(patch(t, { status: 'review' }).shows_client.map((c) => c.rule)).toEqual(['missing_data']);
   });
-  it('a project leaving quote, queue, suspended or cancelled for a visible status is a show; the worker is not reached', () => {
-    for (const before of ['quote', 'queue', 'suspended', 'cancelled']) {
-      const r = checkOp({ op: { op: 'project_status', project_id: 'p1', status_before: before, status_after: 'ready' }, now: NOW });
+  it('a project status change never stops the chat for the portal (Mike, 2026-11-13); only an unknown status does; the worker is not reached', () => {
+    for (const before of ['quote', 'queue', 'suspended', 'cancelled', undefined]) {
+      const r = checkOp({ op: { op: 'project_status', project_id: 'p1', ...(before ? { status_before: before } : {}), status_after: 'ready' }, now: NOW });
       expect(r.reaches).toBe(false);
-      expect(r.shows_client.map((c) => c.rule)).toEqual(['project_goes_live']);
+      expect(r.shows_client).toEqual([]);
+      expect(r.needs_tap).toBe(false);
     }
-    expect(checkOp({ op: { op: 'project_status', project_id: 'p1', status_before: 'ready', status_after: 'in_progress' }, now: NOW }).needs_tap).toBe(false);
     expect(checkOp({ op: { op: 'project_status', project_id: 'p1', status_before: 'ready', status_after: 'suspended' }, now: NOW }).needs_tap).toBe(false);
-    expect(checkOp({ op: { op: 'project_status', project_id: 'p1', status_after: 'ready' }, now: NOW }).shows_client[0].rule).toBe('project_goes_live');
     expect(checkOp({ op: { op: 'project_status', project_id: 'p1', status_before: 'ready', status_after: 'archived' }, now: NOW }).shows_client[0].rule).toBe('unknown_status');
   });
   it('a body that both hands to Bast and shares: both lists, the Bast start wins the kind', () => {

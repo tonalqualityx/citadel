@@ -19,6 +19,7 @@ import { guardDoxTaskWrite, isDoxLane } from '@/lib/dox/guard';
 import { mayLeaveTriage } from '@/lib/services/task-patch';
 import { contractorItem, isPlanOwner, planReaderOf, viewOf, type PlanReader } from './plan-policy';
 import { isChatLane } from './questions';
+import { descriptionLines } from './project-brief';
 import { DATE_AREA, readDateSources } from './date-changes';
 import { actorOf, recordTriageChange, type Actor } from './triage-rev';
 import { projectBlocks } from './triage-card';
@@ -311,7 +312,9 @@ export async function loadPlan(task: PlanTaskHead, auth: Auth, headers: Hdrs): P
     if (blk) {
       const dateRows = await prisma.triageChange.findMany({ where: { task_id: task.id, area: DATE_AREA, detail: { not: Prisma.DbNull } }, orderBy: [{ created_at: 'desc' }, { id: 'desc' }], take: 50, select: { line: true, by: true, created_at: true, detail: true } });
       const ds = readDateSources(dateRows, { start_date: blk.start_date, target_date: blk.target_date });
+      const proj = await prisma.project.findUnique({ where: { id: blk.project_id }, select: { description: true } });
       project = {
+        description_lines: descriptionLines(proj?.description),
         date_sources: { start: ds.start, launch: ds.launch },
         date_changes: ds.changes,
         project_id: blk.project_id,
