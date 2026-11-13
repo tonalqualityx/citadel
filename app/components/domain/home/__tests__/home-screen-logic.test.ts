@@ -77,7 +77,7 @@ function mkRes(over: Partial<HomeResponse> = {}): HomeResponse {
       today: 'Nothing proposed for today.',
       needs_you_now: 'Nothing urgent.',
       triage: 'Nothing in Triage. Tell Bast and it lands here.',
-      overdue_others: 'Nobody else is late on anything.',
+      past_date_others: 'Nobody else has anything past its date.',
       working_on: 'Nothing in progress.',
       leads: 'No sales leads.',
       mail: 'No client is waiting.',

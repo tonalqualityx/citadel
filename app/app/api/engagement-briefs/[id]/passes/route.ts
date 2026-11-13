@@ -40,7 +40,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (body.mode === 'live' && brief.owner_mode !== 'live') {
       throw new ApiError('This brief is not in live mode.', 409, 'brief_not_live');
     }
-    const row = await prisma.engagementPass.create({ data: { brief_id: id, mode: body.mode, model: body.model ?? null } });
+    const row = await prisma.engagementPass.create({ data: { brief_id: id, mode: body.mode, model: body.model ?? null, lane: auth.lane ? auth.lane.slice(0, 40) : null } });
     return NextResponse.json(serializePass(row), { status: 201 });
   } catch (error) {
     return handleApiError(error);

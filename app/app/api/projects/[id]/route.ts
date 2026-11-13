@@ -6,7 +6,7 @@ import { handleApiError, ApiError } from '@/lib/api/errors';
 import { formatProjectResponse } from '@/lib/api/formatters';
 import { canTransitionProjectStatus } from '@/lib/calculations/status';
 import { healBlockedTasks } from '@/lib/services/dependencies';
-import { guardDoxProjectPatch } from '@/lib/dox/guard';
+import { guardDoxProjectPatch, isDoxLane } from '@/lib/dox/guard';
 
 const updateProjectSchema = z.object({
   name: z.string().min(1).max(255).optional(),
@@ -131,14 +131,15 @@ export async function PATCH(
     const body = await request.json();
 
     // Dox lane: the dates, ordering-only and a setup status change, on the one project it works on.
-    if (auth.lane === 'dox') {
+    if (isDoxLane(auth)) {
       const head = await prisma.project.findUnique({ where: { id, is_deleted: false }, select: { id: true, status: true } });
       if (!head) throw new ApiError('Project not found', 404);
-      const [open, total] = await Promise.all([
+      const [open, done, total] = await Promise.all([
         prisma.task.count({ where: { project_id: id, is_deleted: false, status: { notIn: ['done', 'abandoned'] } } }),
+        prisma.task.count({ where: { project_id: id, is_deleted: false, status: 'done' } }),
         prisma.task.count({ where: { project_id: id, is_deleted: false } }),
       ]);
-      guardDoxProjectPatch(auth, request.headers, body as Record<string, unknown>, { ...head, open_task_count: open, total_task_count: total });
+      await guardDoxProjectPatch(auth, request.headers, body, { ...head, open_task_count: open, done_task_count: done, total_task_count: total });
     }
 
     // Check if this is a budget lock operation

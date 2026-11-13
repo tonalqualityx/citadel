@@ -645,7 +645,7 @@ export type HomeTileId =
   | 'today'
   | 'needs_you_now'
   | 'triage'
-  | 'overdue_others'
+  | 'past_date_others'
   | 'working_on'
   | 'leads'
   | 'mail'
@@ -659,7 +659,7 @@ export const HOME_TILE_ORDER: readonly HomeTileId[] = [
   'today',
   'needs_you_now',
   'triage',
-  'overdue_others',
+  'past_date_others',
   'working_on',
   'leads',
   'mail',
@@ -696,7 +696,7 @@ export interface HomeResponse {
    * Overdue by others: open tasks someone other than him is late on (more than one day past due, on a live project or none). Owner only: left out of the
    * payload for everyone else. A list he looks at; it never creates a notification.
    */
-  overdue_others?: HomeOverdueOthers | null;
+  past_date_others?: HomePastDateOthers | null;
   /**
    * The empty sentence for every tile, from copy.ts, exactly as the design gives them
    * ("Nothing urgent.", "No active projects.", ...). '' where the design has none.
@@ -709,7 +709,7 @@ export interface HomeResponse {
 // ============================================================================
 
 /** Overdue by others: one late task. */
-export interface HomeOverdueRow {
+export interface HomePastDateRow {
   task_id: string;
   title: string;
   href: string;
@@ -721,14 +721,14 @@ export interface HomeOverdueRow {
   /** The due date (ISO). */
   due_date: string;
   /** Whole days past the due date (at least 1). */
-  days_overdue: number;
+  days_past: number;
 }
 
-export interface HomeOverdueOthers {
+export interface HomePastDateOthers {
   /** Every late task, the rows may be cut at 200. */
   count: number;
-  /** Most overdue first. */
-  rows: HomeOverdueRow[];
+  /** most days past first. */
+  rows: HomePastDateRow[];
 }
 
 /** Triage: one parked idea (a task in status triage). */

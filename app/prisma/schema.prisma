@@ -4453,6 +4453,8 @@ model EngagementPass {
   actions     Json      @default("[]")
   mike_items  Json      @default("[]")
   error       String?   @db.Text
+  /// The lane of the key that started the pass (null for a signed-in session). Dox's writes need an open pass started by the dox lane.
+  lane        String?   @db.VarChar(40)
 
   @@index([brief_id, started_at])
   @@map("engagement_passes")

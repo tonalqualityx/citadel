@@ -3,7 +3,8 @@
  *
  * Who is told: a staff user (an active user, never a client contact, since clients are never users) who is not a bot and is not the owner (his
  * own tasks are his list, not a notice). Which task: open (not_started, in_progress, review or blocked; never Triage, done or abandoned), on a live
- * project (ready, in_progress, review) or on none. When: the due date's calendar day, in the assignee's time zone, is tomorrow. How often: once for
+ * project (ready, in_progress, review) or on none. When: the due date's calendar day is tomorrow's date in the assignee's time zone (the picked day is stored as midnight UTC and is read as that calendar day, never shifted
+ * into a zone; a due date carrying a real time of day is read in the zone: lib/services/due-day.ts). How often: once for
  * a given due date. The due date that was announced is kept on the task (due_notice_for), claimed with a conditional write before the notice goes
  * out, so two runs at the same time, or a run every hour, never tell twice; a task whose due date moves is told again for the new date.
  */
@@ -11,6 +12,7 @@ import { prisma } from '@/lib/db/prisma';
 import { BOT_USER_IDS, MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import { resolveUserTimezone } from '@/lib/services/user-timezone';
 import { getZonedDateString } from '@/lib/utils/time';
+import { dueDay } from '@/lib/services/due-day';
 import { notifyTaskDueSoon } from '@/lib/services/notifications';
 
 export const DUE_NOTICE_OPEN_STATUSES = ['not_started', 'in_progress', 'review', 'blocked'] as const;
@@ -24,9 +26,9 @@ export function tomorrowIn(now: Date, zone: string): string {
   return getZonedDateString(new Date(new Date(`${today}T12:00:00Z`).getTime() + 24 * HOUR_MS), 'UTC');
 }
 
-/** True when the due date falls on tomorrow's calendar day in the zone. */
+/** True when the due date's calendar day is tomorrow's date in the zone. */
 export function isDayBefore(due: Date, now: Date, zone: string): boolean {
-  return getZonedDateString(due, zone) === tomorrowIn(now, zone);
+  return dueDay(due, zone) === tomorrowIn(now, zone);
 }
 
 export interface DueNoticeResult {
@@ -35,8 +37,8 @@ export interface DueNoticeResult {
 }
 
 export async function runTaskDueNotices(now: Date = new Date()): Promise<DueNoticeResult> {
-  // Candidates: a window wide enough for every zone's "tomorrow"; the zone check below decides.
-  const from = new Date(now.getTime() - 12 * HOUR_MS);
+  // Candidates: a window wide enough for every zone's "tomorrow" (a midnight-UTC due date can sit 24 hours behind now, or 48 ahead); the day check below decides.
+  const from = new Date(now.getTime() - 36 * HOUR_MS);
   const to = new Date(now.getTime() + 60 * HOUR_MS);
   const candidates = await prisma.task.findMany({
     where: {

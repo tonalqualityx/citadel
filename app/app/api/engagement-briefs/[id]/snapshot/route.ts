@@ -4,7 +4,7 @@ import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { buildProjectSnapshot } from '@/lib/engagement/snapshot';
 import { serializeBrief } from '@/lib/engagement/serialize';
-import { mayReadSnapshot } from '@/lib/dox/guard';
+import { guardDoxSnapshotRead, mayReadSnapshot } from '@/lib/dox/guard';
 import { MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -23,6 +23,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     const brief = await prisma.engagementBrief.findUnique({ where: { id } });
     if (!brief) throw new ApiError('Brief not found', 404);
     if (!brief.project_id) throw new ApiError('This brief is on a charter; a snapshot is per project.', 400, 'brief_not_project');
+    await guardDoxSnapshotRead(auth, brief.project_id);
     const snap = await buildProjectSnapshot(prisma, brief.project_id);
     if (!snap) throw new ApiError('Project not found', 404);
     return NextResponse.json({ brief: serializeBrief(brief), ...snap }, { headers: { 'Cache-Control': 'no-store' } });

@@ -102,7 +102,7 @@ export async function POST(request: NextRequest) {
     const auth = await requireAuth();
     requireRole(auth, ['pm', 'admin']);
     const body = createSchema.parse(await request.json());
-    guardDoxWaitCreate(auth, body);
+    await guardDoxWaitCreate(auth, request.headers, body);
     // A price review chain starts at step 1 and moves on by itself. Opening a later step by hand
     // could skip Mike's approval or stamp a review done.
     if (body.template_key === 'charter.price_review' && (body.step ?? 1) !== 1) {

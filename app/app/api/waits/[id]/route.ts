@@ -105,7 +105,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     requireRole(auth, ['pm', 'admin']);
     const { id } = await params;
     const body = patchSchema.parse(await request.json());
-    guardDoxWaitPatch(auth, body as { action?: unknown; resolution?: unknown });
+    await guardDoxWaitPatch(auth, request.headers, id, body as { action?: unknown; resolution?: unknown });
     const w = await load(id);
     const store = prismaSweepStore(prisma);
     const now = new Date();

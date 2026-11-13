@@ -45,6 +45,7 @@ const ALLOWED: [string, string][] = [
   ['GET', '/api/auth/me'],
   ['GET', '/api/users'],
   ['GET', '/api/projects'],
+  ['POST', '/api/projects'],
   ['GET', '/api/projects/7f1c'],
   ['GET', '/api/projects/7f1c/engagement-snapshot'],
   ['POST', '/api/projects/7f1c/engagement-brief'],
@@ -114,7 +115,6 @@ const DENIED: [string, string][] = [
   ['GET', '/api/api-keys'],
   ['POST', '/api/api-keys'],
   ['GET', '/api/clients'],
-  ['POST', '/api/projects'],
 ];
 
 describe('lane dox', () => {

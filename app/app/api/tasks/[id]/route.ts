@@ -94,11 +94,11 @@ export async function PATCH(
 
     const existingTask = await checkTaskAccess(id, auth);
     const rawBody = await request.json();
-    const body = guardDoxTaskPatch(
+    const body = await guardDoxTaskPatch(
       auth,
       request.headers,
-      (await guardChatTaskBody(auth, 'PATCH', rawBody, existingTask)) as Record<string, unknown>,
-      { status: existingTask.status, project_id: existingTask.project_id ?? null, tags: existingTask.tags ?? [] },
+      await guardChatTaskBody(auth, 'PATCH', rawBody, existingTask),
+      { id, status: existingTask.status, project_id: existingTask.project_id ?? null, tags: existingTask.tags ?? [], assignee_id: existingTask.assignee_id ?? null, updated_at: existingTask.updated_at ?? null },
     );
     const chatConversation = await chatConversationFor(auth, request.headers, 'PATCH');
 

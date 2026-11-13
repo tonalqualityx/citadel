@@ -17,7 +17,7 @@ import { HandsCard } from './HandsCard';
 import { HandledMailList } from './HandledMailList';
 import { FinishedCard } from './FinishedCard';
 import { TriageBoard } from './TriageBoard';
-import { OverdueOthers } from './OverdueOthers';
+import { PastDateOthers } from './PastDateOthers';
 import { openTriageConversation } from './triage-talk';
 import type { OpenCardInput } from '@/components/domain/bast-chat/card-context';
 import { AttachCard } from './AttachCard';
@@ -176,7 +176,7 @@ function HomeBody(p: BodyProps) {
   const itemTile = isItemTile(tile);
   if (itemTile) {
     keys = itemsForTile(res, tile).map((i) => i.key);
-  } else if (tile === 'triage' || tile === 'overdue_others') {
+  } else if (tile === 'triage' || tile === 'past_date_others') {
     // The Triage tab is a grid of cards, and Overdue by others a plain list to read: no rows, no selection.
   } else if (tile === 'handled') {
     rows = rowsFromHandled(res);
@@ -276,8 +276,8 @@ function HomeBody(p: BodyProps) {
       <TileStrip tiles={tiles} selected={tile} onSelect={pickTile} />
       {tile === 'triage' && res.triage ? (
         <TriageBoard triage={res.triage} onAct={onFinishedAct} onTalk={onTalk} busy={itemActions.busy} />
-      ) : tile === 'overdue_others' && res.overdue_others ? (
-        <OverdueOthers overdue={res.overdue_others} emptyText={res.empty.overdue_others} />
+      ) : tile === 'past_date_others' && res.past_date_others ? (
+        <PastDateOthers others={res.past_date_others} emptyText={res.empty.past_date_others} />
       ) : (
       <div className="home-work">
         <div className="home-pane">

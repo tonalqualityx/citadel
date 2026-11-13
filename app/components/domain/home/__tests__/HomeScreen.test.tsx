@@ -105,7 +105,7 @@ function mkRes(): HomeResponse {
   { key: 'task:r1', title: 'Renew the domain', owner: 'You', check_text: 'Back Thursday, November 12', check_at: '2026-11-12T05:05:00Z', past_check: false, can_bring_forward: true },
   { key: null, title: 'Grok sign-off', owner: 'The Grok project', check_text: 'Waits for the sign-off', check_at: null, past_check: false, can_bring_forward: false },
 ] }], with_day: 2, past_day: 1, scope_line: '4 tasks on unsigned or paused projects are kept as scope, not work.' },
-    empty: { today: 'Nothing proposed for today.', needs_you_now: 'Nothing urgent.', triage: 'Nothing in Triage. Tell Bast and it lands here.', overdue_others: 'Nobody else is late on anything.', working_on: 'Nothing in progress.', leads: 'No sales leads are waiting on you.', mail: 'No client is waiting on a reply from you.', next: 'Nothing needs a decision from you right now.', projects: 'No active projects.', handled: 'Nothing new since you last looked.', everything_else: '' },
+    empty: { today: 'Nothing proposed for today.', needs_you_now: 'Nothing urgent.', triage: 'Nothing in Triage. Tell Bast and it lands here.', past_date_others: 'Nobody else has anything past its date.', working_on: 'Nothing in progress.', leads: 'No sales leads are waiting on you.', mail: 'No client is waiting on a reply from you.', next: 'Nothing needs a decision from you right now.', projects: 'No active projects.', handled: 'Nothing new since you last looked.', everything_else: '' },
   };
 }
 

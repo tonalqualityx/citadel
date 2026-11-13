@@ -286,7 +286,7 @@ export async function POST(request: NextRequest) {
   try {
     const auth = await requireAuth();
 
-    const body = guardDoxTaskCreate(auth, request.headers, (await guardChatTaskBody(auth, 'POST', await request.json())) as Record<string, unknown>);
+    const body = await guardDoxTaskCreate(auth, request.headers, await guardChatTaskBody(auth, 'POST', await request.json()));
     const chatConversation = await chatConversationFor(auth, request.headers, 'POST');
     const data = createTaskSchema.parse(body);
     // Chat lane only: a create the reach check would tap (a task assigned to Bast) writes nothing.

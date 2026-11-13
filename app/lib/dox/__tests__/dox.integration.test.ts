@@ -73,6 +73,8 @@ describe.skipIf(!SCRATCH)('Dox slice 1 (real database)', () => {
     P = await fx.mkProject('Stronghold', { status: 'ready', plan_folder: '/home/mike/Documents/projects/stronghold' });
     OTHER = await fx.mkProject('Elsewhere', { status: 'in_progress' });
     staff = await fx.mkStaff('Sabeen');
+    await fx.openPass(P);
+    await fx.openPass(OTHER);
   });
   afterAll(async () => {
     await prisma.taskQuestion.deleteMany({ where: { task: { project_id: { in: fx.projectIds } } } });
@@ -109,7 +111,7 @@ describe.skipIf(!SCRATCH)('Dox slice 1 (real database)', () => {
     });
 
     it('sets assignee, due date and blockers on its own project and releases the holds; refuses a task of another project', async () => {
-      const a = await fx.mkTask('A', { project_id: P, status: 'not_started', tags: ['cockpit-owned', 'needs-pm-release', 'keep'] });
+      const a = await fx.mkTask('A', { project_id: P, status: 'not_started', tags: ['cockpit-owned', 'needs-pm-release', 'from-triage', 'keep'] });
       const b = await fx.mkTask('B', { project_id: P, status: 'not_started' });
       const out = await fx.mkTask('Out', { project_id: OTHER, status: 'not_started' });
       as(dox());
@@ -117,7 +119,7 @@ describe.skipIf(!SCRATCH)('Dox slice 1 (real database)', () => {
       expect(ok.status, JSON.stringify(ok.body)).toBe(200);
       const row = await prisma.task.findUniqueOrThrow({ where: { id: a }, include: { blocked_by: true } });
       expect(row.assignee_id).toBe(staff);
-      expect(row.tags).toEqual(['keep']);
+      expect(row.tags).toEqual(['from-triage', 'keep']);
       expect(row.blocked_by.map((x) => x.id)).toEqual([b]);
 
       const refused = await patchTask(call(P, { assignee_id: staff }, 'PATCH'), idParams(out));
@@ -144,6 +146,7 @@ describe.skipIf(!SCRATCH)('Dox slice 1 (real database)', () => {
 
     it('sets the project dates and ordering-only, moves ready -> in_progress, closes only when every task is done', async () => {
       const proj = await fx.mkProject('Setup', { status: 'ready' });
+      await fx.openPass(proj);
       as(dox());
       const dates = await patchProject(call(proj, { start_date: '2026-11-10T12:00:00.000Z', target_date: '2026-11-30T12:00:00.000Z', dependencies_ordering_only: true }, 'PATCH'), idParams(proj));
       expect(dates.status).toBe(200);
@@ -183,31 +186,33 @@ describe.skipIf(!SCRATCH)('Dox slice 1 (real database)', () => {
     it('stamps actor_lane dox on a comment, forces it internal and refuses a client-visible one', async () => {
       const t = await fx.mkTask('Commented', { project_id: P, status: 'not_started' });
       as(dox());
-      const ok = await json(await addComment(call(undefined, { content: 'Assigned to Sabeen. ~ Dox', is_internal: false }), idParams(t)));
+      const ok = await json(await addComment(call(P, { content: 'Assigned to Sabeen. ~ Dox', is_internal: false }), idParams(t)));
       expect(ok.status).toBe(201);
       expect(ok.body.actor_lane).toBe('dox');
       expect(ok.body.is_internal).toBe(true);
       const row = await prisma.comment.findUniqueOrThrow({ where: { id: ok.body.id } });
       expect(row.actor_lane).toBe('dox');
       expect(row.is_internal).toBe(true);
-      expect((await addComment(call(undefined, { content: 'Hello client', client_visible: true }), idParams(t))).status).toBe(403);
-      expect((await addComment(call(undefined, { content: 'Question?', client_visible: true, client_question: true }), idParams(t))).status).toBe(403);
+      expect((await addComment(call(P, { content: 'Hello client', client_visible: true }), idParams(t))).status).toBe(403);
+      expect((await addComment(call(P, { content: 'Question?', client_visible: true, client_question: true }), idParams(t))).status).toBe(403);
     });
 
-    it('comments on a task of another project are allowed (the one write that reaches any task) and stamped', async () => {
+    it('a comment is a task write: refused on a task outside the project in play, allowed with that project\'s own header', async () => {
       const t = await fx.mkTask('Other comment', { project_id: OTHER, status: 'not_started' });
       as(dox());
-      expect((await addComment(call(P, { content: 'A note. ~ Dox' }), idParams(t))).status).toBe(201);
+      expect((await addComment(call(P, { content: 'A note. ~ Dox' }), idParams(t))).status).toBe(403);
+      expect((await addComment(call(undefined, { content: 'A note. ~ Dox' }), idParams(t))).status).toBe(403);
+      expect((await addComment(call(OTHER, { content: 'A note. ~ Dox' }), idParams(t))).status).toBe(201);
     });
 
     it('stamps asked_by_lane dox on a question, and Dox cannot answer it', async () => {
       const t = await fx.mkTask('Asked', { project_id: P, status: 'not_started' });
       as(dox());
-      const made = await json(await addQ(call(undefined, q('Who reviews the content?')), idParams(t)));
+      const made = await json(await addQ(call(P, q('Who reviews the content?')), idParams(t)));
       expect(made.status, JSON.stringify(made.body)).toBe(201);
       expect(made.body.asked_by_lane).toBe('dox');
       const version = made.body.version as string;
-      const answer = await answerQ(call(undefined, { version, option_id: 'sabeen' }), { params: Promise.resolve({ id: t, qid: made.body.id }) });
+      const answer = await answerQ(call(P, { version, option_id: 'sabeen' }), { params: Promise.resolve({ id: t, qid: made.body.id }) });
       expect(answer.status).toBe(403);
       expect((await prisma.taskQuestion.findUniqueOrThrow({ where: { id: made.body.id } })).state).toBe('open');
     });
@@ -217,27 +222,33 @@ describe.skipIf(!SCRATCH)('Dox slice 1 (real database)', () => {
     it('a repeat of an open cause on the card returns the existing question (200, deduped) and creates nothing', async () => {
       const t = await fx.mkTask('Cause card', { project_id: P, status: 'not_started' });
       as(dox());
-      const first = await json(await addQ(call(undefined, q('Who owns the review phase?', { cause_key: 'stuck:review-no-owner' })), idParams(t)));
+      const first = await json(await addQ(call(P, q('Who owns the review phase?', { cause_key: 'stuck:review-no-owner' })), idParams(t)));
       expect(first.status).toBe(201);
       expect(first.body.cause_key).toBe('stuck:review-no-owner');
-      const again = await json(await addQ(call(undefined, q('Who should own the review phase now?', { cause_key: 'stuck:review-no-owner' })), idParams(t)));
+      const again = await json(await addQ(call(P, q('Who should own the review phase now?', { cause_key: 'stuck:review-no-owner' })), idParams(t)));
       expect(again.status).toBe(200);
       expect(again.body.id).toBe(first.body.id);
       expect(again.body.deduped).toBe(true);
       expect(await prisma.taskQuestion.count({ where: { task_id: t } })).toBe(1);
     });
 
-    it('a different cause key is a new question; an answered or withdrawn cause can be raised again', async () => {
+    it('a different cause key is a new question; a withdrawn cause can be raised again; an ANSWERED cause is not asked twice (the answer comes back)', async () => {
       const t = await fx.mkTask('Cause two', { project_id: P, status: 'not_started' });
       as(dox());
-      const a = await json(await addQ(call(undefined, q('Is the first cause real?', { cause_key: 'cause-a' })), idParams(t)));
-      const b = await json(await addQ(call(undefined, q('Is the second cause real?', { cause_key: 'cause-b' })), idParams(t)));
+      const a = await json(await addQ(call(P, q('Is the first cause real?', { cause_key: 'cause-a' })), idParams(t)));
+      const b = await json(await addQ(call(P, q('Is the second cause real?', { cause_key: 'cause-b' })), idParams(t)));
       expect([a.status, b.status]).toEqual([201, 201]);
       expect(a.body.id).not.toBe(b.body.id);
       await prisma.taskQuestion.update({ where: { id: a.body.id }, data: { state: 'withdrawn', withdrawn_at: new Date(), withdrawn_reason: 'Cause went away.' } });
-      const c = await json(await addQ(call(undefined, q('Is the first cause back again?', { cause_key: 'cause-a' })), idParams(t)));
+      const c = await json(await addQ(call(P, q('Is the first cause back again?', { cause_key: 'cause-a' })), idParams(t)));
       expect(c.status).toBe(201);
       expect(c.body.id).not.toBe(a.body.id);
+      // settled: the answer is on the question that comes back, and nothing new is created
+      await prisma.taskQuestion.update({ where: { id: b.body.id }, data: { state: 'answered', answer_option_id: 'sabeen', answered_at: new Date(), answered_by_id: MIKE_USER_ID } });
+      const d = await json(await addQ(call(P, q('Is the second cause real, really?', { cause_key: 'cause-b' })), idParams(t)));
+      expect(d.status).toBe(200);
+      expect(d.body).toMatchObject({ id: b.body.id, deduped: true, state: 'answered', answer_option_id: 'sabeen' });
+      expect(await prisma.taskQuestion.count({ where: { task_id: t, cause_key: 'cause-b' } })).toBe(1);
     });
 
     it('a card-level cause on another card is a separate question; a project-level cause is one question for the whole project', async () => {
@@ -245,12 +256,12 @@ describe.skipIf(!SCRATCH)('Dox slice 1 (real database)', () => {
       const t2 = await fx.mkTask('Cause p2', { project_id: P, status: 'not_started' });
       const t3 = await fx.mkTask('Cause other', { project_id: OTHER, status: 'not_started' });
       as(dox());
-      const c1 = await json(await addQ(call(undefined, q('Does the card own a cause?', { cause_key: 'card-cause' })), idParams(t1)));
-      const c2 = await json(await addQ(call(undefined, q('Does the second card own a cause?', { cause_key: 'card-cause' })), idParams(t2)));
+      const c1 = await json(await addQ(call(P, q('Does the card own a cause?', { cause_key: 'card-cause' })), idParams(t1)));
+      const c2 = await json(await addQ(call(P, q('Does the second card own a cause?', { cause_key: 'card-cause' })), idParams(t2)));
       expect([c1.status, c2.status]).toEqual([201, 201]);
-      const p1 = await json(await addQ(call(undefined, q('Is the whole project stuck?', { cause_key: 'project-stuck', cause_scope: 'project' })), idParams(t1)));
-      const p2 = await json(await addQ(call(undefined, q('Is the project really stuck?', { cause_key: 'project-stuck', cause_scope: 'project' })), idParams(t2)));
-      const p3 = await json(await addQ(call(undefined, q('Is this other project stuck?', { cause_key: 'project-stuck', cause_scope: 'project' })), idParams(t3)));
+      const p1 = await json(await addQ(call(P, q('Is the whole project stuck?', { cause_key: 'project-stuck', cause_scope: 'project' })), idParams(t1)));
+      const p2 = await json(await addQ(call(P, q('Is the project really stuck?', { cause_key: 'project-stuck', cause_scope: 'project' })), idParams(t2)));
+      const p3 = await json(await addQ(call(OTHER, q('Is this other project stuck?', { cause_key: 'project-stuck', cause_scope: 'project' })), idParams(t3)));
       expect(p1.status).toBe(201);
       expect(p2.status).toBe(200);
       expect(p2.body.id).toBe(p1.body.id);
@@ -263,8 +274,8 @@ describe.skipIf(!SCRATCH)('Dox slice 1 (real database)', () => {
       const t2 = await fx.mkTask('Race 2', { project_id: P, status: 'not_started' });
       as(dox());
       const [a, b] = await Promise.all([
-        addQ(call(undefined, q('First of two at once?', { cause_key: 'race-cause', cause_scope: 'project' })), idParams(t1)),
-        addQ(call(undefined, q('Second of two at once?', { cause_key: 'race-cause', cause_scope: 'project' })), idParams(t2)),
+        addQ(call(P, q('First of two at once?', { cause_key: 'race-cause', cause_scope: 'project' })), idParams(t1)),
+        addQ(call(P, q('Second of two at once?', { cause_key: 'race-cause', cause_scope: 'project' })), idParams(t2)),
       ]);
       expect([a.status, b.status].sort()).toEqual([200, 201]);
       expect(await prisma.taskQuestion.count({ where: { cause_key: 'race-cause' } })).toBe(1);
@@ -273,9 +284,9 @@ describe.skipIf(!SCRATCH)('Dox slice 1 (real database)', () => {
     it('a bad cause_key is a 400, and a question with no key is unchanged', async () => {
       const t = await fx.mkTask('Cause bad', { project_id: P, status: 'not_started' });
       as(dox());
-      expect((await addQ(call(undefined, q('Is this key too short?', { cause_key: 'x' })), idParams(t))).status).toBe(400);
-      expect((await addQ(call(undefined, q('Is this scope valid?', { cause_key: 'valid-key', cause_scope: 'galaxy' })), idParams(t))).status).toBe(400);
-      const plain = await json(await addQ(call(undefined, q('Is there no key at all?')), idParams(t)));
+      expect((await addQ(call(P, q('Is this key too short?', { cause_key: 'x' })), idParams(t))).status).toBe(400);
+      expect((await addQ(call(P, q('Is this scope valid?', { cause_key: 'valid-key', cause_scope: 'galaxy' })), idParams(t))).status).toBe(400);
+      const plain = await json(await addQ(call(P, q('Is there no key at all?')), idParams(t)));
       expect(plain.status).toBe(201);
       expect(plain.body.cause_key).toBeNull();
     });

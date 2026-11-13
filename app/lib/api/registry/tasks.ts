@@ -332,11 +332,11 @@ export const taskEndpoints: ApiEndpoint[] = [
         auth: 'required',
         bodySchema: [
           { name: 'question', type: 'string', required: true, description: 'One line, at most 200 characters, ends in ?.' },
-          { name: 'cause_key', type: 'string', required: false, description: 'Dox: 3 to 120 characters naming the underlying cause. While a question with this key is OPEN on the card, a repeat returns that question (200, deduped: true) and creates nothing. A changed cause is a new key.' },
-          { name: 'cause_scope', type: 'string', required: false, description: 'card (default) or project: with project, one open question per cause across every task of the project of the card (the setup card included).' },
+          { name: 'cause_key', type: 'string', required: false, description: 'Dox: 3 to 120 characters naming the underlying cause. While a question with this key exists on the card and was not withdrawn (open, answered or defaulted), a repeat returns that question WITH its answer (200, deduped: true) and creates nothing: a settled question is read, never asked again. A withdrawn question can be asked again. A changed cause is a different cause_key by definition, so a new key is a new question.' },
+          { name: 'cause_scope', type: 'string', required: false, description: 'card (default) or project: with project, one question per cause across every task of the project of the card (the setup card included).' },
         ],
-        responseExample: { id: 'uuid', task_id: 'uuid', question: 'string', state: 'open', asked_by_lane: 'string|null (dox for the Dox lane)', cause_key: 'string|null', deduped: 'true only when the existing open question was returned' },
-        responseNotes: '201 new question, 200 an existing open one for the same cause_key. asked_by_lane is stamped from the lane of the key, never from the body. The Dox lane may ask; only Mike session or the chat lane answers.',
+        responseExample: { id: 'uuid', task_id: 'uuid', question: 'string', state: 'open', asked_by_lane: 'string|null (dox for the Dox lane)', cause_key: 'string|null', deduped: 'true only when the existing question (open or answered) was returned' },
+        responseNotes: '201 new question, 200 the existing non-withdrawn one for the same cause_key (its answer, if any, is on it). asked_by_lane is stamped from the lane of the key, never from the body. The Dox lane may ask; only Mike session or the chat lane answers.',
       },
       {
         method: 'GET',

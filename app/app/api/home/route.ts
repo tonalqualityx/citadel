@@ -78,8 +78,8 @@ export async function GET() {
     const triage = await loadTriage(prisma, userId);
     if (triage) body.triage = triage;
     // Overdue by others is his alone too: null for anyone else, and a null section is left out. Read only; no notification is made for it.
-    const overdue = await loadOverdueByOthers(prisma, userId, now);
-    if (overdue) body.overdue_others = overdue;
+    const overdue = await loadOverdueByOthers(prisma, userId, now, timezone);
+    if (overdue) body.past_date_others = overdue;
     return NextResponse.json(body, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     return handleApiError(error);

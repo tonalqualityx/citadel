@@ -439,6 +439,8 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('GET', '/api/auth/me'),
     r('GET', '/api/users'),
     r('GET', '/api/projects'),
+    // A small project for one released card (lib/dox/guard.ts guardDoxProjectCreate: x-dox-card, status ready, internal or the card's client)
+    r('POST', '/api/projects'),
     r('GET', '/api/projects/:id'),
     r('GET', '/api/projects/:id/engagement-snapshot'),
     r('POST', '/api/projects/:id/engagement-brief'),

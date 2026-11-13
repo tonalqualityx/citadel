@@ -4,7 +4,7 @@ import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { buildProjectSnapshot } from '@/lib/engagement/snapshot';
 import { serializeBrief } from '@/lib/engagement/serialize';
-import { mayReadSnapshot } from '@/lib/dox/guard';
+import { guardDoxSnapshotRead, mayReadSnapshot } from '@/lib/dox/guard';
 import { MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -19,6 +19,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     if (!mayReadSnapshot(auth, MIKE_USER_ID)) throw new ApiError('Only Dox and the owner read a project snapshot.', 403, 'snapshot_forbidden');
     const { id } = await params;
     if (!UUID.test(id)) throw new ApiError('Bad id', 400);
+    await guardDoxSnapshotRead(auth, id);
     const snap = await buildProjectSnapshot(prisma, id);
     if (!snap) throw new ApiError('Project not found', 404);
     const brief = await prisma.engagementBrief.findUnique({ where: { project_id: id } });

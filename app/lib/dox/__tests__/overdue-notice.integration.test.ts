@@ -31,7 +31,7 @@ describe.skipIf(!SCRATCH)('Overdue by others (real database)', () => {
     await mk('five-days-sabeen', { assignee_id: sabeen, project_id: live, due_date: ago(5) });
     await mk('three-days-sabeen-review', { assignee_id: sabeen, project_id: other, due_date: ago(3) });
     await mk('two-days-lisa-noproject', { assignee_id: lisa, due_date: ago(2) });
-    await mk('one-and-a-bit-lisa', { assignee_id: lisa, project_id: live, due_date: new Date(NOW.getTime() - DAY - 60_000), status: 'in_progress' });
+    await mk('one-day-late-not-yet', { assignee_id: lisa, project_id: live, due_date: new Date(NOW.getTime() - DAY - 60_000), status: 'in_progress' });
     await mk('within-grace', { assignee_id: sabeen, project_id: live, due_date: new Date(NOW.getTime() - DAY + 60_000) });
     await mk('mike-own', { assignee_id: MIKE_USER_ID, project_id: live, due_date: ago(9) });
     await mk('bast-own', { assignee_id: BOT_USER_IDS[0], project_id: live, due_date: ago(9) });
@@ -48,12 +48,12 @@ describe.skipIf(!SCRATCH)('Overdue by others (real database)', () => {
     await prisma.$disconnect();
   });
 
-  it('lists open tasks of other people more than one day late on live projects or none, most overdue first', async () => {
+  it('lists open tasks of other people two or more calendar days past their due day on live projects or none, furthest first', async () => {
     const out = await loadOverdueByOthers(prisma, MIKE_USER_ID, NOW);
     expect(out).not.toBeNull();
     const mine = out!.rows.filter((r) => r.title.startsWith(fx.tag));
-    expect(mine.map((r) => r.title.replace(`${fx.tag} `, ''))).toEqual(['five-days-sabeen', 'three-days-sabeen-review', 'two-days-lisa-noproject', 'one-and-a-bit-lisa']);
-    expect(mine.map((r) => r.days_overdue)).toEqual([5, 3, 2, 1]);
+    expect(mine.map((r) => r.title.replace(`${fx.tag} `, ''))).toEqual(['five-days-sabeen', 'three-days-sabeen-review', 'two-days-lisa-noproject']);
+    expect(mine.map((r) => r.days_past)).toEqual([5, 3, 2]);
     expect(mine[0]).toMatchObject({ who: 'Sabeen', project_name: `${fx.tag} Live`, href: `/tasks/${ids['five-days-sabeen']}` });
     expect(mine[2]).toMatchObject({ who: 'Lisa', project_name: null, project_id: null });
   });
@@ -61,10 +61,10 @@ describe.skipIf(!SCRATCH)('Overdue by others (real database)', () => {
   it('leaves out Mike, bots, nobody, done, abandoned, Triage, a project that is not live, the one-day grace and future or undated work', async () => {
     const out = await loadOverdueByOthers(prisma, MIKE_USER_ID, NOW);
     const titles = out!.rows.map((r) => r.title);
-    for (const k of ['within-grace', 'mike-own', 'bast-own', 'unassigned', 'done', 'abandoned', 'triage', 'queued-project', 'future', 'no-due']) {
+    for (const k of ['one-day-late-not-yet', 'within-grace', 'mike-own', 'bast-own', 'unassigned', 'done', 'abandoned', 'triage', 'queued-project', 'future', 'no-due']) {
       expect(titles.some((t) => t === `${fx.tag} ${k}`), k).toBe(false);
     }
-    expect(out!.count).toBeGreaterThanOrEqual(4);
+    expect(out!.count).toBeGreaterThanOrEqual(3);
   });
 
   it('gives nobody but the owner anything', async () => {
@@ -158,5 +158,78 @@ describe.skipIf(!SCRATCH)('Day-before notice (real database)', () => {
     await prisma.userPreference.delete({ where: { user_id: sabeen } });
     await runTaskDueNotices(NOTICE_NOW);
     expect(await noticesFor(t)).toBe(1);
+  });
+});
+
+// The task form, the arc board and the peek drawer store the picked day as MIDNIGHT UTC. That value is a calendar day, never an instant to be
+// moved into a zone (New York would read 2026-11-14T00:00Z as the evening of the 13th).
+describe.skipIf(!SCRATCH)('Due dates are calendar days (midnight UTC), read against today in the user\'s own zone', () => {
+  let fx: Fx;
+  let sabeen: string;
+  let proj: string;
+  const NY = 'America/New_York';
+  const AKL = 'Pacific/Auckland';
+  const noticesFor = (taskId: string) => prisma.notification.count({ where: { entity_id: taskId, type: 'task_due_soon' } });
+  const setZone = (zone: string | null) =>
+    zone
+      ? prisma.userPreference.upsert({ where: { user_id: sabeen }, update: { timezone: zone }, create: { user_id: sabeen, timezone: zone } })
+      : prisma.userPreference.deleteMany({ where: { user_id: sabeen } });
+
+  beforeAll(async () => {
+    fx = await makeFixture('cal');
+    sabeen = await fx.mkStaff('Sabeen');
+    proj = await fx.mkProject('Live', { status: 'in_progress' });
+  });
+  afterAll(async () => {
+    await setZone(null);
+    await fx.cleanup();
+    await prisma.$disconnect();
+  });
+
+  describe('day-before notice', () => {
+    it('New York: due Saturday the 14th (stored 2026-11-14T00:00Z) is announced on Friday the 13th, not on Thursday', async () => {
+      const t = await fx.mkTask('NY sat', { status: 'not_started', assignee_id: sabeen, project_id: proj, due_date: new Date('2026-11-14T00:00:00Z') });
+      await setZone(NY);
+      await runTaskDueNotices(new Date('2026-11-13T04:59:00Z')); // Thursday 23:59 in New York
+      expect(await noticesFor(t)).toBe(0);
+      await runTaskDueNotices(new Date('2026-11-13T05:00:00Z')); // Friday 00:00 in New York
+      expect(await noticesFor(t)).toBe(1);
+    });
+
+    it('a zone ahead of UTC (Auckland): the same due day is announced when Auckland\'s Friday begins, not an hour before', async () => {
+      const t = await fx.mkTask('AKL sat', { status: 'not_started', assignee_id: sabeen, project_id: proj, due_date: new Date('2026-11-21T00:00:00Z') });
+      await setZone(AKL);
+      await runTaskDueNotices(new Date('2026-11-19T10:59:00Z')); // Thursday 23:59 in Auckland
+      expect(await noticesFor(t)).toBe(0);
+      await runTaskDueNotices(new Date('2026-11-19T11:00:00Z')); // Friday 00:00 in Auckland
+      expect(await noticesFor(t)).toBe(1);
+    });
+
+    it('a due date with a real time of day is an instant, read in the zone', async () => {
+      const t = await fx.mkTask('Instant', { status: 'not_started', assignee_id: sabeen, project_id: proj, due_date: new Date('2026-11-24T03:30:00Z') }); // Monday 22:30 in New York on the 23rd
+      await setZone(NY);
+      await runTaskDueNotices(new Date('2026-11-22T14:00:00Z')); // Sunday the 22nd in New York: tomorrow is the 23rd
+      expect(await noticesFor(t)).toBe(1);
+    });
+  });
+
+  describe('overdue by others', () => {
+    const MIKE = MIKE_USER_ID;
+    const titles = async (now: Date, zone: string) => (await loadOverdueByOthers(prisma, MIKE, now, zone))!.rows.map((r) => r.title.replace(`${fx.tag} `, ''));
+
+    it('New York: due the 11th it is not listed on the 11th or 12th, and appears when the 13th begins (one full day late)', async () => {
+      await fx.mkTask('due-nov-11', { status: 'not_started', assignee_id: sabeen, project_id: proj, due_date: new Date('2026-11-11T00:00:00Z') });
+      expect(await titles(new Date('2026-11-12T04:59:00Z'), NY)).not.toContain('due-nov-11'); // 11th, 23:59 in New York: the due day
+      expect(await titles(new Date('2026-11-13T04:59:00Z'), NY)).not.toContain('due-nov-11'); // 12th, 23:59: one day after, still not
+      const out = await loadOverdueByOthers(prisma, MIKE, new Date('2026-11-13T05:00:00Z'), NY); // 13th, 00:00
+      const row = out!.rows.find((r) => r.title === `${fx.tag} due-nov-11`);
+      expect(row?.days_past).toBe(2);
+    });
+
+    it('a zone ahead of UTC (Auckland): appears when Auckland\'s 13th begins, not an hour before', async () => {
+      await fx.mkTask('due-nov-11-akl', { status: 'not_started', assignee_id: sabeen, project_id: proj, due_date: new Date('2026-11-11T00:00:00Z') });
+      expect(await titles(new Date('2026-11-12T10:59:00Z'), AKL)).not.toContain('due-nov-11-akl'); // 12th, 23:59 in Auckland
+      expect(await titles(new Date('2026-11-12T11:00:00Z'), AKL)).toContain('due-nov-11-akl'); // 13th, 00:00 in Auckland
+    });
   });
 });

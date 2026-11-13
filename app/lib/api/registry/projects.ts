@@ -55,6 +55,7 @@ export const projectEndpoints: ApiEndpoint[] = [
         summary: 'Create a new project.',
         auth: 'required',
         roles: ['pm', 'admin'],
+        // Dox lane (lib/dox/guard.ts guardDoxProjectCreate): header x-dox-card names a released card (tag from-triage, not in Triage, no project, kind task, reusable_tool, rule_proposal or unsorted); body only name, description, type, client_id, status ready, dates, ordering-only, notes; type internal or the card's client; the card joins the project in the same transaction (one project per card; 403 dox_card_closed). The Dox lane can write to a project only while it is live and an open engagement pass started through the dox lane exists (x-dox-project header, 403 dox_no_pass / dox_project_closed).
         bodySchema: [
           { name: 'name', type: 'string', required: true, description: 'Project name' },
           { name: 'client_id', type: 'uuid', required: true, description: 'Client ID' },
@@ -470,7 +471,7 @@ export const projectEndpoints: ApiEndpoint[] = [
           waits: [{ id: 'uuid', title: 'string', template_key: 'string', state: 'string', task_id: 'uuid|null', owner: '{kind: user|function|contact|mike, user_id|null, name|null}', due_at: 'ISO-8601', overdue: 'boolean' }],
           questions: [{ id: 'uuid', task_id: 'uuid', task_title: 'string', question: 'string', cause_key: 'string|null', asked_by_lane: 'string|null', created_at: 'ISO-8601' }],
         },
-        responseNotes: 'The enforced Dox lane or the signed-in session of the owner only (403 snapshot_forbidden). Only open tasks (never Triage, done or abandoned). Read only.',
+        responseNotes: 'The enforced Dox lane or the signed-in session of the owner only (403 snapshot_forbidden). The Dox lane reads a quote-stage project only while a pass is open on it (403 dox_quote_closed). Only open tasks (never Triage, done or abandoned). Read only.',
       },
     ],
   },

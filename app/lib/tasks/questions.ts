@@ -175,9 +175,9 @@ export const CAUSE_KEY_MAX = 120;
 export const CAUSE_SCOPES = ['card', 'project'] as const;
 export type CauseScope = (typeof CAUSE_SCOPES)[number];
 export interface QuestionCause {
-  /** One open question per cause. A new key (the cause changed) is a new question. */
+  /** One live question per cause: a repeat finds the existing one, open or already answered (never a withdrawn one). A new key (the cause changed) is a new question. */
   key: string;
-  /** `card` (default): one open question per card. `project`: one open question across the whole project, setup card included. */
+  /** `card` (default): one question per card per cause. `project`: one question across the whole project, setup card included. */
   scope?: CauseScope;
 }
 
@@ -191,8 +191,8 @@ export async function addQuestion(task: TaskHead, auth: Auth, body: QuestionCont
       const home = await tx.task.findUnique({ where: { id: task.id }, select: { project_id: true } });
       const where: Prisma.TaskQuestionWhereInput =
         cause.scope === 'project' && home?.project_id
-          ? { cause_key: cause.key, state: 'open', task: { project_id: home.project_id, is_deleted: false } }
-          : { cause_key: cause.key, state: 'open', task_id: task.id };
+          ? { cause_key: cause.key, state: { not: 'withdrawn' }, task: { project_id: home.project_id, is_deleted: false } }
+          : { cause_key: cause.key, state: { not: 'withdrawn' }, task_id: task.id };
       const existing = await tx.taskQuestion.findFirst({ where, orderBy: { created_at: 'asc' } });
       if (existing) return { ...formatQuestion(existing), deduped: true };
     }

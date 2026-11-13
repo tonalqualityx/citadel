@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { guardDoxProjectCreate } from '@/lib/dox/guard';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
@@ -108,6 +109,8 @@ export async function POST(request: NextRequest) {
     requireRole(auth, ['pm', 'admin']);
 
     const body = await request.json();
+    // Dox lane: only a small project for one released card (the card is named in x-dox-card and joins the project below).
+    const doxCard = await guardDoxProjectCreate(auth, request.headers, body);
     const data = createProjectSchema.parse(body);
 
     // Validate client exists
@@ -131,7 +134,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const project = await prisma.project.create({
+    const createProject = (db: Pick<typeof prisma, 'project'>) => db.project.create({
       data: {
         name: data.name,
         description: data.description,
@@ -157,6 +160,16 @@ export async function POST(request: NextRequest) {
         _count: { select: { tasks: true, team_assignments: true } },
       },
     });
+
+    const project = doxCard
+      ? await prisma.$transaction(async (tx) => {
+          const made = await createProject(tx);
+          // One project per card: the link only lands on a card that still has no project, otherwise the whole thing rolls back.
+          const linked = await tx.task.updateMany({ where: { id: doxCard.id, project_id: null, is_deleted: false }, data: { project_id: made.id } });
+          if (linked.count !== 1) throw new ApiError('That card already belongs to a project: one project per card.', 403, 'dox_card_closed');
+          return made;
+        })
+      : await createProject(prisma);
 
     return NextResponse.json(formatProjectResponse(project), { status: 201 });
   } catch (error) {

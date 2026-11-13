@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError } from '@/lib/api/errors';
+import { guardDoxTaskWrite } from '@/lib/dox/guard';
 import { checkTaskAccess } from '@/lib/services/task-patch';
 import { addQuestion, listQuestions, CAUSE_KEY_MAX, CAUSE_SCOPES } from '@/lib/tasks/questions';
 import { questionContextSchema } from '@/lib/tasks/question-context';
@@ -14,8 +15,9 @@ import { questionContextSchema } from '@/lib/tasks/question-context';
  *
  * POST /api/tasks/:id/questions
  * Adds one question. The server refuses it unless it carries every Context part (see lib/tasks/question-context.ts). At most 10 open per card.
- * Optional `cause_key` (3 to 120 characters) and `cause_scope` (`card` default, or `project`): when a question with that key is already OPEN on the card (or anywhere in the
- * card's project for scope `project`), the answer is that question with 200 and `deduped: true`, and nothing is created. A different key is a new question.
+ * Optional `cause_key` (3 to 120 characters) and `cause_scope` (`card` default, or `project`): when a question with that key already exists on the card (or anywhere in the
+ * card's project for scope `project`) and was not withdrawn, open OR answered OR defaulted, the answer is that question with 200 and `deduped: true` (its answer, if any, is on it, so the
+ * asker reads the answer instead of asking again), and nothing is created. A withdrawn question can be asked again. A changed cause is a different cause_key by definition: a new key is a new question.
  */
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -39,6 +41,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const auth = await requireAuth();
     const { id } = await params;
     const task = await checkTaskAccess(id, auth);
+    await guardDoxTaskWrite(auth, request.headers, { status: task.status, project_id: task.project_id ?? null });
     const raw = (await request.json()) as Record<string, unknown>;
     const { chat_conversation_id, cause_key, cause_scope, ...rest } = raw ?? {};
     const conv = withConversation.parse({ chat_conversation_id }).chat_conversation_id ?? null;
