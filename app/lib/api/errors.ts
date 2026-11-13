@@ -7,7 +7,9 @@ export class ApiError extends Error {
     public statusCode: number = 500,
     public code?: string,
     /** Which limiter fired, on a 429 (for example requests_per_hour). Sent to the client as `limit`. */
-    public limit?: string
+    public limit?: string,
+    /** Extra fields sent with the error body (for example `what_changed` on a 409 card_changed). */
+    public extra?: Record<string, unknown>
   ) {
     super(message);
     this.name = 'ApiError';
@@ -36,7 +38,7 @@ export function handleApiError(error: unknown): NextResponse {
 
   if (error instanceof ApiError) {
     return NextResponse.json(
-      { error: error.message, code: error.code, ...(error.limit ? { limit: error.limit } : {}) },
+      { error: error.message, code: error.code, ...(error.limit ? { limit: error.limit } : {}), ...(error.extra ?? {}) },
       { status: error.statusCode }
     );
   }

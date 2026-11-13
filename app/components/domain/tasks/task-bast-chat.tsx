@@ -50,14 +50,14 @@ export function TaskBastChat({ taskId, title, status }: { taskId: string; title:
       <CardContent className="flex items-center justify-between gap-3 py-3">
         <p className="text-sm text-muted-foreground">
           <MessageSquare className="mr-2 inline h-4 w-4" aria-hidden="true" />
-          {conv ? `You and Bast have talked about this${last ? `, last on ${last}` : ''}.` : 'Talk this one over with Bast.'}
+          {conv ? `You and Dox have talked about this${last ? `, last on ${last}` : ''}.` : 'Talk this one over with Dox.'}
         </p>
         <button
           type="button"
           className="text-sm font-medium underline"
           onClick={() => openTriageConversation(pageCard, (c) => shell.talkAbout(c, { bindToPage: true }))}
         >
-          {conv ? 'Reopen the conversation' : 'Talk about this'}
+          {conv ? 'Reopen the conversation' : 'Talk to Dox'}
         </button>
       </CardContent>
     </Card>

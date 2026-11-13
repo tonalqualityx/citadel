@@ -83,6 +83,9 @@ const EXPECTED = [
   'GET /api/tasks/:id/triage',
   'PATCH /api/tasks/:id/triage',
   'PUT /api/tasks/:id/triage/shape',
+  'GET /api/tasks/:id/plan',
+  'PUT /api/tasks/:id/plan/:section',
+  'PATCH /api/tasks/:id/plan/:section',
   'GET /api/projects',
   'GET /api/projects/:id',
   'GET /api/oracle/projects',
@@ -199,7 +202,7 @@ beforeEach(() => {
 });
 
 describe('lane bast-chat: the list', () => {
-  it('holds exactly the 57 entries of the plan, and nothing else', () => {
+  it('holds exactly the 60 entries of the plan, and nothing else', () => {
     expect(LANE_ROUTES['bast-chat'].map((r) => `${r.method} ${r.pattern}`)).toEqual(EXPECTED);
   });
 
@@ -212,7 +215,7 @@ describe('lane bast-chat: the list', () => {
     const writes = LANE_ROUTES['bast-chat'].filter((r) => r.method !== 'GET');
     expect(writes.some((r) => r.method === 'DELETE')).toBe(false);
     for (const r of writes) {
-      const ok = r.pattern.startsWith('/api/bast-chat/worker/') || r.pattern === '/api/tasks' || r.pattern === '/api/tasks/:id' || r.pattern === '/api/tasks/:id/checklist' || r.pattern.startsWith('/api/tasks/:id/questions') || r.pattern === '/api/tasks/:id/triage' || r.pattern === '/api/tasks/:id/triage/shape' || r.pattern === '/api/work/attach' || r.pattern === '/api/oracle/clocks';
+      const ok = r.pattern.startsWith('/api/bast-chat/worker/') || r.pattern === '/api/tasks' || r.pattern === '/api/tasks/:id' || r.pattern === '/api/tasks/:id/checklist' || r.pattern.startsWith('/api/tasks/:id/questions') || r.pattern === '/api/tasks/:id/triage' || r.pattern === '/api/tasks/:id/triage/shape' || r.pattern.startsWith('/api/tasks/:id/plan') || r.pattern === '/api/work/attach' || r.pattern === '/api/oracle/clocks';
       expect(ok, `${r.method} ${r.pattern}`).toBe(true);
     }
   });
@@ -228,9 +231,9 @@ describe('lane bast-chat: no other lane gained anything', () => {
     // Fingerprint of "<lane> <METHOD> <pattern>" lines for every lane but bast-chat, taken from origin/main 7a5f1ef (work stage A and work stage B each add one porter line).
     // The dox lane (a new lane; its own list is pinned in lane-dox.test.ts) is left out so this stays the fingerprint of the lanes that existed.
     const rows = LANES.filter((l) => l !== 'bast-chat' && l !== 'dox').flatMap((l) => LANE_ROUTES[l].map((r) => `${l} ${r.method} ${r.pattern}`));
-    expect(rows).toHaveLength(195); // 174 before designer portal v2, plus its 20: design-track 14, design-notes 3 and three design-worker lines (session context GET, art-direction PATCH, track-assets GET). Without those 20 and the one worker-lane question read the fingerprint is still 78ffa238...c25f48. Before that: 155 on main plus porter POST /api/work/backfill-links (work stage A) and POST /api/work/apply-decisions (work stage B), ten lines of work stage D (porter 3, bast 3, courier 1, oracle 3: the state read, the attach and the evidence routes), and six oracle lines of work stage E (the work index, the session links, evidence, close-task and track routes, and the stale-asks clear), and oracle POST /api/oracle/clocks (work stage F)
+    expect(rows).toHaveLength(196); // 174 before designer portal v2, plus its 20: design-track 14, design-notes 3 and three design-worker lines (session context GET, art-direction PATCH, track-assets GET). Without those 20 and the one worker-lane question read the fingerprint is still 78ffa238...c25f48. Before that: 155 on main plus porter POST /api/work/backfill-links (work stage A) and POST /api/work/apply-decisions (work stage B), ten lines of work stage D (porter 3, bast 3, courier 1, oracle 3: the state read, the attach and the evidence routes), and six oracle lines of work stage E (the work index, the session links, evidence, close-task and track routes, and the stale-asks clear), and oracle POST /api/oracle/clocks (work stage F)
     expect(createHash('sha256').update(rows.join('\n')).digest('hex')).toBe(
-      '6166cfd0f9c395808b99b9c87baa1949c2393258fad8d3071ea5eaea39ebc4b3', // 93f784924b55... plus the worker lane's one GET /api/tasks/:id/questions; was 78ffa238... plus the 20 designer portal v2 lines; 78ffa238 was main's 20f12653... plus the two porter lines of work stages A and B, the ten of work stage D and the six oracle lines of work stage E and the one oracle line of work stage F
+      'dc71f50ba8a37bcb470c76e6e0e136f82922ef2c30d3d709bdfb2499edc69d20', // 6166cfd0... plus the worker lane's one GET /api/tasks/:id/plan (triage plan tab); 93f784924b55... plus the worker lane's one GET /api/tasks/:id/questions; was 78ffa238... plus the 20 designer portal v2 lines; 78ffa238 was main's 20f12653... plus the two porter lines of work stages A and B, the ten of work stage D and the six oracle lines of work stage E and the one oracle line of work stage F
     );
   });
 

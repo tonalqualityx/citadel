@@ -19,6 +19,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db/prisma';
 import { ApiError } from '@/lib/api/errors';
 import type { AuthPayload } from '@/lib/auth/middleware';
+import { actorOf, recordTriageChange } from './triage-rev';
 import { MIKE_USER_ID, BOT_USER_IDS } from '@/lib/oracle/projects/gate-constants';
 import { mayLeaveTriage } from '@/lib/services/task-patch';
 import { CHAT_LANE } from '@/lib/bast-chat/task-filter';
@@ -222,6 +223,8 @@ export async function addQuestion(task: TaskHead, auth: Auth, body: QuestionCont
         cause_key: cause?.key ?? null,
       },
     });
+    const actor = await actorOf(auth, tx as never);
+    await recordTriageChange(tx, task.id, 'question', `Question added by ${actor.by}`, actor);
     return formatQuestion(row);
   });
 }
@@ -280,6 +283,8 @@ export async function patchQuestion(task: TaskHead, qid: string, auth: Auth, pat
         },
       });
     }
+    const actor = await actorOf(auth, tx as never);
+    await recordTriageChange(tx, task.id, 'question', patch.withdraw ? `Question withdrawn by ${actor.by}` : `Question changed by ${actor.by}`, actor);
     return formatQuestion(updated);
   });
 }
@@ -356,6 +361,8 @@ export async function answerQuestion(task: TaskHead, qid: string, auth: Auth, bo
       },
     });
     const released = await releaseHoldIfLast(tx, task.id);
+    const actor = await actorOf(auth, tx as never);
+    await recordTriageChange(tx, task.id, 'question', `Question answered by ${actor.by}`, actor);
     return { updated, commentId: comment.id, released, askerId: row.asked_by_user_id };
   });
 

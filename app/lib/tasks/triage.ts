@@ -31,6 +31,7 @@ import type { HomeActResponse, HomeTriage, HomeTriageGroup, HomeTriageLooksDone,
 import { CLOSE_UNDONE_COMMENT, NOT_DONE_COMMENT, TRIAGE_MESSAGES, TRIAGE_UNDO_HOURS, closedDoneComment, closedDoneLine, droppedLine, notDoneLine, questionsLine, releasedLine, releasedPlanLine } from './triage-copy';
 import { askedAfterRelease, clientTextTaskIds, evidenceFor, loadCards, openQuestionRows, questionSplit, summariesFor } from './triage-card';
 import { CARD_CHANGED_MESSAGE, releaseVersion } from './triage-version';
+import { recentChanges, whatChanged } from './triage-rev';
 import { LOOKS_DONE_TAG } from './looks-done';
 import { markHomeActionUndone } from '@/lib/home/state';
 import { readWorkCloseRecord, undoWorkClose, type WorkCloseRecord } from '@/lib/work/ask-closure';
@@ -61,6 +62,7 @@ const ROW_SELECT = {
   created_at: true,
   project_id: true,
   triage_kind: true,
+  triage_rev: true,
   assignee_id: true,
   assignee: { select: { name: true } },
   site_id: true,
@@ -321,8 +323,13 @@ async function run(
       site_id: row.site_id,
       client_id: row.client_id,
       questions: openByTask.get(row.id) ?? [],
+      triage_rev: row.triage_rev,
     });
-    if (now_ !== opts.expectVersion) throw new ApiError(CARD_CHANGED_MESSAGE, 409, 'card_changed');
+    if (now_ !== opts.expectVersion) {
+      // Say what moved: the last change lines of this card ("Plan: Billing model updated by the chat").
+      const lines = (await recentChanges(db, [row.id])).get(row.id) ?? [];
+      throw new ApiError(CARD_CHANGED_MESSAGE, 409, 'card_changed', undefined, { what_changed: whatChanged(lines), changes: lines.map((l) => l.line), triage_rev: row.triage_rev });
+    }
   }
   for (const row of rows) {
     const openRows = openByTask.get(row.id) ?? [];

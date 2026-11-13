@@ -14,6 +14,7 @@ import { render, screen, fireEvent, within, waitFor } from '@testing-library/rea
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { TriagePanel } from '../TriagePanel';
 import type { HomeTriageCard } from '@/lib/home/types';
+import { CARD_CHANGED_MESSAGE } from '@/lib/tasks/triage-copy';
 
 const ID = '7aa4a01a-1111-4222-8333-944445555666';
 const base: HomeTriageCard = {
@@ -30,6 +31,9 @@ const base: HomeTriageCard = {
   release_ready: true,
   release_block: null,
   open_questions: 0,
+  triage_rev: 0,
+  recent_changes: [],
+  plan_line: null,
   target_start_date: null,
   target_launch_date: null,
   looks_done: null,
@@ -66,10 +70,18 @@ describe('TriagePanel', () => {
     await waitFor(() => expect(m.act).toHaveBeenCalledWith({ action: 'triage_drop', task_ids: [ID] }));
   });
 
-  it('Talk about this opens the card conversation in place, bound to the page', () => {
+  it('a Release refused as card_changed says what changed, from the card\'s last change lines', async () => {
+    m.card = { ...base, recent_changes: [{ line: 'Plan: Billing model updated by the chat', at: '2026-11-13T12:00:00Z' }] };
+    m.act.mockRejectedValueOnce(new Error(CARD_CHANGED_MESSAGE));
+    wrap(<TriagePanel taskId={ID} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Release' }));
+    await waitFor(() => expect(screen.getByTestId('triage-what-changed').textContent).toBe('What changed: Plan: Billing model updated by the chat.'));
+  });
+
+  it('Talk to Dox opens the card conversation in place, bound to the page', () => {
     m.card = base;
     wrap(<TriagePanel taskId={ID} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Talk about this' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Talk to Dox' }));
     expect(m.talkAbout).toHaveBeenCalledWith(expect.objectContaining({ task_id: ID, own_conversation: true, tile: 'triage' }), { bindToPage: true });
   });
 

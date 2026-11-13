@@ -200,6 +200,8 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('GET', '/api/tasks/:id/comments'),
     // Card questions: read only, so a session knows whether Mike answered (never a triage card; never ask or answer)
     r('GET', '/api/tasks/:id/questions'),
+    // The plan of a card: read only (after release; a Triage card's plan is the owner's, the chat's and Dox's)
+    r('GET', '/api/tasks/:id/plan'),
     r('POST', '/api/tasks/:id/comments'),
     r('POST', '/api/tasks/:id/live'),
     r('POST', '/api/tasks/:id/staged'),
@@ -414,6 +416,10 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('GET', '/api/tasks/:id/triage'),
     r('PATCH', '/api/tasks/:id/triage'),
     r('PUT', '/api/tasks/:id/triage/shape'),
+    // The card's plan: read it, replace a section (PUT) or change one item (PATCH). Mike's words go in as "Mike, typed in chat"; a document's words keep their source.
+    r('GET', '/api/tasks/:id/plan'),
+    r('PUT', '/api/tasks/:id/plan/:section'),
+    r('PATCH', '/api/tasks/:id/plan/:section'),
     r('GET', '/api/projects'),
     r('GET', '/api/projects/:id'),
     r('GET', '/api/oracle/projects'),
@@ -455,6 +461,10 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('POST', '/api/tasks/:id/questions'),
     // Read only: a Triage card with its project block and dates (sorting it stays with Mike and the chat)
     r('GET', '/api/tasks/:id/triage'),
+    // The card's plan: read it and write it (a Triage card, or a released card inside the project in play: lib/tasks/plan.ts via guardDoxTaskWrite)
+    r('GET', '/api/tasks/:id/plan'),
+    r('PUT', '/api/tasks/:id/plan/:section'),
+    r('PATCH', '/api/tasks/:id/plan/:section'),
     r('GET', '/api/work/task/:id/state'),
     r('GET', '/api/waits'),
     r('POST', '/api/waits'),

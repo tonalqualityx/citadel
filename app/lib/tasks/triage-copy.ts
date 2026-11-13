@@ -4,6 +4,10 @@
 
 export const TRIAGE_UNDO_HOURS = 72;
 
+/** The conversation on a card (a Triage card, before or after release) is with Dox, the office manager. Display only. The general chat stays Bast. */
+export const DOX_NAME = 'Dox';
+export const DOX_EMPTY_HINT = "Dox has the card, its questions and the plan. Tell him what you're thinking.";
+
 export const TRIAGE_HEADING = 'Triage';
 export const TRIAGE_SUBHEAD = 'Ideas parked for your release. Nothing here is worked until you release it.';
 export const TRIAGE_EMPTY = 'Nothing in Triage. Tell Bast and it lands here.';
@@ -47,7 +51,7 @@ export const TRIAGE_BUTTONS = {
   drop: 'Drop',
   closeDone: 'Close as done',
   notDone: 'Not done',
-  talk: 'Talk about this',
+  talk: 'Talk to Dox',
   questions: 'Questions',
   showAll: 'Show all',
   showLess: 'Show fewer',

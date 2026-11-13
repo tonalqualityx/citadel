@@ -80,6 +80,8 @@ import { TaskQuestions } from '@/components/domain/tasks/questions/TaskQuestions
 import { TriagePanel } from '@/components/domain/tasks/TriagePanel';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { useTaskQuestions } from '@/lib/hooks/use-task-questions';
+import { useTaskPlan } from '@/lib/hooks/use-task-plan';
+import { PlanTab } from '@/components/domain/tasks/PlanTab';
 import { MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import { isClientVisibleTask } from '@/lib/portal/visibility';
 
@@ -225,10 +227,17 @@ export default function QuestDetailPage() {
   const { data: questionData } = useTaskQuestions(taskId);
   const questionsShown = (questionData?.questions ?? []).filter((q) => q.state !== 'withdrawn').length;
   const openQuestions = questionData?.open_count ?? 0;
-  const [cardTab, setCardTab] = React.useState<'card' | 'questions' | null>(null);
+  // The plan of a Triage card, kept after release: a Plan tab after Questions for whoever may read it (the route answers 404 to everyone else).
+  const { data: planData, isLoading: planLoading } = useTaskPlan(taskId);
+  const planHasLines = !!planData && (planData.sections.some((x) => x.items.length > 0) || planData.answered_questions.length > 0);
+  const planShown = !!planData && (task?.status === 'triage' || planHasLines);
+  const [cardTab, setCardTab] = React.useState<'card' | 'questions' | 'plan' | null>(null);
   React.useEffect(() => {
-    if (cardTab === null && task && questionData) setCardTab(task.status === 'triage' && openQuestions > 0 ? 'questions' : 'card');
-  }, [cardTab, task, questionData, openQuestions]);
+    if (cardTab === null && task && questionData && !planLoading) {
+      const wantsPlan = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('tab') === 'plan';
+      setCardTab(wantsPlan && planShown ? 'plan' : task.status === 'triage' && openQuestions > 0 ? 'questions' : 'card');
+    }
+  }, [cardTab, task, questionData, openQuestions, planLoading, planShown]);
   const updateTask = useUpdateTask();
   const deleteTask = useDeleteTask();
   const timer = useTimer();
@@ -513,11 +522,12 @@ export default function QuestDetailPage() {
       {/* Mike only, and only for a card in Triage: the route refuses everyone else, so the panel is then absent. */}
       {task.status === 'triage' && user?.id === MIKE_USER_ID ? <TriagePanel taskId={task.id} /> : null}
 
-      <Tabs value={cardTab ?? 'card'} onValueChange={(v) => setCardTab(v as 'card' | 'questions')}>
-        {questionsShown > 0 && (
+      <Tabs value={cardTab ?? 'card'} onValueChange={(v) => setCardTab(v as 'card' | 'questions' | 'plan')}>
+        {(questionsShown > 0 || planShown) && (
           <TabsList data-testid="card-tabs">
             <TabsTrigger value="card">Card</TabsTrigger>
-            <TabsTrigger value="questions">Questions ({openQuestions > 0 ? openQuestions : questionsShown})</TabsTrigger>
+            {questionsShown > 0 && <TabsTrigger value="questions">Questions ({openQuestions > 0 ? openQuestions : questionsShown})</TabsTrigger>}
+            {planShown && <TabsTrigger value="plan">Plan</TabsTrigger>}
           </TabsList>
         )}
         <TabsContent value="card" forceMount className="mt-0 space-y-6 data-[state=inactive]:hidden">
@@ -895,6 +905,11 @@ export default function QuestDetailPage() {
         {questionsShown > 0 && (
           <TabsContent value="questions">
             <TaskQuestions taskId={task.id} canAnswer={user?.id === MIKE_USER_ID} standalone />
+          </TabsContent>
+        )}
+        {planShown && (
+          <TabsContent value="plan">
+            <PlanTab taskId={task.id} />
           </TabsContent>
         )}
       </Tabs>

@@ -14,6 +14,7 @@
  * owner's and `not_started`, and nothing waits on it. Then, in one transaction with compare-and-set, the project goes
  * to `cancelled` and the task to `abandoned`. A client the op created stays: nothing is deleted.
  */
+import { recordTriageChange } from '@/lib/tasks/triage-rev';
 import { randomUUID } from 'crypto';
 import { z } from 'zod';
 import { ApiError } from '@/lib/api/errors';
@@ -170,6 +171,8 @@ async function run(ctx: OpContext, input: StartProjectInput, expect: unknown): P
       data: { project_id: project.id, triage_kind: 'project_setup', client_id: clientId, ...(r.site_id ? { site_id: r.site_id } : {}) },
     });
     if (linked.count !== 1) throw new ApiError(CHANGED, 409, 'changed_since');
+    // The card's kind and project changed: part of what the owner must see before Release (triage_rev).
+    await recordTriageChange(db as never, card.id, 'card', 'Kind and project link set by the chat', { by: 'the chat', userId: null, lane: 'bast-chat' });
     taskId = card.id;
     cardBefore = { triage_kind: card.triage_kind, client_id: card.client_id, site_id: card.site_id };
   } else await createStartTask(db, {
