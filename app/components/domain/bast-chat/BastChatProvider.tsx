@@ -312,6 +312,10 @@ export function BastChatProvider({ children }: { children: React.ReactNode }) {
       if (card.own_conversation && card.task_id) {
         setCardChat({ task_id: card.task_id, title: card.title, bound: opts?.bindToPage === true });
         void chatRef.current.openCardConversation(card.task_id);
+      } else if (lastCardChat.current) {
+        // A group or a general card: the chat is about that, not about the idea whose conversation was showing.
+        setCardChat(null);
+        void chatRef.current.leaveCardConversation();
       }
     },
     [openChat],

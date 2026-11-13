@@ -332,6 +332,30 @@ describe('Bast chat shell: a card page and its conversation', () => {
     await act(async () => {});
     expect(calls.some((c) => c.method === 'POST')).toBe(false);
   });
+  it('Talk about this on a group after a card: the chat leaves that card and is about the group', async () => {
+    responder = cardResponder;
+    const group = { key: 'project-x', title: 'Queue Project: 3 ideas', tile: 'triage' };
+    function Talker() {
+      const shell = useBastChatShell();
+      return (
+        <>
+          <button onClick={() => shell.talkAbout({ ...triage, own_conversation: true })}>card</button>
+          <button onClick={() => shell.talkAbout(group)}>group</button>
+        </>
+      );
+    }
+    render(
+      <BastChatProvider>
+        <Page card={null} />
+        <Talker />
+      </BastChatProvider>,
+    );
+    await screen.findByTestId('bast-chat-button');
+    fireEvent.click(screen.getByText('card'));
+    await waitFor(() => expect(screen.getByTestId('bast-chat-title').textContent).toBe('Idea about invoices'));
+    fireEvent.click(screen.getByText('group'));
+    await waitFor(() => expect(screen.getByTestId('bast-chat-title').textContent).toBe('Bast'));
+  });
   it('Talk about this opens the chat in place on that card (no navigation)', async () => {
     responder = cardResponder;
     function Talker() {
