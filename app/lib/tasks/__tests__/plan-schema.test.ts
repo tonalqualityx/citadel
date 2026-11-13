@@ -71,6 +71,28 @@ describe('plan item validation, per section', () => {
     expect(ok('decisions', { text: 'Go with the old logo' })).toBe(false);
   });
 
+  it('planned tasks: a title, who it is for (user, Bast, Dox decides or a named party), dependencies as ids, when as free text, marks and a nullable task_id', () => {
+    const base = { title: 'Build the header', for: { kind: 'bast' }, source: src };
+    expect(ok('planned_tasks', base)).toBe(true);
+    expect(ITEM_SCHEMAS.planned_tasks.parse(base)).toMatchObject({ depends_on: [], mark: 'original' });
+    expect(ok('planned_tasks', { ...base, for: { kind: 'dox_decides' } })).toBe(true);
+    expect(ok('planned_tasks', { ...base, for: { user_id: '3ecfb7be-20bb-43cb-9b4d-31c44337dc81' }, when: 'before design handoff', done_when: 'Matches the design' })).toBe(true);
+    expect(ok('planned_tasks', { ...base, for: { name: 'Lisa', org: 'Freelance designer' } })).toBe(true);
+    expect(ok('planned_tasks', { ...base, for: { kind: 'someone' } })).toBe(false);
+    expect(ok('planned_tasks', { ...base, depends_on: ['not-an-id'] })).toBe(false);
+    expect(ok('planned_tasks', { ...base, task_id: null })).toBe(true);
+    expect(ok('planned_tasks', { ...base, title: 'a\nb' })).toBe(false);
+    expect(ok('planned_tasks', { ...base, mark: 'changed' })).toBe(false);
+    expect(ok('planned_tasks', { title: 'x', source: src })).toBe(false); // who it is for is required
+  });
+
+  it('risks: what covers it, or uncovered, never both and never neither', () => {
+    expect(ok('risks', { risk: 'Photos arrive late', covered_by: 'Ed supplies them in week 1', source: src })).toBe(true);
+    expect(ok('risks', { risk: 'Photos arrive late', uncovered: true, source: src })).toBe(true);
+    expect(ok('risks', { risk: 'Photos arrive late', source: src })).toBe(false);
+    expect(ok('risks', { risk: 'Photos arrive late', covered_by: 'x', uncovered: true, source: src })).toBe(false);
+  });
+
   it('request bodies: PUT carries items, PATCH exactly one operation', () => {
     expect(putBody.safeParse({ items: [] }).success).toBe(true);
     expect(putBody.safeParse({ rows: [] }).success).toBe(false);
@@ -78,7 +100,7 @@ describe('plan item validation, per section', () => {
     expect(patchBody.safeParse({ op: 'remove', id: 'x' }).success).toBe(false);
     expect(patchBody.safeParse({ op: 'mark_wrong', id: '3ecfb7be-20bb-43cb-9b4d-31c44337dc81', wrong: true }).success).toBe(true);
     expect(patchBody.safeParse({ op: 'explode' }).success).toBe(false);
-    expect(PLAN_SECTIONS).toEqual(['requirements', 'dates', 'team', 'billing', 'examples', 'decisions']);
+    expect(PLAN_SECTIONS).toEqual(['requirements', 'dates', 'team', 'billing', 'planned_tasks', 'risks', 'examples', 'decisions']);
   });
 });
 
@@ -92,6 +114,8 @@ describe('the home card plan line', () => {
     expect(planLine({ ...base, other_items: 2 })).toBe('Plan: started');
     expect(planLine({ ...base, requirements: 1, dates: [{ label: 'Launch', date: '2027-03-02' }] })).toBe('Plan: 1 requirement, launch Mar 2');
     expect(planLine({ ...base, billing_kind: 'internal', other_items: 1 })).toBe('Plan: not billed');
+    expect(planLine({ ...base, requirements: 12, project_launch: '2027-01-19', billing_kind: 'milestones', planned_tasks: 14, other_items: 30 })).toBe('Plan: 12 requirements, launch Jan 19, milestones billing, 14 planned tasks');
+    expect(planLine({ ...base, planned_tasks: 1, other_items: 1 })).toBe('Plan: 1 planned task');
     expect(planLine({ ...base, billing_kind: 'unknown', other_items: 1 })).toBe('Plan: started');
     expect(shortDay('2027-01-19')).toBe('Jan 19');
   });

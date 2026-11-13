@@ -48,6 +48,8 @@ export interface ReleaseInput {
   open_wait?: number;
   /** Add PM_RELEASE_TAG to a card that ends assigned to Bast. Callers pass pmReleaseHold(). Default false (pure). */
   pm_hold?: boolean;
+  /** Planned task lines in the card's plan (not dropped). The line says Dox will create them. Part of release_version through triage_rev. Default 0. */
+  planned_tasks?: number;
 }
 
 export interface ReleaseEffects {
@@ -152,7 +154,14 @@ export function planRelease(input: ReleaseInput): ReleasePlan {
   const blocked = (block: ReleaseBlock, line: string): ReleasePlan => ({ ready: false, block, line, details: [], effects: null });
   if (kind === null) return blocked('unsorted', NOT_SORTED_LINE);
   const hold = input.pm_hold === true;
-  const finish = (effects: ReleaseEffects): ReleasePlan => ({ ready: true, block: null, line: describeRelease(effects), details: detailsOf(effects, project), effects });
+  const planned = input.planned_tasks ?? 0;
+  const finish = (effects: ReleaseEffects): ReleasePlan => ({
+    ready: true,
+    block: null,
+    line: describeRelease(effects) + (planned > 0 && kind !== 'question_only' ? ` ${PM_NAME} will create the ${planned} planned ${plural(planned, 'task', 'tasks')}.` : ''),
+    details: detailsOf(effects, project),
+    effects,
+  });
   const common = { kind, approves_wording: false, starts_project: false, project_name: null, site_name: input.site?.name ?? null };
 
   if (kind === 'question_only') {

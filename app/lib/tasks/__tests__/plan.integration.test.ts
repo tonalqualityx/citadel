@@ -118,11 +118,11 @@ describe.skipIf(!SCRATCH)('triage plan (real database)', () => {
   });
 
   describe('the whole plan', () => {
-    it('an empty plan has all six sections in fixed order, no lines and no last-change line', async () => {
+    it('an empty plan has all eight sections in fixed order, no lines and no last-change line', async () => {
       const t = await mkTask('empty');
       const r = await get(t, mike());
       expect(r.status).toBe(200);
-      expect(r.body.sections.map((s: any) => s.section)).toEqual(['requirements', 'dates', 'team', 'billing', 'examples', 'decisions']);
+      expect(r.body.sections.map((s: any) => s.section)).toEqual(['requirements', 'dates', 'team', 'billing', 'planned_tasks', 'risks', 'examples', 'decisions']);
       expect(r.body.sections.every((s: any) => s.items.length === 0 && s.updated_at === null)).toBe(true);
       expect(r.body.updated_at).toBeNull();
       expect(r.body.project).toBeNull();
@@ -231,8 +231,8 @@ describe.skipIf(!SCRATCH)('triage plan (real database)', () => {
       expect((await put(t, 'decisions', [{ text: 'd', source: SRC }], mikeKey())).status).toBe(403); // the same check as leaving Triage: his session, or the chat relaying him
       for (const who of [pm(), admin(), tech(), designer(), botKey(), worker(), otherLane()]) expect((await put(t, 'decisions', [{ text: 'x', source: SRC }], who)).status).toBe(404);
       const latest = await get(t, mike());
-      expect(latest.body.sections[5].items.map((i: any) => i.text)).toEqual(['c']);
-      expect(latest.body.sections[5].updated_by).toBe('Dox');
+      expect(latest.body.sections[7].items.map((i: any) => i.text)).toEqual(['c']);
+      expect(latest.body.sections[7].updated_by).toBe('Dox');
     });
 
     it('after release: staff who can see the task read it, a contractor without billing, a designer never; writing stays with Mike, the chat and Dox', async () => {
@@ -398,7 +398,59 @@ describe.skipIf(!SCRATCH)('triage plan (real database)', () => {
       await answerQ(req({ version: row.updated_at.toISOString(), text: 'The old one' }), { params: Promise.resolve({ id: t, qid }) });
       const r = await get(t, mike());
       expect(r.body.answered_questions).toMatchObject([{ question: 'Which logo?', answer: 'The old one', by_mike: true }]);
-      expect(r.body.sections[5].items).toHaveLength(0); // read through, not copied
+      expect(r.body.sections[7].items).toHaveLength(0); // read through, not copied
+    });
+  });
+
+  describe('planned tasks and risks', () => {
+    const task = (title: string, extra: Record<string, unknown> = {}) => ({ title, for: { kind: 'bast' }, source: SRC, ...extra });
+
+    it('lists work without creating it; dependencies point only at other planned lines; removing a line frees the ones after it', async () => {
+      const t = await mkTask('planned');
+      const before = await prisma.task.count();
+      const first = await put(t, 'planned_tasks', [task('Build the header'), task('Build the footer', { for: { name: 'Lisa', org: 'Freelance designer' }, when: 'before design handoff' })]);
+      expect(first.status).toBe(200);
+      expect(await prisma.task.count()).toBe(before); // nothing created
+      const [a, b] = first.body.items;
+      expect(a.depends_on).toEqual([]);
+      const chained = await patch(t, 'planned_tasks', { op: 'change', id: b.id, item: task('Build the footer', { for: { name: 'Lisa' }, depends_on: [a.id], when: '2026-12-04', done_when: 'Footer matches the design' }) });
+      expect(chained.status).toBe(200);
+      expect((await patch(t, 'planned_tasks', { op: 'change', id: b.id, item: task('x', { depends_on: [b.id] }) })).body.code).toBe('plan_bad_dependency');
+      expect((await patch(t, 'planned_tasks', { op: 'add', item: task('y', { depends_on: [OTHER_UUID] }) })).body.code).toBe('plan_bad_dependency');
+      const read = await get(t, mike());
+      expect(read.body.sections[4].items[1]).toMatchObject({ depends_on: [a.id], when: '2026-12-04' });
+      const removed = await patch(t, 'planned_tasks', { op: 'remove', id: a.id });
+      expect(removed.body.items).toHaveLength(1);
+      expect(removed.body.items[0].depends_on).toEqual([]);
+      // for: a Citadel user is resolved by name; a task_id must be a real task
+      const withUser = await put(t, 'planned_tasks', [{ id: b.id, ...task('Build the footer', { for: { user_id: MIKE_USER_ID } }) }]);
+      expect(withUser.status).toBe(200);
+      expect((await get(t, mike())).body.sections[4].items[0]).toMatchObject({ for_name: 'Mike', is_mike: true });
+      expect((await patch(t, 'planned_tasks', { op: 'change', id: b.id, item: task('Build the footer', { task_id: OTHER_UUID }) })).body.code).toBe('plan_unknown_task');
+      const real = await mkTask('the real task');
+      const linked = await patch(t, 'planned_tasks', { op: 'change', id: b.id, item: task('Build the footer', { task_id: real }) }, dox());
+      expect(linked.body.items[0].task_id).toBe(real);
+    });
+
+    it('risks need what covers them or uncovered: true', async () => {
+      const t = await mkTask('risks');
+      expect((await put(t, 'risks', [{ risk: 'Ed is slow with photos', source: SRC }])).status).toBe(400);
+      expect((await put(t, 'risks', [{ risk: 'Ed is slow with photos', covered_by: 'x', uncovered: true, source: SRC }])).status).toBe(400);
+      const ok = await put(t, 'risks', [{ risk: 'Old domain DNS is with a third party', covered_by: 'Ed gives us the registrar login first', source: SRC }, { risk: 'Photos arrive late', uncovered: true, source: SRC }]);
+      expect(ok.status).toBe(200);
+      expect((await get(t, mike())).body.sections[5].items).toHaveLength(2);
+    });
+
+    it('the release line says Dox will create the planned tasks, the count comes from the plan, and a line added after he read it makes his tap a 409', async () => {
+      const t = await mkTask('release line', { triage_kind: 'task' });
+      expect((await card(t)).release_line).not.toContain('planned');
+      await put(t, 'planned_tasks', [task('One'), task('Two'), task('Dropped', { mark: 'dropped', changed_by: 'Mike' })]);
+      const seen = await card(t);
+      expect(seen.release_line).toContain('Dox will create the 2 planned tasks.');
+      expect(seen.plan_line).toBe('Plan: 2 planned tasks');
+      await patch(t, 'planned_tasks', { op: 'add', item: task('Three') });
+      await expect(runHomeAct(prisma, MIKE_USER_ID, { action: 'triage_release_card', task_ids: [t], release_version: seen.release_version }, OPTS)).rejects.toMatchObject({ statusCode: 409, code: 'card_changed' });
+      expect((await card(t)).release_line).toContain('Dox will create the 3 planned tasks.');
     });
   });
 
@@ -411,6 +463,8 @@ describe.skipIf(!SCRATCH)('triage plan (real database)', () => {
       await put(t, 'requirements', Array.from({ length: 13 }, (_, i) => reqItem(`Req ${i}`, i === 12 ? { mark: 'dropped' } : {})));
       await put(t, 'billing', [{ type: 'basis', kind: 'milestones', source: SRC }]);
       expect((await card(t)).plan_line).toBe('Plan: 12 requirements, launch Jan 19, milestones billing');
+      await put(t, 'planned_tasks', Array.from({ length: 14 }, (_, i) => ({ title: `Task ${i}`, for: { kind: 'bast' }, source: SRC })));
+      expect((await card(t)).plan_line).toBe('Plan: 12 requirements, launch Jan 19, milestones billing, 14 planned tasks');
     });
   });
 });

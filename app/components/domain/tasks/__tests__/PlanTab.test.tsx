@@ -39,13 +39,13 @@ describe('Plan tab', () => {
   it('an empty plan shows each section with one muted line saying what goes there, and "nothing yet" at the top', () => {
     render(<PlanView plan={plan()} />);
     expect(screen.getByTestId('plan-last-changed').textContent).toContain('Nothing in the plan yet');
-    for (const s of ['requirements', 'dates', 'team', 'billing', 'examples', 'decisions'] as const) {
+    for (const s of PLAN_SECTIONS) {
       expect(screen.getByTestId(`plan-empty-${s}`).textContent).toBe(PLAN_EMPTY_LINES[s]);
     }
     expect(screen.queryByTestId('plan-item')).toBeNull();
     // sections in the fixed order
     const heads = Array.from(document.querySelectorAll('h3')).map((h) => h.textContent);
-    expect(heads).toEqual(['Requirements', 'Dates', 'Team', 'Billing model', 'Examples', 'Decisions']);
+    expect(heads).toEqual(['Requirements', 'Dates', 'Team', 'Billing model', 'Planned tasks', 'Risks', 'Examples', 'Decisions']);
   });
 
   it('the top line says when the plan last changed and by whom', () => {
@@ -167,6 +167,44 @@ describe('Plan tab', () => {
     );
     expect(within(screen.getByTestId('plan-shape')).getByText('Design')).toBeTruthy();
     expect(within(screen.getByTestId('plan-sitemap')).getByText(/Home/)).toBeTruthy();
+  });
+
+  it('planned tasks: a numbered list with who and when in small type, "after 3" for dependencies, a link once Dox created the task, dropped collapsed', () => {
+    const a = item({ title: 'Build the header', for: { kind: 'bast' }, depends_on: [], source: SRC, mark: 'original' });
+    const b = item({ title: 'Design the home page', for: { name: 'Lisa', org: 'Freelance designer' }, depends_on: [], when: 'before design handoff', source: SRC, mark: 'original' });
+    const c = item({ title: 'Build the footer', for: { user_id: 'u1' }, for_name: 'Ken Ortiz', depends_on: [a.id, b.id], when: '2026-12-04', done_when: 'Footer matches the design', source: SRC, mark: 'original', task_id: 'task-9' });
+    const d = item({ title: 'Blog import', for: { kind: 'dox_decides' }, depends_on: [], source: SRC, mark: 'dropped', changed_by: 'Ed, Nov 9' });
+    render(<PlanView plan={plan({ planned_tasks: [a, b, c, d] })} />);
+    const sec = screen.getByTestId('plan-planned-tasks');
+    const rows = within(sec).getAllByTestId('plan-item');
+    expect(within(rows[0]).getByTestId('plan-task-num').textContent).toBe('1.');
+    expect(within(rows[0]).getByTestId('plan-task-meta').textContent).toBe('For Bast');
+    expect(within(rows[1]).getByTestId('plan-task-meta').textContent).toBe('For Lisa, Freelance designer · when before design handoff');
+    expect(within(rows[2]).getByTestId('plan-task-meta').textContent).toBe('For Ken Ortiz · when 2026-12-04 · after 1, 2');
+    expect(rows[2].textContent).toContain('Done when Footer matches the design');
+    expect(within(rows[2]).getByTestId('plan-task-link').getAttribute('href')).toBe('/tasks/task-9');
+    const dropped = within(sec).getByTestId('plan-dropped-planned_tasks') as HTMLDetailsElement;
+    expect(dropped.open).toBe(false);
+    expect(within(dropped).getByTestId('plan-task-num').textContent).toBe('4.');
+    expect(within(dropped).getByTestId('plan-task-meta').textContent).toBe('For Dox decides');
+  });
+
+  it('risks: uncovered ones first with a "Not covered" mark, covered ones say what covers them', () => {
+    render(
+      <PlanView
+        plan={plan({
+          risks: [
+            item({ risk: 'Old domain DNS is with a third party', covered_by: 'Ed gives us the registrar login first', source: SRC }),
+            item({ risk: 'Photos arrive late', uncovered: true, source: SRC }),
+          ],
+        })}
+      />,
+    );
+    const rows = within(screen.getByTestId('plan-risks')).getAllByTestId('plan-item');
+    expect(rows[0].textContent).toContain('Photos arrive late');
+    expect(within(rows[0]).getByTestId('plan-not-covered').textContent).toBe('Not covered');
+    expect(rows[1].textContent).toContain('Covered by Ed gives us the registrar login first');
+    expect(within(rows[1]).queryByTestId('plan-not-covered')).toBeNull();
   });
 
   it('examples are links with their notes; decisions say "Decided:" and answered questions read through as "Mike chose"', () => {

@@ -169,6 +169,7 @@ export async function loadCards(db: Db, taskIds: string[], now: Date = new Date(
       project: t.project ? { id: t.project.id, name: t.project.name, status: t.project.status } : null,
       bast_id: BAST_USER_ID,
       site: t.site ? { id: t.site.id, name: t.site.name } : null,
+      planned_tasks: planRows.filter((r) => r.task_id === t.id && r.section === 'planned_tasks' && (r.data as Record<string, unknown>).mark !== 'dropped').length,
       open_go: questionSplit(openQs.get(t.id)).go,
       open_wait: questionSplit(openQs.get(t.id)).wait,
       pm_hold: hold,
@@ -228,7 +229,8 @@ function planLineFor(rows: { section: string; data: unknown }[], projectLaunch: 
   if (rows.length === 0) return null;
   const d = (r: { data: unknown }) => r.data as Record<string, unknown>;
   const reqs = rows.filter((r) => r.section === 'requirements' && d(r).mark !== 'dropped').length;
+  const plannedTasks = rows.filter((r) => r.section === 'planned_tasks' && d(r).mark !== 'dropped').length;
   const dates = rows.filter((r) => r.section === 'dates').map((r) => ({ label: String(d(r).label ?? ''), date: String(d(r).date ?? ''), mark: d(r).mark as string | undefined }));
   const basis = rows.find((r) => r.section === 'billing' && d(r).type === 'basis');
-  return planLine({ requirements: reqs, project_launch: projectLaunch, dates, billing_kind: basis ? String(d(basis).kind) : null, other_items: rows.length });
+  return planLine({ requirements: reqs, project_launch: projectLaunch, dates, billing_kind: basis ? String(d(basis).kind) : null, planned_tasks: plannedTasks, other_items: rows.length });
 }

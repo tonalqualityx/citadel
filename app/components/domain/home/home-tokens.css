@@ -262,3 +262,5 @@
 [data-home] .home-plan-top { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; }
 [data-home] .home-plan-top .home-btn { min-height: 40px; }
 [data-home] .home-plan-ol { list-style: none; padding-left: 0; }
+[data-home] .home-plan-num { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+[data-home] .home-plan-sub { display: block; }

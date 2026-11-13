@@ -18,6 +18,8 @@ export interface PlanLineInput {
   /** Plan date items: label and day. */
   dates: { label: string; date: string; mark?: string }[];
   billing_kind: string | null;
+  /** Planned task lines that are not dropped. */
+  planned_tasks?: number;
   /** Anything else in the plan at all (so a plan with only examples still shows a line). */
   other_items: number;
 }
@@ -32,6 +34,8 @@ export function planLine(i: PlanLineInput): string | null {
   if (launch) parts.push(`launch ${shortDay(launch)}`);
   const b = i.billing_kind ? BILLING_WORDS[i.billing_kind] : null;
   if (b) parts.push(b);
+  const pt = i.planned_tasks ?? 0;
+  if (pt > 0) parts.push(`${pt} planned ${pt === 1 ? 'task' : 'tasks'}`);
   if (parts.length === 0) return i.other_items > 0 ? 'Plan: started' : null;
   return `Plan: ${parts.join(', ')}`;
 }

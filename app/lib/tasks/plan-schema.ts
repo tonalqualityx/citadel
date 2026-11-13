@@ -12,7 +12,7 @@
  */
 import { z } from 'zod';
 
-export const PLAN_SECTIONS = ['requirements', 'dates', 'team', 'billing', 'examples', 'decisions'] as const;
+export const PLAN_SECTIONS = ['requirements', 'dates', 'team', 'billing', 'planned_tasks', 'risks', 'examples', 'decisions'] as const;
 export type PlanSectionName = (typeof PLAN_SECTIONS)[number];
 
 export const PLAN_SECTION_TITLES: Record<PlanSectionName, string> = {
@@ -20,6 +20,8 @@ export const PLAN_SECTION_TITLES: Record<PlanSectionName, string> = {
   dates: 'Dates',
   team: 'Team',
   billing: 'Billing model',
+  planned_tasks: 'Planned tasks',
+  risks: 'Risks',
   examples: 'Examples',
   decisions: 'Decisions',
 };
@@ -30,6 +32,8 @@ export const PLAN_EMPTY_LINES: Record<PlanSectionName, string> = {
   dates: 'Start, design handoff, staging, launch and any other date, with where each came from.',
   team: 'Who is on it and as what. What will be yours is listed first.',
   billing: 'How this is billed: retainer, hourly, milestones, or not billed. Milestones with amount and trigger.',
+  planned_tasks: 'Work that has to happen, one line each. Nothing is created until you release; Dox makes the tasks from this list.',
+  risks: 'What could go wrong and what covers it. Uncovered risks come first.',
   examples: 'Links to example sites or pages, with what each is an example of.',
   decisions: 'What was decided, by whom and from what.',
 };
@@ -39,6 +43,8 @@ export const PLAN_LIMITS = {
   dates: 40,
   team: 40,
   billing: 31, // one basis line and up to 30 milestones
+  planned_tasks: 150,
+  risks: 40,
   examples: 40,
   decisions: 100,
 } as const;
@@ -157,6 +163,43 @@ export const billingMilestone = z
   .strict();
 export const billingItem = z.discriminatedUnion('type', [billingBasis, billingMilestone]);
 
+/** Who a planned task is for: a Citadel user, Bast, "Dox decides", or a named outside party as text. */
+export const forSchema = z.union([
+  z.object({ user_id: z.string().uuid() }).strict(),
+  z.object({ kind: z.enum(['bast', 'dox_decides']) }).strict(),
+  z.object({ name: oneLine(120), org: optLine(120) }).strict(),
+]);
+export const plannedTaskItem = z
+  .object({
+    title: oneLine(120),
+    /** What done looks like. */
+    done_when: optLine(200),
+    for: forSchema,
+    /** Ids of other planned task lines in this plan that come first. */
+    depends_on: z.array(z.string().uuid()).max(12).default([]),
+    /** A date (YYYY-MM-DD), a phase name, or free text such as "before design handoff". */
+    when: optLine(120),
+    source: sourceSchema,
+    /** The real task Dox created from this line (set later through the plan route). */
+    task_id: z.string().uuid().nullable().optional(),
+    ...markFields,
+  })
+  .strict()
+  .superRefine(markRules);
+
+export const riskItem = z
+  .object({
+    risk: oneLine(200),
+    covered_by: optLine(200),
+    uncovered: z.boolean().optional(),
+    source: sourceSchema,
+  })
+  .strict()
+  .superRefine((v, ctx) => {
+    if (!v.covered_by && v.uncovered !== true) ctx.addIssue({ code: 'custom', path: ['covered_by'], message: 'Say what covers it, or set uncovered to true.' });
+    if (v.covered_by && v.uncovered === true) ctx.addIssue({ code: 'custom', path: ['uncovered'], message: 'A risk with something covering it is not uncovered.' });
+  });
+
 export const exampleItem = z
   .object({
     url: planLink,
@@ -174,6 +217,8 @@ export const ITEM_SCHEMAS = {
   dates: dateItem,
   team: teamItem,
   billing: billingItem,
+  planned_tasks: plannedTaskItem,
+  risks: riskItem,
   examples: exampleItem,
   decisions: decisionItem,
 } as const;

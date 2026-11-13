@@ -339,6 +339,85 @@ function Billing({ s, c }: { s: PlanSectionOut; c: Controls }) {
   );
 }
 
+function forWords(i: PlanItemOut): string {
+  const f = i.for as { user_id?: string; kind?: string; name?: string; org?: string } | undefined;
+  if (!f) return '';
+  if (f.kind === 'bast') return 'Bast';
+  if (f.kind === 'dox_decides') return 'Dox decides';
+  if (f.user_id) return str(i.for_name) || 'Someone';
+  return f.name ? `${f.name}${f.org ? `, ${f.org}` : ''}` : '';
+}
+
+/** A compact numbered list: title, then who and when in small type, "after 3" for what it waits on. Numbers follow the order of the list, dropped lines keep theirs. */
+function PlannedTasks({ s, c }: { s: PlanSectionOut; c: Controls }) {
+  const number = new Map(s.items.map((i, k) => [i.id, k + 1]));
+  const live = s.items.filter((i) => str(i.mark) !== 'dropped');
+  const render = (i: PlanItemOut) => {
+    const deps = ((i.depends_on as string[] | undefined) ?? []).map((d) => number.get(d)).filter((n): n is number => !!n);
+    const meta = [forWords(i) ? `For ${forWords(i)}` : '', i.when ? `when ${plain(str(i.when))}` : '', deps.length ? `after ${deps.join(', ')}` : ''].filter(Boolean).join(' · ');
+    return (
+      <>
+        <span className="home-plan-num" data-testid="plan-task-num">{number.get(i.id)}.</span> <strong>{plain(str(i.title))}</strong>
+        {meta ? <span className="home-small home-muted home-plan-sub" data-testid="plan-task-meta">{meta}</span> : null}
+        {i.done_when ? <span className="home-small home-muted home-plan-sub">Done when {plain(str(i.done_when))}</span> : null}
+        {i.task_id ? (
+          <a className="home-small home-plan-sub" href={`/tasks/${str(i.task_id)}`} data-testid="plan-task-link">
+            Task created
+          </a>
+        ) : null}
+      </>
+    );
+  };
+  return (
+    <Block title={s.title} count={live.length} testid="plan-planned-tasks">
+      {s.items.length === 0 ? (
+        <Empty section="planned_tasks" />
+      ) : (
+        <>
+          <ul className="home-plan-list">
+            {live.map((i) => (
+              <Line key={i.id} section="planned_tasks" item={i} c={c}>
+                {render(i)}
+              </Line>
+            ))}
+          </ul>
+          <Dropped items={droppedOf(s)} section="planned_tasks" c={c} render={render} />
+        </>
+      )}
+    </Block>
+  );
+}
+
+/** Uncovered risks first, each with a small "not covered" mark; covered ones say what covers them. */
+function Risks({ s, c }: { s: PlanSectionOut; c: Controls }) {
+  const sorted = [...s.items.filter((i) => i.uncovered === true), ...s.items.filter((i) => i.uncovered !== true)];
+  return (
+    <Block title={s.title} count={s.items.length} testid="plan-risks">
+      {s.items.length === 0 ? (
+        <Empty section="risks" />
+      ) : (
+        <ul className="home-plan-list">
+          {sorted.map((i) => (
+            <Line key={i.id} section="risks" item={i} c={c}>
+              {plain(str(i.risk))}
+              {i.uncovered === true ? (
+                <>
+                  {' '}
+                  <span className="home-plan-pill" data-mark="changed" data-testid="plan-not-covered">
+                    Not covered
+                  </span>
+                </>
+              ) : (
+                <span className="home-small home-muted home-plan-sub">Covered by {plain(str(i.covered_by))}</span>
+              )}
+            </Line>
+          ))}
+        </ul>
+      )}
+    </Block>
+  );
+}
+
 function Examples({ s, c }: { s: PlanSectionOut; c: Controls }) {
   return (
     <Block title={s.title} count={s.items.length} testid="plan-examples">
@@ -462,9 +541,11 @@ export function PlanView({
       <Dates s={by('dates')} c={c} project={plan.project} />
       <Team s={by('team')} c={c} project={plan.project} />
       <Billing s={by('billing')} c={c} />
-      {plan.project ? <ProjectBlocks project={plan.project} /> : null}
+      <PlannedTasks s={by('planned_tasks')} c={c} />
+      <Risks s={by('risks')} c={c} />
       <Examples s={by('examples')} c={c} />
       <Decisions s={by('decisions')} c={c} answered={plan.answered_questions} />
+      {plan.project ? <ProjectBlocks project={plan.project} /> : null}
     </div>
   );
 }

@@ -88,7 +88,7 @@ export function parseItem(section: PlanSectionName, raw: unknown): Record<string
 }
 
 /** Checks that need the card or the database: project dates, team members, the billing shape. Throws a 400. */
-async function sectionChecks(db: Pick<PrismaClient, 'user'>, task: PlanTaskHead, section: PlanSectionName, items: Record<string, unknown>[]): Promise<void> {
+async function sectionChecks(db: Pick<PrismaClient, 'user' | 'task'>, task: PlanTaskHead, section: PlanSectionName, items: Record<string, unknown>[]): Promise<void> {
   if (items.length > PLAN_LIMITS[section]) bad(`${PLAN_SECTION_TITLES[section]} holds at most ${PLAN_LIMITS[section]} lines.`, 'plan_too_many');
   if (section === 'dates' && task.triage_kind === 'project_setup' && task.project_id) {
     if (items.some((i) => isProjectDateLabel(String(i.label)))) bad(PROJECT_DATE_MESSAGE, 'plan_project_date');
@@ -100,6 +100,18 @@ async function sectionChecks(db: Pick<PrismaClient, 'user'>, task: PlanTaskHead,
       const have = new Set(found.map((u) => u.id));
       const missing = ids.find((x) => !have.has(x));
       if (missing) bad('Team: that user does not exist.', 'plan_unknown_user');
+    }
+  }
+  if (section === 'planned_tasks') {
+    const ids = items.map((i) => (i.for as { user_id?: string }).user_id).filter((x): x is string => !!x);
+    if (ids.length) {
+      const have = new Set((await db.user.findMany({ where: { id: { in: ids } }, select: { id: true } })).map((u) => u.id));
+      if (ids.some((x) => !have.has(x))) bad('Planned tasks: that user does not exist.', 'plan_unknown_user');
+    }
+    const taskIds = items.map((i) => i.task_id).filter((x): x is string => typeof x === 'string');
+    if (taskIds.length) {
+      const found = await (db as unknown as Pick<PrismaClient, 'task'>).task.findMany({ where: { id: { in: taskIds }, is_deleted: false }, select: { id: true } });
+      if (found.length !== new Set(taskIds).size) bad('Planned tasks: task_id is not a task.', 'plan_unknown_task');
     }
   }
   if (section === 'billing') {
@@ -114,6 +126,16 @@ async function sectionChecks(db: Pick<PrismaClient, 'user'>, task: PlanTaskHead,
 function orderItems(section: PlanSectionName, items: Record<string, unknown>[]): Record<string, unknown>[] {
   if (section !== 'billing') return items;
   return [...items.filter((i) => i.type === 'basis'), ...items.filter((i) => i.type !== 'basis')];
+}
+
+/** Planned task dependencies point only at other planned task lines of this plan, never at the line itself. */
+function checkDependencies(lines: { id: string | null; data: Record<string, unknown> }[], validIds: Set<string>): void {
+  for (const l of lines) {
+    for (const d of (l.data.depends_on as string[] | undefined) ?? []) {
+      if (l.id && d === l.id) bad('Planned tasks: a task cannot depend on itself.', 'plan_bad_dependency');
+      if (!validIds.has(d)) bad('Planned tasks: depends_on must be the id of another planned task line in this plan.', 'plan_bad_dependency');
+    }
+  }
 }
 
 type ItemRow = Prisma.TaskPlanItemGetPayload<object>;
@@ -157,6 +179,7 @@ export async function putSection(task: PlanTaskHead, auth: Auth, section: PlanSe
       if (!byId.has(w.__id)) bad(`${PLAN_SECTION_TITLES[section]}: id ${w.__id} is not a line of this section.`, 'plan_bad_id');
       keep.add(w.__id);
     }
+    if (section === 'planned_tasks') checkDependencies(withIds.map(({ __id, ...data }) => ({ id: __id ?? null, data })), keep);
     await tx.taskPlanItem.deleteMany({ where: { task_id: task.id, section, id: { notIn: Array.from(keep) } } });
     const out: ItemRow[] = [];
     for (let i = 0; i < withIds.length; i++) {
@@ -201,6 +224,7 @@ export async function patchSection(task: PlanTaskHead, auth: Auth, section: Plan
     if (body.op === 'add') {
       const merged = [...existing.map((e) => e.data as Record<string, unknown>), data!];
       await sectionChecks(tx as never, task, section, merged);
+      if (section === 'planned_tasks') checkDependencies([{ id: null, data: data! }], new Set(existing.map((e) => e.id)));
       if (section === 'billing' && data!.type === 'basis') {
         // the basis line goes first
         await tx.taskPlanItem.updateMany({ where: { task_id: task.id, section }, data: { position: { increment: 1 } } });
@@ -211,6 +235,7 @@ export async function patchSection(task: PlanTaskHead, auth: Auth, section: Plan
     } else if (body.op === 'change') {
       const merged = existing.map((e) => (e.id === body.id ? data! : (e.data as Record<string, unknown>)));
       await sectionChecks(tx as never, task, section, merged);
+      if (section === 'planned_tasks') checkDependencies([{ id: body.id, data: data! }], new Set(existing.map((e) => e.id)));
       const unchanged = same(target!.data, JSON.parse(JSON.stringify(data)));
       await tx.taskPlanItem.update({
         where: { id: body.id },
@@ -218,6 +243,13 @@ export async function patchSection(task: PlanTaskHead, auth: Auth, section: Plan
       });
     } else if (body.op === 'remove') {
       await tx.taskPlanItem.delete({ where: { id: body.id } });
+      if (section === 'planned_tasks') {
+        // Lines that came after the removed one no longer wait for it.
+        for (const e of existing) {
+          const deps = (e.data as { depends_on?: string[] }).depends_on ?? [];
+          if (e.id !== body.id && deps.includes(body.id)) await tx.taskPlanItem.update({ where: { id: e.id }, data: { data: { ...(e.data as object), depends_on: deps.filter((d) => d !== body.id) } as Prisma.InputJsonValue } });
+        }
+      }
       const left = existing.filter((e) => e.id !== body.id);
       for (let i = 0; i < left.length; i++) if (left[i].position !== i) await tx.taskPlanItem.update({ where: { id: left[i].id }, data: { position: i } });
       verb = 'line removed';
@@ -255,7 +287,8 @@ export async function loadPlan(task: PlanTaskHead, auth: Auth, headers: Hdrs): P
     canWriteNow(task, auth, headers),
   ]);
   // Team lines name a Citadel user by id: the screen needs the name (and whether it is Mike) without a second call.
-  const teamIds = items.filter((i) => i.section === 'team').map((i) => ((i.data as { person?: { user_id?: string } }).person?.user_id)).filter((x): x is string => !!x);
+  const personOf = (i: { section: string; data: unknown }) => (i.section === 'team' ? (i.data as { person?: { user_id?: string } }).person : i.section === 'planned_tasks' ? (i.data as { for?: { user_id?: string } }).for : undefined);
+  const teamIds = items.map((i) => personOf(i)?.user_id).filter((x): x is string => !!x);
   const people = teamIds.length ? await prisma.user.findMany({ where: { id: { in: teamIds } }, select: { id: true, name: true } }) : [];
   const nameOf = new Map(people.map((u) => [u.id, u.name]));
   const sections: PlanSectionOut[] = PLAN_SECTIONS.map((section) => {
@@ -270,8 +303,10 @@ export async function loadPlan(task: PlanTaskHead, auth: Auth, headers: Hdrs): P
             .filter((i) => i.section === section)
             .map((i) => {
               const out = formatItem(i);
-              const uid = section === 'team' ? (out.person as { user_id?: string } | undefined)?.user_id : undefined;
-              return uid ? { ...out, person_name: nameOf.get(uid) ?? 'Unknown user', is_mike: uid === MIKE_USER_ID } : out;
+              const uid = personOf(i)?.user_id;
+              if (!uid) return out;
+              const named = { ...out, person_name: nameOf.get(uid) ?? 'Unknown user', is_mike: uid === MIKE_USER_ID };
+              return section === 'planned_tasks' ? { ...named, for_name: named.person_name } : named;
             }),
       ...(withheld ? { withheld: true } : {}),
       updated_at: last ? last.created_at.toISOString() : null,

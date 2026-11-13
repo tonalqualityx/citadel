@@ -5970,6 +5970,8 @@ enum PlanSection {
   dates
   team
   billing
+  planned_tasks
+  risks
   examples
   decisions
 }
