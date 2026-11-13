@@ -150,8 +150,15 @@ function OneQuestion({ q, onAnswer, contextOpen }: { q: QuestionView; onAnswer?:
                 disabled={busy}
                 onClick={() => void send({ option_id: o.id })}
               >
-                {o.label}
-                {o.id === q.recommended_option_id ? <span className="home-pill">{QUESTION_BUTTONS.recommended}</span> : null}
+                {o.id === q.recommended_option_id ? (
+                  <span>
+                    {o.label}
+                    <br />
+                    <span className="home-small">{QUESTION_BUTTONS.recommended}</span>
+                  </span>
+                ) : (
+                  o.label
+                )}
               </button>
             ))}
             {!other ? (
