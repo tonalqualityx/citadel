@@ -65,6 +65,24 @@ describe('TriageCard', () => {
   });
 });
 
+describe('a group of one idea', () => {
+  it('its Talk about this is that idea\'s own conversation; a group of several stays the general chat', () => {
+    const onTalk = vi.fn();
+    const one = group({ count: 1, tasks: tasks(1), titles: ['Idea 1'] });
+    const { unmount } = render(<TriageCard triage={triage([one])} onAct={vi.fn()} onTalk={onTalk} />);
+    const g = screen.getByTestId('triage-group');
+    const buttons = within(g).getAllByRole('button', { name: 'Talk about this' });
+    fireEvent.click(buttons[buttons.length - 1]);
+    expect(onTalk.mock.calls[0][0]).toMatchObject({ key: `task:${one.tasks[0].task_id}`, task_id: one.tasks[0].task_id });
+    unmount();
+    const many = vi.fn();
+    render(<TriageCard triage={triage([group()])} onAct={vi.fn()} onTalk={many} />);
+    const gb = within(screen.getByTestId('triage-group')).getAllByRole('button', { name: 'Talk about this' });
+    fireEvent.click(gb[gb.length - 1]);
+    expect(many.mock.calls[0][0].task_id).toBeUndefined();
+  });
+});
+
 describe('triage talk seam', () => {
   it('a pass group travels as a title only; the seam falls back to the existing chat', () => {
     const card = triageTalkCard(group({ key: 'pass:triage-pass:x', kind: 'pass', project_id: null, label: 'x' }));

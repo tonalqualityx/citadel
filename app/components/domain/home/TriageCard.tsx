@@ -97,7 +97,7 @@ export function TriageCard({ triage, onAct, onTalk, busy = false }: TriageCardPr
               <button type="button" className="home-btn" disabled={off} onClick={() => void run({ action: 'triage_drop', task_ids: g.tasks.map((t) => t.task_id).slice(0, 1000) })}>
                 {g.count === 1 ? TRIAGE_BUTTONS.drop : `${TRIAGE_BUTTONS.drop} all ${g.count}`}
               </button>
-              <button type="button" className="home-btn" onClick={() => onTalk(triageTalkCard(g))}>
+              <button type="button" className="home-btn" onClick={() => onTalk(triageTalkCard(g, g.count === 1 ? g.tasks[0] : undefined))}>
                 {TRIAGE_BUTTONS.talk}
               </button>
               {more > 0 || expanded ? (
