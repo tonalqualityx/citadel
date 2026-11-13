@@ -1,86 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/db/prisma';
-import { notifyTaskDueSoon } from '@/lib/services/notifications';
+import { runTaskDueNotices } from '@/lib/services/task-due-notice';
 
 /**
  * POST /api/cron/task-due-soon
  *
- * Sends notifications for tasks due within the next 24 hours.
- * Should be called daily by a cron job.
+ * The day-before notice: for each open task assigned to a staff person (never a bot, never the owner, never a Triage task, never a task on a project
+ * that is not live), one notification through createNotification when the task's due date is tomorrow in the assignee's time zone. Once per task and
+ * due date: the announced due date is stored on the task (due_notice_for), so running this every hour, or twice at once, tells nobody twice. A due date
+ * that moves is announced again for the new date. Rules and code: lib/services/task-due-notice.ts.
  *
- * Requires CRON_SECRET header for authorization.
+ * Triggered by an external scheduler, like the other /api/cron routes (nothing in this repo schedules them). The script app/scripts/cron/task-due-soon.sh
+ * is the one line to run from system cron, hourly during the working day:
+ *   0 8-17 * * *  CITADEL_URL=https://<citadel host> CRON_SECRET=<the app's CRON_SECRET> /path/to/app/scripts/cron/task-due-soon.sh
+ *
+ * Requires the x-cron-secret header to match the CRON_SECRET environment variable.
  */
 export async function POST(request: NextRequest) {
-  // Verify cron secret
-  const cronSecret = request.headers.get('x-cron-secret');
-  if (!cronSecret || cronSecret !== process.env.CRON_SECRET) {
+  const cronSecret = process.env.CRON_SECRET;
+  const provided = request.headers.get('x-cron-secret');
+  if (!cronSecret || !provided || provided !== cronSecret) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-
   try {
-    const now = new Date();
-    const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-
-    // Find tasks due in the next 24 hours that:
-    // - Have an assignee
-    // - Are not done or abandoned
-    // - Haven't already been notified (check via notification table)
-    const tasksDueSoon = await prisma.task.findMany({
-      where: {
-        is_deleted: false,
-        assignee_id: { not: null },
-        status: { notIn: ['done', 'abandoned', 'triage'] },
-        due_date: {
-          gte: now,
-          lte: tomorrow,
-        },
-      },
-      select: {
-        id: true,
-        title: true,
-        assignee_id: true,
-        due_date: true,
-      },
-    });
-
-    // Check which ones haven't been notified yet today
-    const notifiedToday = await prisma.notification.findMany({
-      where: {
-        type: 'task_due_soon',
-        created_at: {
-          gte: new Date(now.setHours(0, 0, 0, 0)),
-        },
-      },
-      select: {
-        entity_id: true,
-        user_id: true,
-      },
-    });
-
-    const notifiedSet = new Set(
-      notifiedToday.map((n) => `${n.entity_id}:${n.user_id}`)
-    );
-
-    let notificationsSent = 0;
-
-    for (const task of tasksDueSoon) {
-      const key = `${task.id}:${task.assignee_id}`;
-      if (!notifiedSet.has(key) && task.assignee_id) {
-        await notifyTaskDueSoon(task.id, task.assignee_id);
-        notificationsSent++;
-      }
-    }
-
-    return NextResponse.json({
-      success: true,
-      tasksChecked: tasksDueSoon.length,
-      notificationsSent,
-    });
+    const out = await runTaskDueNotices();
+    return NextResponse.json({ success: true, ...out });
   } catch (error) {
     console.error('Error in task-due-soon cron:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

@@ -645,6 +645,7 @@ export type HomeTileId =
   | 'today'
   | 'needs_you_now'
   | 'triage'
+  | 'overdue_others'
   | 'working_on'
   | 'leads'
   | 'mail'
@@ -658,6 +659,7 @@ export const HOME_TILE_ORDER: readonly HomeTileId[] = [
   'today',
   'needs_you_now',
   'triage',
+  'overdue_others',
   'working_on',
   'leads',
   'mail',
@@ -691,6 +693,11 @@ export interface HomeResponse {
    */
   triage?: HomeTriage | null;
   /**
+   * Overdue by others: open tasks someone other than him is late on (more than one day past due, on a live project or none). Owner only: left out of the
+   * payload for everyone else. A list he looks at; it never creates a notification.
+   */
+  overdue_others?: HomeOverdueOthers | null;
+  /**
    * The empty sentence for every tile, from copy.ts, exactly as the design gives them
    * ("Nothing urgent.", "No active projects.", ...). '' where the design has none.
    */
@@ -700,6 +707,29 @@ export interface HomeResponse {
 // ============================================================================
 // B. POST /api/home/act and /api/home/undo
 // ============================================================================
+
+/** Overdue by others: one late task. */
+export interface HomeOverdueRow {
+  task_id: string;
+  title: string;
+  href: string;
+  /** The assignee's name. */
+  who: string;
+  who_id: string | null;
+  project_id: string | null;
+  project_name: string | null;
+  /** The due date (ISO). */
+  due_date: string;
+  /** Whole days past the due date (at least 1). */
+  days_overdue: number;
+}
+
+export interface HomeOverdueOthers {
+  /** Every late task, the rows may be cut at 200. */
+  count: number;
+  /** Most overdue first. */
+  rows: HomeOverdueRow[];
+}
 
 /** Triage: one parked idea (a task in status triage). */
 export interface HomeTriageTask {
@@ -761,6 +791,10 @@ export interface HomeTriageProject {
   project_id: string;
   name: string;
   status: string;
+  /** Target start date, YYYY-MM-DD (the project's start_date), or null. */
+  start_date: string | null;
+  /** Target launch date, YYYY-MM-DD (the project's target_date), or null. */
+  target_date: string | null;
   phases: HomeTriagePhase[];
   /** "What will be Mike's": the mike_part lines of the phases, in order. */
   mike_parts: { phase: string; text: string }[];
@@ -793,6 +827,9 @@ export interface HomeTriageCard {
   release_ready: boolean;
   release_block: 'unsorted' | 'no_project' | 'still_quote' | 'project_closed' | null;
   open_questions: number;
+  /** Target start and launch dates of the card's project, YYYY-MM-DD; null when the card has no project or the date is not set. */
+  target_start_date: string | null;
+  target_launch_date: string | null;
   /** A session marked the card finished: the evidence line (text after "Looks done: ") and the web addresses in it. */
   looks_done: { evidence: string; links: { text: string; href: string }[] } | null;
   /** project_setup cards only (and only when a project is linked). */

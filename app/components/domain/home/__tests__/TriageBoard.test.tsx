@@ -27,6 +27,8 @@ const card = (n: number, over: Partial<HomeTriageCard> = {}): HomeTriageCard => 
   release_ready: true,
   release_block: null,
   open_questions: 0,
+  target_start_date: null,
+  target_launch_date: null,
   looks_done: null,
   project: null,
   ...over,
@@ -114,6 +116,8 @@ describe('TriageBoard', () => {
       project_id: 'p1',
       name: 'Grok rebuild',
       status: 'queue',
+      start_date: '2026-11-10',
+      target_date: '2026-11-30',
       phases: ['Discover', 'Design', 'Build', 'Content', 'Launch'].map((n, i) => ({ id: `ph${i}`, name: n, summary: `${n} summary`, mike_part: n === 'Content' ? 'Approve the copy' : null })),
       mike_parts: [{ phase: 'Content', text: 'Approve the copy' }],
       contract: { status: 'signed' as const, signed_at: '2026-10-20T15:00:00Z', version: 1, deal_id: 'd1', deal_href: '/deals/d1' },
@@ -130,6 +134,7 @@ describe('TriageBoard', () => {
     expect(within(phases).getAllByRole('listitem')).toHaveLength(5);
     expect(within(phases).getAllByText('Yours')).toHaveLength(1);
     expect(within(el).getByText('8 pages: Home, About, Shop, and 5 more')).toBeTruthy();
+    expect(within(el).getByTestId('triage-dates').textContent).toBe('Start Nov 10, 2026 · Launch Nov 30, 2026');
     expect(within(el).queryAllByText(/task/i)).toHaveLength(0);
   });
 

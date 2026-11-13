@@ -452,4 +452,52 @@ export const projectEndpoints: ApiEndpoint[] = [
       },
     ],
   },
+  {
+    path: '/api/projects/:id/engagement-snapshot',
+    group: 'projects',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'One read of what a project sweep needs (Dox): the project, phases, open tasks with owner, last activity, blockers and live session, waits and open questions. Works with no brief yet.',
+        auth: 'required',
+        responseExample: {
+          brief: 'null | {id, cadence, owner_mode, last_pass_at}',
+          generated_at: 'ISO-8601',
+          project: { id: 'uuid', name: 'string', status: 'string', type: 'project|retainer|internal', start_date: 'ISO-8601|null', target_date: 'ISO-8601|null', dependencies_ordering_only: 'boolean', plan_folder: 'string|null' },
+          phases: [{ id: 'uuid', name: 'string', sort_order: 'number' }],
+          tasks: [{ id: 'uuid', title: 'string', status: 'not_started|in_progress|review|blocked', assignee: '{id, name}|null', function: '{id, name}|null', phase_id: 'uuid|null', tags: ['string'], due_date: 'ISO-8601|null', last_activity_at: 'ISO-8601 (newest of the task update and its newest comment)', blockers: [{ id: 'uuid', title: 'string', status: 'string', assignee_id: 'uuid|null', satisfied: 'boolean' }], blockers_satisfied: 'boolean', live_session: 'boolean (same rule as the work state route for a task)' }],
+          tasks_truncated: 'boolean (more than 600 open tasks)',
+          waits: [{ id: 'uuid', title: 'string', template_key: 'string', state: 'string', task_id: 'uuid|null', owner: '{kind: user|function|contact|mike, user_id|null, name|null}', due_at: 'ISO-8601', overdue: 'boolean' }],
+          questions: [{ id: 'uuid', task_id: 'uuid', task_title: 'string', question: 'string', cause_key: 'string|null', asked_by_lane: 'string|null', created_at: 'ISO-8601' }],
+        },
+        responseNotes: 'The enforced Dox lane or the signed-in session of the owner only (403 snapshot_forbidden). Only open tasks (never Triage, done or abandoned). Read only.',
+      },
+    ],
+  },
+  {
+    path: '/api/projects/:id/engagement-brief',
+    group: 'projects',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Start the engagement brief of the project (one per project) with cadence auto, owner_mode dry and no allowed actions. Idempotent.',
+        auth: 'required',
+        responseExample: { id: 'uuid', project_id: 'uuid', cadence: 'auto', owner_mode: 'dry', last_pass_at: 'ISO-8601|null' },
+        responseNotes: '201 created, 200 the existing brief unchanged. The Dox lane or the owner session only. Cadence values (auto, daily, every_2_days, every_3_days, weekly, every_2_weeks, none) are validated by PUT /api/engagement-briefs.',
+      },
+    ],
+  },
+  {
+    path: '/api/engagement-briefs/:id/snapshot',
+    group: 'projects',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'The same snapshot as the project one, by brief id, with the brief on it.',
+        auth: 'required',
+        responseExample: { brief: '{id, cadence, owner_mode, last_pass_at}', project: '{...}', phases: '[...]', tasks: '[...]', waits: '[...]', questions: '[...]' },
+        responseNotes: 'The enforced Dox lane or the owner session only. 400 brief_not_project for a charter brief.',
+      },
+    ],
+  },
 ];

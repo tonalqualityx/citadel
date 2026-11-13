@@ -20,6 +20,7 @@ import { linkAsksForNewTask } from '@/lib/work/link-asks';
 import { checkTracked, type SourceRef } from '@/lib/work/guard'; // Work stage D: never a second to-do for work something already carries
 import { emailSourcesFor, mayOverride, parseSourceKey, trackedResponse } from '@/lib/work/tracked';
 import { hasSecurityTag } from '@/lib/home/rules';
+import { guardDoxTaskCreate } from '@/lib/dox/guard';
 
 // Clarity Phase 5 — the arc board's "+ Quest" quick-add defaults assignee to the primary
 // operator, same email-lookup pattern /api/session-tasks already uses for session-born
@@ -285,7 +286,7 @@ export async function POST(request: NextRequest) {
   try {
     const auth = await requireAuth();
 
-    const body = await guardChatTaskBody(auth, 'POST', await request.json());
+    const body = guardDoxTaskCreate(auth, request.headers, (await guardChatTaskBody(auth, 'POST', await request.json())) as Record<string, unknown>);
     const chatConversation = await chatConversationFor(auth, request.headers, 'POST');
     const data = createTaskSchema.parse(body);
     // Chat lane only: a create the reach check would tap (a task assigned to Bast) writes nothing.

@@ -14,6 +14,8 @@ export interface Comment {
     avatar_url: string | null;
   } | null;
   content: string;
+  /** The machine lane that wrote it (the Dox lane shows as "Dox"). */
+  actor_lane?: string | null;
   mentioned_user_ids: string[];
   is_internal: boolean;
   // Portal phase B slice 2: shown in the client's thread; set when the client wrote it.

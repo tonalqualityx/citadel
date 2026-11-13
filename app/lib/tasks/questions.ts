@@ -113,6 +113,10 @@ export interface QuestionOut {
   asked_by_user_id: string | null;
   asked_by_lane: string | null;
   chat_conversation_id: string | null;
+  /** Dox: the underlying cause this question is about (one open question per cause). Null for a question with no cause key. */
+  cause_key: string | null;
+  /** True only on the answer to a POST that found its cause already open: this is the existing question, nothing new was created. */
+  deduped?: boolean;
   answer_option_id: string | null;
   answer_text: string | null;
   answered_at: string | null;
@@ -147,6 +151,7 @@ export function formatQuestion(q: QuestionRow): QuestionOut {
     asked_by_user_id: q.asked_by_user_id,
     asked_by_lane: q.asked_by_lane,
     chat_conversation_id: q.chat_conversation_id,
+    cause_key: q.cause_key,
     answer_option_id: q.answer_option_id,
     answer_text: q.answer_text,
     answered_at: q.answered_at ? q.answered_at.toISOString() : null,
@@ -166,10 +171,31 @@ export async function listQuestions(task: TaskHead, auth: Auth): Promise<{ quest
   return { questions: rows.map(formatQuestion), open_count: rows.filter((r) => r.state === 'open').length };
 }
 
-export async function addQuestion(task: TaskHead, auth: Auth, body: QuestionContext, chatConversationId?: string | null): Promise<QuestionOut> {
+export const CAUSE_KEY_MAX = 120;
+export const CAUSE_SCOPES = ['card', 'project'] as const;
+export type CauseScope = (typeof CAUSE_SCOPES)[number];
+export interface QuestionCause {
+  /** One open question per cause. A new key (the cause changed) is a new question. */
+  key: string;
+  /** `card` (default): one open question per card. `project`: one open question across the whole project, setup card included. */
+  scope?: CauseScope;
+}
+
+export async function addQuestion(task: TaskHead, auth: Auth, body: QuestionContext, chatConversationId?: string | null, cause?: QuestionCause | null): Promise<QuestionOut> {
   assertCanAsk(task, auth);
   return prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM tasks WHERE id = ${task.id}::uuid FOR UPDATE`;
+    if (cause) {
+      // A project-level cause is one item for the whole project, so two cards cannot both raise it: a transaction-wide lock on the key serialises them.
+      if (cause.scope === 'project') await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"dox-cause:" + cause.key}))`;
+      const home = await tx.task.findUnique({ where: { id: task.id }, select: { project_id: true } });
+      const where: Prisma.TaskQuestionWhereInput =
+        cause.scope === 'project' && home?.project_id
+          ? { cause_key: cause.key, state: 'open', task: { project_id: home.project_id, is_deleted: false } }
+          : { cause_key: cause.key, state: 'open', task_id: task.id };
+      const existing = await tx.taskQuestion.findFirst({ where, orderBy: { created_at: 'asc' } });
+      if (existing) return { ...formatQuestion(existing), deduped: true };
+    }
     const open = await tx.taskQuestion.count({ where: { task_id: task.id, state: 'open' } });
     if (open >= OPEN_QUESTIONS_MAX) throw new ApiError(QUESTION_MESSAGES.tooMany, 409, 'too_many_open');
     // Unique among non-withdrawn rows only (the task row lock above makes this check safe); a withdrawn question can be asked again.
@@ -193,6 +219,7 @@ export async function addQuestion(task: TaskHead, auth: Auth, body: QuestionCont
         asked_by_user_id: auth.userId,
         asked_by_lane: auth.lane ? auth.lane.slice(0, 40) : null,
         chat_conversation_id: chatConversationId ?? null,
+        cause_key: cause?.key ?? null,
       },
     });
     return formatQuestion(row);

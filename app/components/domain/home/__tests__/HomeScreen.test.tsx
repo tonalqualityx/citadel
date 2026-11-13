@@ -105,7 +105,7 @@ function mkRes(): HomeResponse {
   { key: 'task:r1', title: 'Renew the domain', owner: 'You', check_text: 'Back Thursday, November 12', check_at: '2026-11-12T05:05:00Z', past_check: false, can_bring_forward: true },
   { key: null, title: 'Grok sign-off', owner: 'The Grok project', check_text: 'Waits for the sign-off', check_at: null, past_check: false, can_bring_forward: false },
 ] }], with_day: 2, past_day: 1, scope_line: '4 tasks on unsigned or paused projects are kept as scope, not work.' },
-    empty: { today: 'Nothing proposed for today.', needs_you_now: 'Nothing urgent.', triage: 'Nothing in Triage. Tell Bast and it lands here.', working_on: 'Nothing in progress.', leads: 'No sales leads are waiting on you.', mail: 'No client is waiting on a reply from you.', next: 'Nothing needs a decision from you right now.', projects: 'No active projects.', handled: 'Nothing new since you last looked.', everything_else: '' },
+    empty: { today: 'Nothing proposed for today.', needs_you_now: 'Nothing urgent.', triage: 'Nothing in Triage. Tell Bast and it lands here.', overdue_others: 'Nobody else is late on anything.', working_on: 'Nothing in progress.', leads: 'No sales leads are waiting on you.', mail: 'No client is waiting on a reply from you.', next: 'Nothing needs a decision from you right now.', projects: 'No active projects.', handled: 'Nothing new since you last looked.', everything_else: '' },
   };
 }
 
@@ -295,7 +295,7 @@ describe('HomeScreen', () => {
   });
   it('Triage: a tab after need-you-now with the count, a grid of cards when picked, the old section is gone, and no tab for anyone else', async () => {
     const res = mkRes();
-    const card = { task_id: 't1', title: 'Idea A', href: '/tasks/t1', kind: 'task' as const, created_at: '2026-11-01T00:00:00Z', age_days: 12, summary: 'Do the thing', release_line: 'Hands this to Bast to do.', release_details: [], release_version: 'v1', release_ready: true, release_block: null, open_questions: 0, looks_done: null, project: null };
+    const card = { task_id: 't1', title: 'Idea A', href: '/tasks/t1', kind: 'task' as const, created_at: '2026-11-01T00:00:00Z', age_days: 12, summary: 'Do the thing', release_line: 'Hands this to Bast to do.', release_details: [], release_version: 'v1', release_ready: true, release_block: null, open_questions: 0, target_start_date: null, target_launch_date: null, looks_done: null, project: null };
     res.triage = { count: 1, open_questions: 0, groups: [], cards: [card], asked_after_release: [] };
     h.home = { data: res, isLoading: false, isError: false, refetch: vi.fn() };
     h.act.mockResolvedValue({});

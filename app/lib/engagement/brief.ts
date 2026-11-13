@@ -18,6 +18,14 @@ import type { Prisma } from '@prisma/client';
 import path from 'node:path';
 
 export const OWNER_MODES = ['off', 'dry', 'live'] as const;
+/**
+ * How often a brief's project is swept. `auto` is computed on each pass (Dox: from the project's dates and shape); every other value is the owner's
+ * override. `none` means never.
+ */
+export const CADENCES = ['auto', 'daily', 'every_2_days', 'every_3_days', 'weekly', 'every_2_weeks', 'none'] as const;
+export type Cadence = (typeof CADENCES)[number];
+export const isCadence = (v: unknown): v is Cadence => typeof v === 'string' && (CADENCES as readonly string[]).includes(v);
+
 export const ENGAGEMENT_ACTIONS = ['close', 'file_task', 'comment_internal', 'mike_item', 'note'] as const;
 export const OPEN_TASK_STATUSES = ['not_started', 'in_progress', 'review', 'blocked'] as const;
 
@@ -99,7 +107,7 @@ export const briefInputSchema = z
     release_owner_role: z.enum(ROLE_KEYS).optional(),
     stall_rules: stallRulesSchema.optional(),
     owner_mode: z.enum(OWNER_MODES).optional(),
-    cadence: z.string().min(1).max(40).optional(),
+    cadence: z.enum(CADENCES).optional(),
   })
   .refine((b) => !!b.project_id || !!b.charter_id, { message: 'A brief needs a project_id or a charter_id.' });
 export type BriefInput = z.infer<typeof briefInputSchema>;

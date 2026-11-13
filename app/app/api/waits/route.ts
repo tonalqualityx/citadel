@@ -8,6 +8,7 @@ import { prismaOwnerLookups } from '@/lib/waits/owner';
 import { resolveWaitOwner } from '@/lib/waits/sweeper';
 import { serializeWait } from '@/lib/waits/serialize';
 import { buildWaitData, TemplateError } from '@/lib/waits/templates';
+import { guardDoxWaitCreate } from '@/lib/dox/guard';
 
 const OPEN = ['waiting', 'needs_human', 'paused', 'blocked_by_switch'] as const;
 const STATES = ['waiting', 'needs_human', 'paused', 'blocked_by_switch', 'done', 'expired'] as const;
@@ -101,6 +102,7 @@ export async function POST(request: NextRequest) {
     const auth = await requireAuth();
     requireRole(auth, ['pm', 'admin']);
     const body = createSchema.parse(await request.json());
+    guardDoxWaitCreate(auth, body);
     // A price review chain starts at step 1 and moves on by itself. Opening a later step by hand
     // could skip Mike's approval or stamp a review done.
     if (body.template_key === 'charter.price_review' && (body.step ?? 1) !== 1) {

@@ -36,17 +36,18 @@ export const LANES = [
   'bast-chat',
   'design-track',
   'design-notes',
+  'dox',
 ] as const;
 
 export type Lane = (typeof LANES)[number];
 
 /**
  * Lanes that are enforced whatever the key says (W8.2 H3). The design-worker, bast-chat, design-track and
- * design-notes lanes were born enforced: their keys must carry scope-mode:enforce (refused at mint and PATCH,
+ * design-notes lanes (and Dox, the office manager) were born enforced: their keys must carry scope-mode:enforce (refused at mint and PATCH,
  * lib/auth/key-scopes.ts), and a key planted without it is still refused outside the lane instead of running in
  * shadow. The fleet-6 lanes keep shadow mode for their staged rollout, so they are not listed here.
  */
-export const ALWAYS_ENFORCED_LANES: readonly Lane[] = ['design-worker', 'bast-chat', 'design-track', 'design-notes'];
+export const ALWAYS_ENFORCED_LANES: readonly Lane[] = ['design-worker', 'bast-chat', 'design-track', 'design-notes', 'dox'];
 export type LaneMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 export interface LaneRoute {
@@ -73,6 +74,7 @@ export const LANE_IDENTITY: Record<Lane, 'bast' | 'troubador' | 'oracle' | 'desi
   'bast-chat': 'bast',
   'design-track': 'bast', // the Bast runner (portal v2, SPEC 6.1a); never the design worker
   'design-notes': 'bast', // the meeting intake's design statements (portal v2, SPEC 8.1); never the design worker
+  dox: 'bast', // the office manager (operating model, PLAN-dox-office-manager): runs as the Bast user, stamped as lane dox
 };
 
 export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
@@ -428,6 +430,40 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('GET', '/api/sops/:id'),
     r('GET', '/api/users'),
   ],
+  // Dox, the office manager (PLAN-dox-office-manager, Addenda 1 to 3). Bast user, always enforced. Reads projects, tasks, waits, questions, briefs and the
+  // project snapshot; sets up the project it holds a brief or a setup card for. Task and project writes are body-filtered and project-scoped by
+  // lib/dox/guard.ts (the x-dox-project header names the one project in play). It can NOT: move anything out of Triage, answer a question, delete,
+  // make a comment or a question visible to a client, open an approval, send mail, or touch a task outside its project (a question or a comment is the only write
+  // that reaches any task, and a looks-done tag on a Triage card).
+  dox: [
+    r('GET', '/api/auth/me'),
+    r('GET', '/api/users'),
+    r('GET', '/api/projects'),
+    r('GET', '/api/projects/:id'),
+    r('GET', '/api/projects/:id/engagement-snapshot'),
+    r('POST', '/api/projects/:id/engagement-brief'),
+    r('PATCH', '/api/projects/:id'),
+    r('GET', '/api/tasks'),
+    r('GET', '/api/tasks/:id'),
+    r('POST', '/api/tasks'),
+    r('PATCH', '/api/tasks/:id'),
+    r('GET', '/api/tasks/:id/comments'),
+    r('POST', '/api/tasks/:id/comments'),
+    r('GET', '/api/tasks/:id/questions'),
+    r('POST', '/api/tasks/:id/questions'),
+    // Read only: a Triage card with its project block and dates (sorting it stays with Mike and the chat)
+    r('GET', '/api/tasks/:id/triage'),
+    r('GET', '/api/work/task/:id/state'),
+    r('GET', '/api/waits'),
+    r('POST', '/api/waits'),
+    r('PATCH', '/api/waits/:id'),
+    r('GET', '/api/engagement-briefs'),
+    r('GET', '/api/engagement-briefs/:id'),
+    r('GET', '/api/engagement-briefs/:id/tasks'),
+    r('GET', '/api/engagement-briefs/:id/snapshot'),
+    r('POST', '/api/engagement-briefs/:id/passes'),
+    r('PATCH', '/api/engagement-passes/:id'),
+  ],
 };
 
 export function isLane(name: string): name is Lane {
@@ -457,6 +493,7 @@ const PARAM_EXCEPT: Record<string, readonly string[]> = {
   '/api/sites/:id': ['bulk'],
   '/api/sops/:id': ['bulk', 'tags'],
   '/api/tasks/:id': ['bulk', 'claims', 'unblock-sweep'],
+  '/api/waits/:id': ['events', 'mine', 'sweep'],
   '/api/work/:key': ['apply-decisions', 'attach', 'backfill-links', 'evidence', 'task'],
 };
 

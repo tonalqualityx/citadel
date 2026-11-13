@@ -5,6 +5,7 @@ import path from 'node:path';
 // Never red for attention: the home screen's own source (components and tokens) carries no red,
 // no error or danger token, no destructive button, and none of the words the owner banned.
 const DIR = path.resolve(__dirname, '..');
+const OVERDUE_BY_OTHERS_FILES = ['OverdueOthers.tsx', 'HomeScreen.tsx', 'home-screen-logic.ts'];
 const FILES = readdirSync(DIR).filter((f) => /\.(tsx?|css)$/.test(f));
 
 function strip(src: string, file: string): string {
@@ -47,7 +48,10 @@ describe('no red on the home screen', () => {
       }
     });
     it('never shows overdue or a priority label', () => {
-      expect(src).not.toMatch(/overdue|past due|priority|P[0-4]\b(?!x)/i);
+      // The owner asked for one place that says it (2026-11-13): the "Overdue by others" tab, a list he looks at. Its component, tile and label may use
+      // the word; every other file still may not, and nothing here may show a priority label.
+      const text = OVERDUE_BY_OTHERS_FILES.includes(file) ? src.replace(/[\w-]*overdue[\w-]*/gi, '') : src;
+      expect(text).not.toMatch(/overdue|past due|priority|P[0-4]\b(?!x)/i);
     });
   });
   it('the guard itself flags red', () => {

@@ -7,7 +7,7 @@ import type { AuthPayload } from '@/lib/auth/middleware';
 import { isOracleBot } from '@/lib/oracle/helpers';
 import type { AttachedBy } from './links';
 
-export const STATE_LANES = ['bast', 'oracle', 'bast-chat', 'porter'] as const;
+export const STATE_LANES = ['bast', 'oracle', 'bast-chat', 'porter', 'dox'] as const;
 export const ATTACH_LANES = ['porter', 'oracle', 'bast-chat'] as const;
 export const EVIDENCE_LANES = ['bast', 'courier', 'porter', 'oracle'] as const;
 

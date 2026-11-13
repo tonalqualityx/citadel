@@ -30,6 +30,8 @@ const base: HomeTriageCard = {
   release_ready: true,
   release_block: null,
   open_questions: 0,
+  target_start_date: null,
+  target_launch_date: null,
   looks_done: null,
   project: null,
 };

@@ -387,6 +387,7 @@ export const EMPTY_TILE: Record<HomeTileId, string> = {
   today: 'Nothing is proposed for today.',
   needs_you_now: 'Nothing urgent.',
   triage: 'Nothing in Triage. Tell Bast and it lands here.',
+  overdue_others: 'Nobody else is late on anything.',
   working_on: 'Nothing in progress.',
   leads: 'No one is waiting on a reply from you.',
   mail: 'No one is waiting on a reply from you.',

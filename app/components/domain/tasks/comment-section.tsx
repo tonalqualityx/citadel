@@ -18,6 +18,7 @@ import { MentionInput, MentionCandidate } from '@/components/ui/mention-input';
 import { useMentionSuggestions } from '@/lib/hooks/use-mention-suggestions';
 import { ChatStaffPanel, useTaskChat } from './chat-staff-panel';
 import { findMentionedUserIds, renderMentionSegments } from '@/lib/utils/mentions';
+import { authorLabel } from '@/lib/dox/identity';
 
 interface CommentSectionProps {
   taskId: string;
@@ -176,13 +177,13 @@ export function CommentSection({ taskId, defaultExpanded = true, variant = 'full
     <div key={comment.id} className="flex gap-3">
       <Avatar
         src={comment.user?.avatar_url}
-        name={comment.author_contact_id ? comment.author_contact?.name || 'Client' : comment.user?.name || 'Unknown'}
+        name={comment.author_contact_id ? comment.author_contact?.name || 'Client' : authorLabel(comment.actor_lane, comment.user?.name)}
         size="sm"
       />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1">
           <span className="text-sm font-medium text-text-main">
-            {comment.author_contact_id ? comment.author_contact?.name || 'Client' : comment.user?.name || 'Unknown'}
+            {comment.author_contact_id ? comment.author_contact?.name || 'Client' : authorLabel(comment.actor_lane, comment.user?.name)}
           </span>
           {comment.author_contact_id && (
             <span

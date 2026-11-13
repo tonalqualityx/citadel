@@ -124,6 +124,31 @@ export async function listAttached(db: HomeDb, targetKey: string, zone: string =
   });
 }
 
+/**
+ * Which of these tasks have a live session, in one batch, by the same rule workState uses for a single task: a session link (kind session,
+ * active) on the task itself or on its project, whose session is running or waiting and not archived. A live link on the project counts for
+ * every task of it, exactly as it does in the single-task answer.
+ */
+export async function liveSessionTaskIds(db: HomeDb, tasks: { id: string; project_id: string | null }[]): Promise<Set<string>> {
+  const live = new Set<string>();
+  if (tasks.length === 0) return live;
+  const keys = new Set<string>();
+  for (const t of tasks) {
+    keys.add(`task:${t.id}`);
+    if (t.project_id) keys.add(`project:${t.project_id}`);
+  }
+  const links = await db.workLink.findMany({ where: { kind: 'session', state: 'active', target_key: { in: [...keys] } }, select: { ref: true, target_key: true }, take: 5000 });
+  if (links.length === 0) return live;
+  const running = await db.oracleSession.findMany({
+    where: { external_id: { in: [...new Set(links.map((l) => l.ref))] }, archived_at: null, status: { in: ['running', 'waiting'] } },
+    select: { external_id: true },
+  });
+  const runningRefs = new Set(running.map((r) => r.external_id));
+  const liveKeys = new Set(links.filter((l) => runningRefs.has(l.ref)).map((l) => l.target_key));
+  for (const t of tasks) if (liveKeys.has(`task:${t.id}`) || (t.project_id && liveKeys.has(`project:${t.project_id}`))) live.add(t.id);
+  return live;
+}
+
 export async function workState(db: HomeDb, targetKey: string, opts: { zone?: string; evidenceLimit?: number } = {}): Promise<StateReport | null> {
   const p = parseTargetKey(targetKey);
   if (!p) return null;
