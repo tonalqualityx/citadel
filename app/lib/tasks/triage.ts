@@ -112,12 +112,13 @@ async function rowsOfGroup(db: HomeDb, key: string): Promise<Row[]> {
   return rows.filter((r) => groupKeyFor(r) === key);
 }
 
-/** The Triage section. Null for anyone but Mike, and null when nothing waits. */
+/** The Triage section. Null for anyone but Mike; for Mike an empty one when nothing waits. */
 export async function loadTriage(db: HomeDb, userId: string): Promise<HomeTriage | null> {
   if (!isTriageOwner(userId)) return null;
   const rows = await openTriageRows(db);
   const asked = await askedAfterRelease(db);
-  if (rows.length === 0) return asked.length > 0 ? { count: 0, open_questions: 0, groups: [], cards: [], asked_after_release: asked } : null;
+  // Mike with nothing waiting still gets the (empty) section, so the Triage tab shows at zero; everyone else gets null above.
+  if (rows.length === 0) return { count: 0, open_questions: 0, groups: [], cards: [], asked_after_release: asked };
   const marked = rows.filter((r) => r.tags.includes(LOOKS_DONE_TAG));
   const groups = new Map<string, { kind: HomeTriageGroup['kind']; label: string; project_id: string | null; rows: Row[] }>();
   for (const r of rows) {

@@ -13,6 +13,7 @@ const h = vi.hoisted(() => ({
   reconcile: vi.fn(),
 }));
 
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock('@/lib/hooks/use-home', () => ({
   useHome: () => h.home,
   useHomeAct: () => h.act,
@@ -104,7 +105,7 @@ function mkRes(): HomeResponse {
   { key: 'task:r1', title: 'Renew the domain', owner: 'You', check_text: 'Back Thursday, November 12', check_at: '2026-11-12T05:05:00Z', past_check: false, can_bring_forward: true },
   { key: null, title: 'Grok sign-off', owner: 'The Grok project', check_text: 'Waits for the sign-off', check_at: null, past_check: false, can_bring_forward: false },
 ] }], with_day: 2, past_day: 1, scope_line: '4 tasks on unsigned or paused projects are kept as scope, not work.' },
-    empty: { today: 'Nothing proposed for today.', needs_you_now: 'Nothing urgent.', working_on: 'Nothing in progress.', leads: 'No sales leads are waiting on you.', mail: 'No client is waiting on a reply from you.', next: 'Nothing needs a decision from you right now.', projects: 'No active projects.', handled: 'Nothing new since you last looked.', everything_else: '' },
+    empty: { today: 'Nothing proposed for today.', needs_you_now: 'Nothing urgent.', triage: 'Nothing in Triage. Tell Bast and it lands here.', working_on: 'Nothing in progress.', leads: 'No sales leads are waiting on you.', mail: 'No client is waiting on a reply from you.', next: 'Nothing needs a decision from you right now.', projects: 'No active projects.', handled: 'Nothing new since you last looked.', everything_else: '' },
   };
 }
 
@@ -292,19 +293,26 @@ describe('HomeScreen', () => {
     const way = screen.getByRole('link', { name: 'Open the Overlook' });
     expect(way.getAttribute('href')).toBe('/dashboard?view=overlook');
   });
-  it('Triage: the section shows for Mike with its count, posts a release through the act hook, and is absent otherwise', async () => {
+  it('Triage: a tab after need-you-now with the count, a grid of cards when picked, the old section is gone, and no tab for anyone else', async () => {
     const res = mkRes();
-    res.triage = { count: 2, open_questions: 0, groups: [{ key: 'project:p1', kind: 'project', label: 'Grok rebuild', count: 2, titles: ['Idea A', 'Idea B'], tasks: [{ task_id: 't1', title: 'Idea A', href: '/tasks/t1', project_name: 'Grok rebuild', open_questions: 0 }, { task_id: 't2', title: 'Idea B', href: '/tasks/t2', project_name: 'Grok rebuild', open_questions: 0 }], open_questions: 0, project_id: 'p1', still_quote: false }] };
+    const card = { task_id: 't1', title: 'Idea A', href: '/tasks/t1', kind: 'task' as const, created_at: '2026-11-01T00:00:00Z', age_days: 12, summary: 'Do the thing', release_line: 'Hands this to Bast to do.', release_details: [], release_version: 'v1', release_ready: true, release_block: null, open_questions: 0, looks_done: null, project: null };
+    res.triage = { count: 1, open_questions: 0, groups: [], cards: [card], asked_after_release: [] };
     h.home = { data: res, isLoading: false, isError: false, refetch: vi.fn() };
     h.act.mockResolvedValue({});
     const { unmount } = render(<HomeScreen />);
-    expect(screen.getByTestId('triage-card')).toHaveTextContent('Triage: 2 ideas wait for you');
-    fireEvent.click(screen.getByRole('button', { name: 'Release plan' }));
-    await waitFor(() => expect(h.act).toHaveBeenCalledWith({ action: 'triage_release_plan', group_key: 'project:p1' }));
+    expect(screen.queryByTestId('triage-card')).toBeNull();
+    expect(screen.queryByTestId('triage-board')).toBeNull();
+    const tile = document.querySelector('[data-tile="triage"]') as HTMLElement;
+    expect(tile.textContent).toContain('1');
+    expect(tile.textContent).toContain('in Triage');
+    fireEvent.click(tile);
+    expect(screen.getByTestId('triage-grid')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Release' }));
+    await waitFor(() => expect(h.act).toHaveBeenCalledWith({ action: 'triage_release_card', task_ids: ['t1'], release_version: 'v1' }));
     unmount();
     h.home = { data: mkRes(), isLoading: false, isError: false, refetch: vi.fn() };
     render(<HomeScreen />);
-    expect(screen.queryByTestId('triage-card')).toBeNull();
+    expect(document.querySelector('[data-tile="triage"]')).toBeNull();
   });
   it('shows no em or en dash anywhere', () => {
     const { container } = render(<HomeScreen />);

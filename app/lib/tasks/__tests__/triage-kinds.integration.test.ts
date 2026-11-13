@@ -68,7 +68,7 @@ describe.skipIf(!SCRATCH)('release by kind (real database)', () => {
     const q = await question(id);
     const before = await row(id);
     const line = (await card(id)).release_line;
-    expect(line).toContain('Makes');
+    expect(line).toContain('Starts the project: Dox sets up');
     const res = await release(id);
     const after = await row(id);
     expect(after.status).toBe('not_started');
@@ -118,7 +118,7 @@ describe.skipIf(!SCRATCH)('release by kind (real database)', () => {
 
   it.each(['task', 'project_addition', 'reusable_tool', 'rule_proposal'] as const)('%s: not_started, Bast when nobody is assigned, tag from-triage; Undo puts the assignee and tags back', async (kind) => {
     const id = await mk(kind, { triage_kind: kind });
-    expect((await card(id)).release_line).toContain('assigned to Bast');
+    expect((await card(id)).release_line).toMatch(/^Hands this to Bast\./);
     const before = await row(id);
     const res = await release(id);
     const after = await row(id);
@@ -135,7 +135,7 @@ describe.skipIf(!SCRATCH)('release by kind (real database)', () => {
 
   it('a task that already has an assignee keeps them, and the line names them', async () => {
     const id = await mk('owned', { triage_kind: 'task', assignee_id: techId });
-    expect((await card(id)).release_line).toContain('assigned to Tess');
+    expect((await card(id)).release_line).toBe('Hands this to Tess.');
     const res = await release(id);
     expect((await row(id)).assignee_id).toBe(techId);
     await undo(res.action_id);

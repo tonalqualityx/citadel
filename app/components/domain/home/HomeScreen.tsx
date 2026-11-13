@@ -16,7 +16,7 @@ import { ItemCard } from './ItemCard';
 import { HandsCard } from './HandsCard';
 import { HandledMailList } from './HandledMailList';
 import { FinishedCard } from './FinishedCard';
-import { TriageCard } from './TriageCard';
+import { TriageBoard } from './TriageBoard';
 import { openTriageConversation } from './triage-talk';
 import type { OpenCardInput } from '@/components/domain/bast-chat/card-context';
 import { AttachCard } from './AttachCard';
@@ -175,6 +175,8 @@ function HomeBody(p: BodyProps) {
   const itemTile = isItemTile(tile);
   if (itemTile) {
     keys = itemsForTile(res, tile).map((i) => i.key);
+  } else if (tile === 'triage') {
+    // The Triage tab is a grid of cards, not a list: no rows, no selection.
   } else if (tile === 'handled') {
     rows = rowsFromHandled(res);
     keys = rows.map((r) => r.key);
@@ -271,7 +273,9 @@ function HomeBody(p: BodyProps) {
   const lists = (
     <>
       <TileStrip tiles={tiles} selected={tile} onSelect={pickTile} />
-      {res.triage && res.triage.count > 0 ? <TriageCard triage={res.triage} onAct={onFinishedAct} onTalk={onTalk} busy={itemActions.busy} /> : null}
+      {tile === 'triage' && res.triage ? (
+        <TriageBoard triage={res.triage} onAct={onFinishedAct} onTalk={onTalk} busy={itemActions.busy} />
+      ) : (
       <div className="home-work">
         <div className="home-pane">
           {tile === 'today' ? (
@@ -316,6 +320,7 @@ function HomeBody(p: BodyProps) {
           )}
         </div>
       </div>
+      )}
     </>
   );
 

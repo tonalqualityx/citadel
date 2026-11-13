@@ -37,6 +37,7 @@ import { apiClient } from '@/lib/api/client';
 import { taskKeys } from '@/lib/api/query-keys';
 import { showToast } from '@/lib/hooks/use-toast';
 import { LET_LEAD_GO_MESSAGE } from '@/lib/home/owed/copy';
+import { CARD_CHANGED_MESSAGE } from '@/lib/tasks/triage-copy';
 import type {
   HomeActRequest,
   HomeActResponse,
@@ -342,7 +343,11 @@ export function useHomeAct() {
       try {
         res = await postHomeAct(request);
       } catch (error) {
-        if (!isPinConflict(error)) showToast.error(HOME_FAILURE_TEXT);
+        if (error instanceof Error && error.message === CARD_CHANGED_MESSAGE) {
+          // A Triage card changed after he read it: say so, and refetch so the new line is on screen before he taps again.
+          showToast.error(CARD_CHANGED_MESSAGE);
+          await refetchHome(queryClient);
+        } else if (!isPinConflict(error)) showToast.error(HOME_FAILURE_TEXT);
         throw error;
       }
       if (!opts.quiet && request.action !== 'record') {

@@ -172,6 +172,7 @@ export async function loadCards(db: Db, taskIds: string[], now: Date = new Date(
       age_days: Math.max(0, Math.floor((now.getTime() - t.created_at.getTime()) / DAY_MS)),
       summary: summaries.get(t.id) ?? '',
       release_line: plan.line,
+      release_details: plan.details,
       release_version: releaseVersion({
         kind: t.triage_kind,
         assignee_id: t.assignee_id,

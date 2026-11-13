@@ -1,5 +1,6 @@
 import type { HomeEverythingElseGroup, HomeItem, HomeResponse, HomeTile, HomeTileId } from '@/lib/home/types';
 import { HANDLED_MAIL } from '@/lib/work/copy';
+import { triageTileLabel } from '@/lib/tasks/triage-copy';
 import type { OracleProjectCard } from '@/lib/hooks/use-oracle-projects';
 
 /** Any em dash or en dash in text shown on this screen becomes ", " (display only). */
@@ -10,6 +11,7 @@ export function plain(text: string | null | undefined): string {
 
 const LABELS: Record<Exclude<HomeTileId, 'today'>, { many: string; one: string }> = {
   needs_you_now: { many: 'need you now', one: 'needs you now' },
+  triage: { many: 'in Triage', one: 'in Triage' },
   working_on: { many: 'things in progress', one: 'thing in progress' },
   leads: { many: 'sales leads waiting', one: 'sales lead waiting' },
   mail: { many: 'client emails waiting', one: 'client email waiting' },
@@ -36,6 +38,7 @@ export function buildTiles(res: HomeResponse, projectCount: number | null): Home
   const todayCount = t ? t.quick.length + t.steps.length : 0;
   const counts: Record<Exclude<HomeTileId, 'today'>, number> = {
     needs_you_now: res.sections.needs_you_now.length,
+    triage: res.triage?.count ?? 0,
     working_on: res.sections.working_on.length,
     leads: res.sections.leads.length,
     mail: res.sections.mail.length,
@@ -54,7 +57,13 @@ export function buildTiles(res: HomeResponse, projectCount: number | null): Home
     },
   ];
   (Object.keys(LABELS) as Array<keyof typeof LABELS>).forEach((id) => {
+    // The Triage tile is Mike's alone: the server leaves `triage` out of the payload for everyone else.
+    if (id === 'triage' && !res.triage) return;
     const n = counts[id];
+    if (id === 'triage') {
+      tiles.push({ id, value: String(n), label: triageTileLabel(n, res.triage?.open_questions ?? 0), count: n, hot: false });
+      return;
+    }
     tiles.push({
       id,
       value: String(n),
@@ -87,7 +96,7 @@ export function itemsForTile(res: HomeResponse, id: HomeTileId): HomeItem[] {
 }
 
 export function isItemTile(id: HomeTileId): boolean {
-  return id !== 'projects' && id !== 'handled' && id !== 'everything_else';
+  return id !== 'projects' && id !== 'handled' && id !== 'everything_else' && id !== 'triage';
 }
 
 /** Every item in the payload, deduplicated by key, for lookups. */

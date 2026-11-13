@@ -6,6 +6,40 @@ export const TRIAGE_UNDO_HOURS = 72;
 
 export const TRIAGE_HEADING = 'Triage';
 export const TRIAGE_SUBHEAD = 'Ideas parked for your release. Nothing here is worked until you release it.';
+export const TRIAGE_EMPTY = 'Nothing in Triage. Tell Bast and it lands here.';
+
+/** The server's 409 card_changed sentence. Lives here (not in triage-version.ts, which needs node:crypto) so the browser can match it. */
+export const CARD_CHANGED_MESSAGE = 'That card changed after you read it. Nothing was released. Look at it again.';
+/** Shown on the card itself after a refused Release, once the new line is on screen. */
+export const CARD_CHANGED_NOTE = 'This card changed after you read it. Nothing was released. Read the new line above, then tap Release again.';
+
+/** What Bast thinks a card is, in plain words. null = not sorted yet. */
+export const TRIAGE_KIND_LABELS: Record<string, string> = {
+  project_setup: 'New project',
+  task: 'Single task',
+  project_addition: 'Addition to a project',
+  reusable_tool: 'Reusable tool',
+  rule_proposal: 'Rule proposal',
+  question_only: 'Question only',
+};
+export const NOT_SORTED_LABEL = 'Not sorted yet';
+export function kindLabel(kind: string | null | undefined): string {
+  return (kind && TRIAGE_KIND_LABELS[kind]) || NOT_SORTED_LABEL;
+}
+
+export const ASKED_AFTER_RELEASE_HEADING = 'Asked after release';
+export const ASKED_AFTER_RELEASE_HINT = 'Released cards that now have a question for you.';
+export const LOOKS_DONE_BADGE = 'Looks done';
+export const ON_RELEASE = 'On release:';
+export const DETAILS_LABEL = 'Details';
+export const RELEASE_OFF_UNSORTED = 'Bast has not sorted this yet. Talk about it and Bast will propose what it is.';
+export const RELEASE_OFF_PREFIX = 'Release is off.';
+
+/** The tile's label: `in Triage`, with the question count when there is one. */
+export function triageTileLabel(count: number, questions: number): string {
+  const base = 'in Triage';
+  return questions > 0 ? `${base}, ${questions} ${questions === 1 ? 'question' : 'questions'}` : base;
+}
 
 export const TRIAGE_BUTTONS = {
   release: 'Release',
@@ -17,6 +51,7 @@ export const TRIAGE_BUTTONS = {
   questions: 'Questions',
   showAll: 'Show all',
   showLess: 'Show fewer',
+  hideQuestions: 'Hide questions',
 } as const;
 
 export const TRIAGE_MESSAGES = {
@@ -72,7 +107,11 @@ export function ageLine(createdAt: string | undefined, nowMs: number = Date.now(
   if (!createdAt) return '';
   const t = Date.parse(createdAt);
   if (Number.isNaN(t)) return '';
-  const days = Math.max(0, Math.floor((nowMs - t) / 86_400_000));
+  return ageFromDays(Math.max(0, Math.floor((nowMs - t) / 86_400_000)));
+}
+
+/** The same words from a whole number of days (the card payload carries age_days, so the screen and the server agree). */
+export function ageFromDays(days: number): string {
   if (days < 1) return 'today';
   if (days < 14) return `${days} ${days === 1 ? 'day' : 'days'} old`;
   if (days < 60) return `${Math.floor(days / 7)} weeks old`;

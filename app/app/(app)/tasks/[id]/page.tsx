@@ -77,6 +77,7 @@ import { ResourceLinks } from '@/components/domain/projects/resource-links';
 import { TaskDependencies } from '@/components/domain/tasks/task-dependencies';
 import { TaskBastChat } from '@/components/domain/tasks/task-bast-chat';
 import { TaskQuestions } from '@/components/domain/tasks/questions/TaskQuestions';
+import { TriagePanel } from '@/components/domain/tasks/TriagePanel';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { useTaskQuestions } from '@/lib/hooks/use-task-questions';
 import { MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
@@ -508,6 +509,9 @@ export default function QuestDetailPage() {
           </Button>
         </div>
       </div>
+
+      {/* Mike only, and only for a card in Triage: the route refuses everyone else, so the panel is then absent. */}
+      {task.status === 'triage' && user?.id === MIKE_USER_ID ? <TriagePanel taskId={task.id} /> : null}
 
       <Tabs value={cardTab ?? 'card'} onValueChange={(v) => setCardTab(v as 'card' | 'questions')}>
         {questionsShown > 0 && (

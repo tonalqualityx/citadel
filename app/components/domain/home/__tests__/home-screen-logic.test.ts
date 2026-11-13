@@ -76,6 +76,7 @@ function mkRes(over: Partial<HomeResponse> = {}): HomeResponse {
     empty: {
       today: 'Nothing proposed for today.',
       needs_you_now: 'Nothing urgent.',
+      triage: 'Nothing in Triage. Tell Bast and it lands here.',
       working_on: 'Nothing in progress.',
       leads: 'No sales leads.',
       mail: 'No client is waiting.',
@@ -112,6 +113,20 @@ describe('buildTiles', () => {
     const t = buildTiles(mkRes({ today: null }), null)[0];
     expect(t.value).toBe('Today');
     expect(t.count).toBe(0);
+  });
+  it('the Triage tile follows need-you-now with its count and questions, is never hot, and is muted at zero', () => {
+    const base = mkRes();
+    const five = buildTiles({ ...base, triage: { count: 5, open_questions: 3, groups: [], cards: [] } }, 5);
+    expect(five.map((t) => t.id)).toEqual(['today', 'needs_you_now', 'triage', 'working_on', 'leads', 'mail', 'next', 'projects', 'handled', 'everything_else']);
+    const t = five.find((x) => x.id === 'triage')!;
+    expect([t.value, t.label, t.hot]).toEqual(['5', 'in Triage, 3 questions', false]);
+    const one = buildTiles({ ...base, triage: { count: 1, open_questions: 1, groups: [], cards: [] } }, 5).find((x) => x.id === 'triage')!;
+    expect(one.label).toBe('in Triage, 1 question');
+    const zero = buildTiles({ ...base, triage: { count: 0, open_questions: 0, groups: [], cards: [] } }, 5).find((x) => x.id === 'triage')!;
+    expect([zero.value, zero.label, zero.count, zero.hot]).toEqual(['0', 'in Triage', 0, false]);
+  });
+  it('anyone but Mike gets no Triage tile (the payload carries no triage)', () => {
+    expect(buildTiles(mkRes(), 5).some((x) => x.id === 'triage')).toBe(false);
   });
   it('todayLabel handles missing parts', () => {
     expect(todayLabel(0, 1)).toBe('1 step');
