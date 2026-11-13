@@ -8,6 +8,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { prisma } from '@/lib/db/prisma';
 import { SCRATCH } from '@/lib/engine/__tests__/seed';
 import { BAST_USER_ID, MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
+import { DOX_USER_ID } from '@/lib/dox/identity';
 import { homeActSchema, runHomeAct, runHomeUndo } from '@/lib/home/act';
 import { loadCards } from '@/lib/tasks/triage-card';
 
@@ -62,7 +63,7 @@ describe.skipIf(!SCRATCH)('release by kind (real database)', () => {
     await prisma.$disconnect();
   });
 
-  it('project_setup: the project goes ready, the card goes to Bast tagged kickoff and from-triage; Undo restores everything', async () => {
+  it('project_setup: the project goes ready, the card goes to Dox tagged kickoff and from-triage; Undo restores everything', async () => {
     const project = await mkProject('queue');
     const id = await mk('setup', { triage_kind: 'project_setup', project_id: project, assignee_id: techId, client_id: clientId });
     const q = await question(id);
@@ -72,8 +73,9 @@ describe.skipIf(!SCRATCH)('release by kind (real database)', () => {
     const res = await release(id);
     const after = await row(id);
     expect(after.status).toBe('not_started');
-    expect(after.assignee_id).toBe(BAST_USER_ID);
+    expect(after.assignee_id).toBe(DOX_USER_ID);
     expect(after.tags).toEqual(expect.arrayContaining(['keep-me', 'kickoff', 'from-triage']));
+    expect(after.tags).not.toContain('needs-pm-release');
     expect(after.triage_kind).toBe('project_setup');
     expect((await prisma.project.findUniqueOrThrow({ where: { id: project } })).status).toBe('ready');
     // the question went with the recommendation (default), and Undo opens it again
@@ -116,15 +118,15 @@ describe.skipIf(!SCRATCH)('release by kind (real database)', () => {
     expect((await row(id)).status).toBe('triage');
   });
 
-  it.each(['task', 'project_addition', 'reusable_tool', 'rule_proposal'] as const)('%s: not_started, Bast when nobody is assigned, tag from-triage; Undo puts the assignee and tags back', async (kind) => {
+  it.each(['task', 'project_addition', 'reusable_tool', 'rule_proposal'] as const)('%s: not_started, Dox when nobody is assigned, tag from-triage; Undo puts the assignee and tags back', async (kind) => {
     const id = await mk(kind, { triage_kind: kind });
-    expect((await card(id)).release_line).toMatch(/^Hands this to Bast\./);
+    expect((await card(id)).release_line).toMatch(/^Hands this to Dox\./);
     const before = await row(id);
     const res = await release(id);
     const after = await row(id);
     expect(after.status).toBe('not_started');
-    expect(after.assignee_id).toBe(BAST_USER_ID);
-    expect(after.tags).toEqual(['keep-me', 'from-triage', 'needs-pm-release']);
+    expect(after.assignee_id).toBe(DOX_USER_ID);
+    expect(after.tags).toEqual(['keep-me', 'from-triage']);
     await undo(res.action_id);
     const back = await row(id);
     expect(back.status).toBe('triage');

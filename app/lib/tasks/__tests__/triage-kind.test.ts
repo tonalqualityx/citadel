@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { planRelease, describeRelease, pmReleaseHold, PM_RELEASE_TAG, RELEASE_REFUSALS, TRIAGE_KINDS, type ReleaseInput } from '../triage-kind';
+import { planRelease, describeRelease, PM_RELEASE_TAG, RELEASE_REFUSALS, TRIAGE_KINDS, type ReleaseInput } from '../triage-kind';
 
 const BAST = 'bast-id';
 const P = (status: string) => ({ id: 'p1', name: 'Stronghold', status });
@@ -13,20 +13,18 @@ describe('planRelease: the line and the effects come from one function', () => {
     expect(r).toMatchObject({ ready: false, block: 'unsorted', line: 'Not sorted yet', effects: null });
   });
 
-  it('project_setup on a queue project: data and the exact sentence, both hold states', () => {
-    const on = planRelease(base({ kind: 'project_setup', project: P('queue'), assignee_id: 'someone', pm_hold: true }));
-    expect(on.effects).toMatchObject({ to_status: 'not_started', assign_bast: true, add_tags: ['kickoff', 'from-triage', PM_RELEASE_TAG], project_to_ready: true, starts_project: true, held_for_dox: true, lands_on: 'Bast' });
-    expect(on.line).toBe('Starts the project: hands Stronghold to Dox to set up, creating and assigning every task. Nothing begins until Dox picks it up.');
-    const off = planRelease(base({ kind: 'project_setup', project: P('queue'), pm_hold: false }));
-    expect(off.effects).toMatchObject({ add_tags: ['kickoff', 'from-triage'], held_for_dox: false });
-    expect(off.line).toBe('Starts the project: hands Stronghold to Dox to set up, creating and assigning every task.');
+  it('project_setup on a queue project: data and the exact sentence; no hold tag is added', () => {
+    const r = planRelease(base({ kind: 'project_setup', project: P('queue'), assignee_id: 'someone' }));
+    expect(r.effects).toMatchObject({ to_status: 'not_started', assign_dox: true, add_tags: ['kickoff', 'from-triage'], project_to_ready: true, starts_project: true, lands_on: 'Dox', lands_on_dox: true });
+    expect(r.effects!.add_tags).not.toContain(PM_RELEASE_TAG);
+    expect(r.line).toBe('Starts the project: hands Stronghold to Dox to set up, creating and assigning every task.');
   });
 
   it('project_setup on an already live project does not say it starts the project', () => {
-    const r = planRelease(base({ kind: 'project_setup', project: P('in_progress'), pm_hold: true }));
+    const r = planRelease(base({ kind: 'project_setup', project: P('in_progress') }));
     expect(r.effects).toMatchObject({ project_to_ready: false, starts_project: false });
     expect(r.line).not.toContain('Starts the project');
-    expect(r.line).toBe('Hands Stronghold to Dox to set up, who creates and assigns every task. Nothing begins until Dox picks it up.');
+    expect(r.line).toBe('Hands Stronghold to Dox to set up, who creates and assigns every task.');
   });
 
   it('project_setup is refused for a quote project, no project, and a closed project, and the line says why', () => {
@@ -36,25 +34,22 @@ describe('planRelease: the line and the effects come from one function', () => {
     for (const s of ['cancelled', 'done', 'suspended']) expect(planRelease(base({ kind: 'project_setup', project: P(s) }))).toMatchObject({ ready: false, block: 'project_closed' });
   });
 
-  it('task, reusable_tool, rule_proposal: the exact sentence on Bast in both hold states, and on a person', () => {
+  it('task, reusable_tool, rule_proposal: the exact sentence on Dox (nobody or Bast assigned), and on a person', () => {
     for (const kind of ['task', 'reusable_tool', 'rule_proposal'] as const) {
       const wording = kind === 'rule_proposal' ? ' Releasing approves the wording on this card.' : '';
-      const on = planRelease(base({ kind, pm_hold: true }));
-      expect(on.effects).toMatchObject({ to_status: 'not_started', assign_bast: true, add_tags: ['from-triage', PM_RELEASE_TAG], project_to_ready: false, lands_on: 'Bast', held_for_dox: true });
-      expect(on.line).toBe(`Hands this to Bast. Nothing begins until Dox picks it up.${wording}`);
-      const off = planRelease(base({ kind, pm_hold: false }));
-      expect(off.effects).toMatchObject({ assign_bast: true, add_tags: ['from-triage'], held_for_dox: false });
-      expect(off.line).toBe(`Hands this to Bast to do.${wording}`);
-      const owned = planRelease(base({ kind, assignee_id: 'u1', assignee_name: 'Sabeen', pm_hold: true }));
-      expect(owned.effects).toMatchObject({ assign_bast: false, add_tags: ['from-triage'], lands_on: 'Sabeen', lands_on_bast: false, held_for_dox: false });
+      for (const assignee_id of [null, BAST]) {
+        const r = planRelease(base({ kind, assignee_id }));
+        expect(r.effects).toMatchObject({ to_status: 'not_started', assign_dox: true, add_tags: ['from-triage'], project_to_ready: false, lands_on: 'Dox', lands_on_dox: true });
+        expect(r.line).toBe(`Hands this to Dox.${wording}`);
+      }
+      const owned = planRelease(base({ kind, assignee_id: 'u1', assignee_name: 'Sabeen' }));
+      expect(owned.effects).toMatchObject({ assign_dox: false, add_tags: ['from-triage'], lands_on: 'Sabeen', lands_on_dox: false });
       expect(owned.line).toBe(`Hands this to Sabeen.${wording}`);
-      expect(planRelease(base({ kind, assignee_id: BAST, pm_hold: false })).line).toBe(`Hands this to Bast to do.${wording}`);
     }
   });
 
   it('project_addition names its project; a quote project refuses every non-setup kind', () => {
-    expect(planRelease(base({ kind: 'project_addition', project: P('queue'), pm_hold: true })).line).toBe('Adds this to Stronghold and hands it to Bast. Nothing begins until Dox picks it up.');
-    expect(planRelease(base({ kind: 'project_addition', project: P('queue'), pm_hold: false })).line).toBe('Adds this to Stronghold and hands it to Bast to do.');
+    expect(planRelease(base({ kind: 'project_addition', project: P('queue') })).line).toBe('Adds this to Stronghold and hands it to Dox.');
     expect(planRelease(base({ kind: 'project_addition', project: P('queue'), assignee_id: 'u1', assignee_name: 'Sabeen' })).line).toBe('Adds this to Stronghold and hands it to Sabeen.');
     for (const kind of ['task', 'project_addition', 'reusable_tool', 'rule_proposal'] as const) {
       expect(planRelease(base({ kind, project: P('quote') }))).toMatchObject({ ready: false, block: 'still_quote' });
@@ -63,7 +58,7 @@ describe('planRelease: the line and the effects come from one function', () => {
 
   it('question_only closes the card and says the questions and answers stay', () => {
     const r = planRelease(base({ kind: 'question_only', assignee_id: 'u1' }));
-    expect(r.effects).toMatchObject({ to_status: 'done', assign_bast: false, add_tags: [], project_to_ready: false, closes_card: true, lands_on: null });
+    expect(r.effects).toMatchObject({ to_status: 'done', assign_dox: false, add_tags: [], project_to_ready: false, closes_card: true, lands_on: null });
     expect(r.line).toBe('Closes this card. The questions and your answers stay on it.');
   });
 
@@ -105,24 +100,9 @@ describe('planRelease: questions, site and the worker hold', () => {
   });
 
   it('the Details lines carry the technical facts the sentence leaves out', () => {
-    const r = planRelease(base({ kind: 'project_setup', project: P('queue'), pm_hold: true }));
-    expect(r.details).toEqual(['Status: Not started', 'Assigned to Bast', `Tags added: kickoff, from-triage, ${PM_RELEASE_TAG}`, 'Stronghold goes from queue to ready']);
+    const r = planRelease(base({ kind: 'project_setup', project: P('queue') }));
+    expect(r.details).toEqual(['Status: Not started', 'Assigned to Dox', 'Tags added: kickoff, from-triage', 'Stronghold goes from queue to ready']);
     expect(r.line).not.toMatch(SYSTEM_WORDS);
-  });
-
-  it('the one switch: on by default, off with TRIAGE_PM_RELEASE_HOLD=off', () => {
-    const saved = process.env.TRIAGE_PM_RELEASE_HOLD;
-    try {
-      delete process.env.TRIAGE_PM_RELEASE_HOLD;
-      expect(pmReleaseHold()).toBe(true);
-      process.env.TRIAGE_PM_RELEASE_HOLD = 'off';
-      expect(pmReleaseHold()).toBe(false);
-      process.env.TRIAGE_PM_RELEASE_HOLD = 'on';
-      expect(pmReleaseHold()).toBe(true);
-    } finally {
-      if (saved === undefined) delete process.env.TRIAGE_PM_RELEASE_HOLD;
-      else process.env.TRIAGE_PM_RELEASE_HOLD = saved;
-    }
   });
 });
 
@@ -136,10 +116,9 @@ describe('planRelease: every effect has its phrase, present exactly when the eff
   for (const kind of TRIAGE_KINDS)
     for (const assignee of [null, BAST, 'u1'])
       for (const status of ['none', 'queue', 'in_progress'])
-        for (const hold of [true, false])
           for (const site of [null, SITE])
             for (const [go, wait] of [[0, 0], [2, 0], [0, 1], [1, 3]])
-              cases.push(base({ kind, assignee_id: assignee, assignee_name: assignee === 'u1' ? 'Sabeen' : null, project: status === 'none' ? null : P(status), pm_hold: hold, site, open_go: go, open_wait: wait }));
+              cases.push(base({ kind, assignee_id: assignee, assignee_name: assignee === 'u1' ? 'Sabeen' : null, project: status === 'none' ? null : P(status), site, open_go: go, open_wait: wait }));
 
   it('runs the whole table', () => {
     let ran = 0;
@@ -162,12 +141,11 @@ describe('planRelease: every effect has its phrase, present exactly when the eff
       // project made ready / set up by Dox
       expect(has(/^Starts the project:/), label).toBe(fx.project_to_ready);
       expect(has(/to Dox to set up/), label).toBe(fx.kind === 'project_setup');
-      // held for Dox
-      expect(has(/Nothing begins until Dox picks it up\./), label).toBe(fx.held_for_dox);
-      expect(fx.held_for_dox, label).toBe(fx.add_tags.includes(PM_RELEASE_TAG));
-      expect(fx.held_for_dox, label).toBe(input.pm_hold === true && fx.lands_on_bast && !fx.closes_card);
-      // a card that lands on Bast with no hold promises it is to do
-      expect(has(/ to do\./), label).toBe(fx.kind !== 'project_setup' && !fx.closes_card && fx.lands_on_bast && !fx.held_for_dox);
+      // lands on Dox: the card is handed to him, no hold tag, and the old hold sentence is gone
+      expect(fx.add_tags, label).not.toContain(PM_RELEASE_TAG);
+      expect(has(/Nothing begins until/), label).toBe(false);
+      expect(has(/ to do\./), label).toBe(false);
+      expect(fx.assign_dox, label).toBe(fx.lands_on_dox);
       // the project an addition goes to
       expect(has(/Adds this to /), label).toBe(fx.kind === 'project_addition' && !!input.project);
       // the site

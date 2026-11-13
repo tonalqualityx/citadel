@@ -48,7 +48,7 @@ export const SABEEN_USER_ID = 'b565b492-cdea-497b-a13d-85f003916bf9';
 export const MIKE_USER_ID = '3ecfb7be-20bb-43cb-9b4d-31c44337dc81';
 
 /**
- * gate.json lines 4 to 12, `blocking_tags`. A Bast `not_started` task carrying one is parked, not eligible
+ * gate.json `blocking_tags`. A Bast `not_started` task carrying one is parked, not eligible
  * (spawn-gate.py `classify`, lines 367 to 381). Parked cards still wake on a human last comment.
  * Order kept as in gate.json.
  */
@@ -60,6 +60,7 @@ export const BLOCKING_TAGS: readonly string[] = [
   'scheduled',
   'client-plan-approval',
   'plan-approval',
+  'design-runner',
 ];
 
 /**

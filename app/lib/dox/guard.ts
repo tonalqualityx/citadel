@@ -24,13 +24,17 @@ import { FROM_TRIAGE_TAG, PM_RELEASE_TAG } from '@/lib/tasks/triage-kind';
 import { isShownInPortal, renderedFieldsTouched } from '@/lib/portal/client-rendered';
 import { getTemplate } from '@/lib/waits/templates';
 import { liveSessionTaskIds } from '@/lib/work/state';
-import { DOX_LANE, isDoxLaneValue } from './identity';
+import { DOX_LANE, DOX_USER_ID, isDoxLaneValue } from './identity';
+import { ASKED_DOX_TAG } from './ask';
 import { DATE_SOURCE_MESSAGE, dateSourceSchema } from '@/lib/tasks/plan-schema';
 
 export const DOX_PROJECT_HEADER = 'x-dox-project';
 export const DOX_CARD_HEADER = 'x-dox-card';
-/** Holds Dox may take off a card it is picking up: a dead session's hold, and the "wait for the PM to release" hold. */
-export const DOX_REMOVABLE_TAGS = ['cockpit-owned', PM_RELEASE_TAG] as const;
+/**
+ * Tags Dox may take off a card: a dead session's hold, the old "wait for the PM to release" hold (Release no longer adds it; cards released
+ * before that change still carry it), and asked-dox once he has answered the question that put it there.
+ */
+export const DOX_REMOVABLE_TAGS = ['cockpit-owned', PM_RELEASE_TAG, ASKED_DOX_TAG] as const;
 export const DOX_ADDABLE_TAGS = [LOOKS_DONE_TAG] as const;
 /** The only tags a task Dox creates may carry: `from-dox` and `setup:<card id>` (ties a created task to the setup card it came from). */
 export const FROM_DOX_TAG = 'from-dox';
@@ -179,8 +183,8 @@ async function requireBlockersInProject(db: Db, ids: string[], projectId: string
 }
 
 /**
- * Who a task may be assigned to. Bast (assigning agent work is Dox's job; the owner's release of the card was the yes) or a staff user. Never
- * another bot user, never an id that is not an active user (a client contact is not one), never nobody-by-typo. Assigning to Bast is allowed only
+ * Who a task may be assigned to. Bast (assigning agent work is Dox's job; the owner's release of the card was the yes), Dox himself (the project
+ * report task, Addendum 8) or a staff user. Never another bot user, never an id that is not an active user (a client contact is not one), never nobody-by-typo. Assigning to Bast is allowed only
  * inside a project with an open pass (the caller has already established that) and returns true so the task can be tagged from-dox.
  */
 async function checkAssignee(db: Db, assigneeId: unknown, opts: { inProject: boolean }): Promise<{ toBast: boolean }> {
@@ -189,7 +193,8 @@ async function checkAssignee(db: Db, assigneeId: unknown, opts: { inProject: boo
   const user = await db.user.findFirst({ where: { id: assigneeId, is_active: true }, select: { id: true } });
   if (!user) return badBody('assignee_id must be an active staff user (a client contact is not one).', 'dox_assignee_closed');
   if (BOT_USER_IDS.includes(assigneeId)) {
-    if (assigneeId !== BAST_USER_ID) return refuse('Dox assigns work to Bast or to a person, never to another bot user.', 'dox_assignee_closed');
+    if (assigneeId === DOX_USER_ID) return { toBast: false };
+    if (assigneeId !== BAST_USER_ID) return refuse('Dox assigns work to Bast, to himself or to a person, never to another bot user.', 'dox_assignee_closed');
     if (!opts.inProject) return refuse('Dox assigns agent work to Bast only inside a project it holds a pass on.', 'dox_assignee_closed');
     return { toBast: true };
   }

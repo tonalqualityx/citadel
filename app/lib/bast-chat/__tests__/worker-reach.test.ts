@@ -105,7 +105,7 @@ describe('gate-mirror constants', () => {
     expect(BOT_USER_IDS).not.toContain(SABEEN_USER_ID);
     expect(BOT_USER_IDS).not.toContain(MIKE_USER_ID);
   });
-  it('mirrors all seven gate.json blocking tags plus the code-only chat tag', () => {
+  it('mirrors all eight gate.json blocking tags plus the code-only chat tag', () => {
     expect(BLOCKING_TAGS).toEqual([
       'needs-mike',
       'cockpit-owned',
@@ -114,6 +114,7 @@ describe('gate-mirror constants', () => {
       'scheduled',
       'client-plan-approval',
       'plan-approval',
+      'design-runner',
     ]);
     expect(CHAT_PARKED_TAGS).toEqual(['chat-clarifying']);
   });
