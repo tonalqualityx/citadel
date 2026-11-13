@@ -322,7 +322,8 @@ export interface UseBastChat {
   now: number;
 }
 
-export function useBastChat({ open }: { open: boolean }): UseBastChat {
+/** `enabled` false keeps the hook silent (no requests) until a page offers the chat. */
+export function useBastChat({ open, enabled = true }: { open: boolean; enabled?: boolean }): UseBastChat {
   const [availability, setAvailability] = useState<Availability>('checking');
   const [status, setStatus] = useState<ChatStatus | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -443,7 +444,7 @@ export function useBastChat({ open }: { open: boolean }): UseBastChat {
   }, [readFeed, readStatus]);
 
   // The poll loop: 1.5 s while a turn is in flight, 10 s while open and idle, 60 s (status only) while collapsed.
-  const gone = availability === 'unavailable';
+  const gone = availability === 'unavailable' || !enabled;
   useEffect(() => {
     if (gone) return;
     let stopped = false;
