@@ -147,6 +147,19 @@ describe('matching', () => {
     expect(laneAllows('bast', 'POST', '/api/tasks/7f1c/questions/9a/answer')).toBe(false);
   });
 
+  it('only the bast-chat lane reaches the Triage card routes (read, sort, shape), and no other lane does', () => {
+    expect(laneAllows('bast-chat', 'GET', '/api/tasks/7f1c/triage')).toBe(true);
+    expect(laneAllows('bast-chat', 'PATCH', '/api/tasks/7f1c/triage')).toBe(true);
+    expect(laneAllows('bast-chat', 'PUT', '/api/tasks/7f1c/triage/shape')).toBe(true);
+    expect(laneAllows('bast-chat', 'DELETE', '/api/tasks/7f1c/triage')).toBe(false);
+    expect(laneAllows('bast-chat', 'POST', '/api/tasks/7f1c/triage/shape')).toBe(false);
+    for (const lane of LANES.filter((l) => l !== 'bast-chat')) {
+      for (const [m, path] of [['GET', '/api/tasks/7f1c/triage'], ['PATCH', '/api/tasks/7f1c/triage'], ['PUT', '/api/tasks/7f1c/triage/shape']] as const) {
+        expect(laneAllows(lane, m, path), `${lane} ${m} ${path}`).toBe(false);
+      }
+    }
+  });
+
   it('bast reads one meeting (decisions/capture.py) but not the incomplete list or a write', () => {
     expect(laneAllows('bast', 'GET', '/api/meetings/7f1c')).toBe(true);
     expect(laneAllows('bast', 'GET', '/api/meetings/incomplete')).toBe(false);

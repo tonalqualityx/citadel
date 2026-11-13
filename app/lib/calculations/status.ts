@@ -3,8 +3,9 @@ import { TaskStatus, ProjectStatus } from '@prisma/client';
 // Valid task status transitions
 // Flexible workflow - review is handled by needs_review/approved flags, not status
 const TASK_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
-  // triage: an idea parked for Mike. Only release (-> not_started) or drop (-> abandoned) leave it.
-  triage: ['not_started', 'abandoned'],
+  // triage: an idea parked for Mike. Only release (-> not_started), drop (-> abandoned) or close as done (-> done) leave it, and
+  // every exit is owner-only (assertTriageExit in task-patch.ts: Mike's session or the chat lane), so adding done here opens nothing to others.
+  triage: ['not_started', 'abandoned', 'done'],
   not_started: ['in_progress', 'done', 'blocked', 'abandoned', 'triage'],
   in_progress: ['done', 'not_started', 'blocked', 'abandoned', 'review'],
   review: ['done', 'in_progress', 'abandoned'], // Legacy - kept for existing tasks

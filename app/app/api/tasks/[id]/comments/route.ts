@@ -7,6 +7,7 @@ import { createNotification } from '@/lib/services/notifications';
 import { clientVisibleCommentWhere } from '@/lib/comments/visibility';
 import { afterReplyShared, assertShareable } from '@/lib/portal/share-reply';
 import { actorLaneField } from '@/lib/auth/actor-lane';
+import { OWNER_ONLY_COMMENT_WHERE } from '@/lib/tasks/looks-done';
 
 const createCommentSchema = z.object({
   content: z.string().min(1, 'Comment cannot be empty').max(10000),
@@ -117,8 +118,11 @@ export async function GET(
     // Client-facing surfaces (audience=client) never see internal/team notes.
     const audience = request.nextUrl.searchParams.get('audience');
     const baseWhere = { task_id: taskId, is_deleted: false };
-    const where =
-      audience === 'client' ? clientVisibleCommentWhere(baseWhere) : baseWhere;
+    // The owner-only Triage notes (Looks done evidence, the close note) stay with the owner and the PMs after a card leaves Triage:
+    // they may name commits, links and internal work, so tech and designer users never get them (the client audience already drops every internal note).
+    const ownerOnlyHidden = auth.role === 'tech' || auth.role === 'designer';
+    const visibleWhere = audience === 'client' ? clientVisibleCommentWhere(baseWhere) : baseWhere;
+    const where = ownerOnlyHidden ? { AND: [visibleWhere, OWNER_ONLY_COMMENT_WHERE] } : visibleWhere;
 
     // Fetch comments
     const comments = await prisma.comment.findMany({
@@ -224,9 +228,11 @@ export async function POST(
         user_id: auth.userId,
         content: data.content,
         mentioned_user_ids: mentionedUserIds,
-        is_internal: data.is_internal ?? false,
-        client_visible: data.client_visible ?? false,
-        client_question: data.client_question ?? false,
+        // A card in Triage is never shown to a client, so a comment on it never is either (a Looks done note must stay internal
+        // whatever the caller sent).
+        is_internal: task.status === 'triage' ? true : (data.is_internal ?? false),
+        client_visible: task.status === 'triage' ? false : (data.client_visible ?? false),
+        client_question: task.status === 'triage' ? false : (data.client_question ?? false),
       },
       include: {
         user: {

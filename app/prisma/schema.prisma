@@ -1073,6 +1073,9 @@ model ProjectPhase {
   project    Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
   name       String   @db.VarChar(100)
   icon       String?  @db.VarChar(50) // Icon name from icon picker
+  // Triage project card: what the phase is, and the part of it that will be Mike's (both plain sentences, shown on the card)
+  summary    String?  @db.VarChar(400)
+  mike_part  String?  @db.VarChar(400)
   sort_order Int      @default(0)
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -1184,6 +1187,9 @@ model Task {
 
   project_id String?  @db.Uuid
   project    Project? @relation(fields: [project_id], references: [id])
+
+  // What Bast thinks a Triage card is (null = not sorted yet). Decides what Release does (lib/tasks/triage-kind.ts).
+  triage_kind TriageKind?
 
   // Client relationship (always set - derived from project or set directly for ad-hoc)
   client_id String? @db.Uuid
@@ -1383,6 +1389,15 @@ model Task {
   @@index([source_session_external_id])
   @@index([lease_until])
   @@map("tasks")
+}
+
+enum TriageKind {
+  project_setup
+  task
+  project_addition
+  reusable_tool
+  rule_proposal
+  question_only
 }
 
 enum TaskStatus {

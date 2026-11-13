@@ -408,6 +408,10 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('POST', '/api/tasks/:id/questions'),
     r('PATCH', '/api/tasks/:id/questions/:qid'),
     r('POST', '/api/tasks/:id/questions/:qid/answer'),
+    // Triage tab: read a Triage card, set its kind and project (PATCH), and draft the project's phases and sitemap before release (PUT shape). Mike's session or this lane only.
+    r('GET', '/api/tasks/:id/triage'),
+    r('PATCH', '/api/tasks/:id/triage'),
+    r('PUT', '/api/tasks/:id/triage/shape'),
     r('GET', '/api/projects'),
     r('GET', '/api/projects/:id'),
     r('GET', '/api/oracle/projects'),

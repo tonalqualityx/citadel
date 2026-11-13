@@ -331,7 +331,7 @@ export type OpLine =
   | { op: 'home_act'; action: 'draft_now' | 'needs_thought' | 'go_with_that' | 'keep_lead' | 'treat_as_reply' | 'book_block'; who: string }
   | { op: 'home_act'; action: 'arc_reorder' | 'lighter' | 'not_this_week' }
   | { op: 'home_act'; action: 'finished_close'; count: number }
-  | { op: 'home_act'; action: 'triage_release' | 'triage_drop'; count: number }
+  | { op: 'home_act'; action: 'triage_release' | 'triage_release_card' | 'triage_drop' | 'triage_close_done' | 'triage_not_done'; count: number }
   | { op: 'home_act'; action: 'triage_release_plan'; line: string }
   | { op: 'home_act'; action: 'reopen_ask'; title: string }
   | { op: 'home_act'; action: 'swap'; title: string }
@@ -406,10 +406,17 @@ export function opSummary(o: OpLine, now: Date = new Date()): string {
           s = `Closed the card: ${o.title}.`;
           break;
         case 'triage_release':
+        case 'triage_release_card':
           s = o.count === 1 ? 'Released 1 idea from Triage.' : `Released ${o.count} ideas from Triage.`;
           break;
         case 'triage_drop':
           s = o.count === 1 ? 'Dropped 1 idea from Triage.' : `Dropped ${o.count} ideas from Triage.`;
+          break;
+        case 'triage_close_done':
+          s = o.count === 1 ? 'Closed 1 idea as done from Triage.' : `Closed ${o.count} ideas as done from Triage.`;
+          break;
+        case 'triage_not_done':
+          s = o.count === 1 ? 'Left 1 idea in Triage. It is not done.' : `Left ${o.count} ideas in Triage. They are not done.`;
           break;
         case 'triage_release_plan':
           s = o.line;

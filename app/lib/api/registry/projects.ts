@@ -213,14 +213,14 @@ export const projectEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'POST',
-        summary: 'Create a project phase.',
+        summary: 'Create a project phase. summary and mike_part (they show on Mike\'s Triage card) are Mike\'s session or the chat lane only: anyone else sending them gets 403 phase_owner_fields.',
         auth: 'required',
         roles: ['pm', 'admin'],
         responseExample: { id: 'uuid', name: 'string', sort_order: 'number' },
       },
       {
         method: 'PATCH',
-        summary: 'Update or reorder phases.',
+        summary: 'Update or reorder phases. summary and mike_part are Mike\'s session or the chat lane only (403 phase_owner_fields for anyone else); other fields unchanged.',
         auth: 'required',
         roles: ['pm', 'admin'],
         responseExample: { success: true },

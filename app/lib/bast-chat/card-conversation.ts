@@ -16,7 +16,7 @@ import { ApiError } from '@/lib/api/errors';
 
 export const CARD_ONLY_TEXT = 'This chat is about one card. Release or drop that card here; a whole plan is released from the Triage list.';
 
-const CARD_ACTIONS = ['triage_release', 'triage_drop'] as const;
+const CARD_ACTIONS = ['triage_release', 'triage_release_card', 'triage_drop', 'triage_close_done', 'triage_not_done'] as const;
 
 /** Throws a plain 409 when a triage action from a card conversation names anything but its own card. A general conversation passes. */
 export function assertCardConversationOp(conversationTaskId: string | null | undefined, opName: string, rawInput: unknown): void {
