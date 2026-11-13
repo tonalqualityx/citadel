@@ -40,12 +40,40 @@ interface DrawerContentProps
 const DrawerContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   DrawerContentProps
->(({ className, children, side = 'right', size = 'md', ...props }, ref) => (
+>(({ className, children, side = 'right', size = 'md', ...props }, ref) => {
+  const contentRef = React.useRef<HTMLDivElement | null>(null);
+  const setRefs = React.useCallback(
+    (node: HTMLDivElement | null) => {
+      contentRef.current = node;
+      if (typeof ref === 'function') ref(node);
+      else if (ref) (ref as React.MutableRefObject<HTMLDivElement | null>).current = node;
+    },
+    [ref]
+  );
+
+  // The content stays mounted while closed (forceMount), so Radix's outside-press listener is always live. On touch it
+  // waits for the click that ends a tap, and the tap that OPENS the drawer is that same tap: the drawer opens on the
+  // click, then Radix reads the same tap as "pressed outside" and closes it. Note which presses began while the drawer
+  // was not open, and ignore those. (Capture phase, so it runs before Radix's own listener.)
+  const pressesBeganClosed = React.useRef<WeakSet<Event>>(new WeakSet());
+  React.useEffect(() => {
+    const note = (e: Event) => {
+      if (contentRef.current?.getAttribute('data-state') !== 'open') pressesBeganClosed.current.add(e);
+    };
+    document.addEventListener('pointerdown', note, true);
+    return () => document.removeEventListener('pointerdown', note, true);
+  }, []);
+
+  return (
   <DrawerPortal forceMount>
     <DialogPrimitive.Content
-      ref={ref}
+      ref={setRefs}
       forceMount
       onInteractOutside={(e) => {
+        if (pressesBeganClosed.current.has(e.detail.originalEvent)) {
+          e.preventDefault();
+          return;
+        }
         // Check if clicking on a task row - if so, don't close (let task click handler work)
         const target = e.target as HTMLElement;
         if (target.closest('[data-task-row]')) {
@@ -77,7 +105,8 @@ const DrawerContent = React.forwardRef<
       {children}
     </DialogPrimitive.Content>
   </DrawerPortal>
-));
+  );
+});
 DrawerContent.displayName = DialogPrimitive.Content.displayName;
 
 const DrawerHeader = ({
