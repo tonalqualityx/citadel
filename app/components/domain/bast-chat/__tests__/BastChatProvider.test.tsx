@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act, cleanup } from '@testing-library/react';
 import * as React from 'react';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 let pathname = '/dashboard';
 vi.mock('next/navigation', () => ({ usePathname: () => pathname }));
@@ -271,12 +273,17 @@ describe('Bast chat shell: history', () => {
     await waitFor(() => expect(screen.queryByTestId('bast-chat-sheet')).toBeNull());
     back.mockRestore();
   });
-  it('touch: the box is 16px so iOS does not zoom on focus', async () => {
+  it('touch: the box takes its 16px from the global coarse-pointer rule (no inline size to fight it)', async () => {
     mq.coarse = true;
     responder = ownerResponder();
     render(app(null));
     await openIt();
-    expect((await screen.findByTestId('bast-chat-input')).style.fontSize).toBe('16px');
+    const box = await screen.findByTestId('bast-chat-input');
+    expect(box.tagName).toBe('TEXTAREA');
+    // The inline size is the desktop one; on a coarse pointer globals.css wins with !important (checked in a real touch browser).
+    expect(box.style.fontSize).toBe('0.9rem');
+    const css = readFileSync(resolve(__dirname, '../../../../app/globals.css'), 'utf8');
+    expect(css).toMatch(/@media \(pointer: coarse\)\s*\{[^}]*textarea[^}]*font-size:\s*16px\s*!important/);
   });
   it('the split never touches history', async () => {
     mq.split = true;

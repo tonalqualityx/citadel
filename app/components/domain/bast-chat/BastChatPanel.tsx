@@ -224,8 +224,8 @@ export function BastChatPanel({ chat, card, cardChatTitle = null, onLeaveCardCha
           }}
           style={{
             font: 'inherit',
-            // 16px on touch: under that iOS zooms the page when the box takes focus
-            fontSize: touch ? 16 : '0.9rem',
+            // On touch the global coarse-pointer rule in globals.css makes this 16px (under that iOS zooms on focus)
+            fontSize: '0.9rem',
             lineHeight: 1.45,
             flex: 1,
             minWidth: 0,
