@@ -180,6 +180,7 @@ vi.mock('@/components/domain/projects/milestone-list', () => ({
 }));
 
 vi.mock('@/components/domain/projects/project-plan-link', () => ({ ProjectPlanLink: () => null }));
+vi.mock('@/components/domain/projects/project-report-line', () => ({ ProjectReportLine: () => null }));
 vi.mock('@/components/domain/projects/resource-links', () => ({
   ResourceLinks: () => <div data-testid="resource-links">Resource Links</div>,
 }));
