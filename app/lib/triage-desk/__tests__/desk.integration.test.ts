@@ -190,7 +190,11 @@ describe.skipIf(!SCRATCH)('the triage-desk lane (real database)', () => {
         expect(ok.body.turns.length).toBe(6);
         as(mikeSession());
         expect((await get(card)).status).toBe(200);
+        as({ userId: MIKE_USER_ID, role: 'admin', email: 'm@x.test', via: 'api_key', apiKeyId: 'mk' });
+        expect((await get(card)).status).toBe(200); // Mike's own un-laned API key (2026-11-14)
         for (const a of [
+          { userId: MIKE_USER_ID, role: 'admin', email: 'm@x.test', via: 'api_key', apiKeyId: 'ml', lane: 'troubador', laneEnforced: true },
+          { userId: '7f1c0000-0000-4000-8000-0000000000a3', role: 'admin', email: 'a@x.test', via: 'api_key', apiKeyId: 'ma' },
           { userId: '7f1c0000-0000-4000-8000-0000000000a1', role: 'tech', email: 't@x.test', via: 'session' },
           { userId: '7f1c0000-0000-4000-8000-0000000000a2', role: 'designer', email: 'd@x.test', via: 'session' },
           { userId: BOT_ID, role: 'pm', email: 'bast@becomeindelible.com', via: 'api_key', apiKeyId: 'k0' },

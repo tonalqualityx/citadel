@@ -454,7 +454,7 @@ export const taskEndpoints: ApiEndpoint[] = [
           has_more: 'boolean',
           home_chat: '{included: false, note: string}',
         },
-        responseNotes: "Mike's session and the enforced triage-desk lane only (403 triage_forbidden for everyone else; 404 for a missing task). A turn the daemon marked redacted (payload.redacted true, or the whole text a bracketed [redacted ...] marker) stays redacted; credential-looking text is removed from the rest. The general home chat is NOT returned: a message there carries the card that was open, not proof it was about this card, and its replies are not tied to a card, so home_chat says so instead of guessing.",
+        responseNotes: "Mike's session, Mike's own un-laned API key (his standalone work sessions) and the enforced triage-desk lane only (403 triage_forbidden for everyone else; 404 for a missing task). A turn the daemon marked redacted (payload.redacted true, or the whole text a bracketed [redacted ...] marker) stays redacted; credential-looking text is removed from the rest. The general home chat is NOT returned: a message there carries the card that was open, not proof it was about this card, and its replies are not tied to a card, so home_chat says so instead of guessing.",
       },
     ],
   },
@@ -498,7 +498,7 @@ export const taskEndpoints: ApiEndpoint[] = [
           { name: 'pages', type: 'object', required: false, description: '[{name, page_type?, needs_design?, notes?}], at most 80. Replaces the project\'s ProjectPage rows.' },
         ],
         responseExample: { task_id: 'uuid', title: 'string', href: 'string', kind: 'project_setup|task|project_addition|reusable_tool|rule_proposal|question_only|null', created_at: 'iso', age_days: 'number', summary: 'string (what is wanted, at most 220 characters)', release_line: 'string', release_version: 'string (hash of everything Release depends on; send it back with triage_release_card)', release_ready: 'boolean', release_block: 'unsorted|no_project|still_quote|project_closed|null', open_questions: 'number', triage_rev: 'number (goes up on every change the owner should see before releasing; part of release_version)', recent_changes: '[{line, at, by}] (the last 3 change lines the SERVER wrote, newest first, e.g. "Plan: Billing model updated by the chat"; rendered from change rows, never from comments)', plan_line: 'string|null ("Plan: 12 requirements, launch Jan 19, milestones billing")', target_start_date: 'YYYY-MM-DD|null (the linked project start_date)', target_launch_date: 'YYYY-MM-DD|null (the linked project target_date)', looks_done: '{evidence: string, links: [{text, href}]}|null', project: 'null | {project_id, name, status, start_date: YYYY-MM-DD|null, target_date: YYYY-MM-DD|null, phases: [{id, name, summary|null, mike_part|null}], mike_parts: [{phase, text}], contract: {status, signed_at|null, version, deal_id, deal_href}|null, deal: {id, name, href}|null, deal_detail: DealSection|null (the deal with its line items, retainers and how the deal is tied to the project: the `deal` shape of GET /api/projects/:id; null for the Dox lane outside its project binding), sitemap: [{id, name, page_type|null, needs_design, notes|null}]} (project_setup cards only; never the plan folder, never tasks)' },
-        responseNotes: "Mike's session, the enforced bast-chat lane or the enforced triage-desk lane (403 triage_forbidden for everyone else; the triage desk never reshapes a project the portal shows). 409 no_project (card not linked), phases_have_tasks. On a queue project a list that is sent replaces the old one. On a project already under way (not queue, not done or cancelled) `pages` is merged by name (new names added, same names updated, missing names dropped; a drop deletes only the page row) and `phases` is refused (409 project_not_queue); for item-by-item edits use PATCH /api/projects/:id/sitemap. A list that is left out is untouched.",
+        responseNotes: "Mike's session, Mike's own un-laned API key, the enforced bast-chat lane or the enforced triage-desk lane (403 triage_forbidden for everyone else; the triage desk never reshapes a project the portal shows). 409 no_project (card not linked), phases_have_tasks. On a queue project a list that is sent replaces the old one. On a project already under way (not queue, not done or cancelled) `pages` is merged by name (new names added, same names updated, missing names dropped; a drop deletes only the page row) and `phases` is refused (409 project_not_queue); for item-by-item edits use PATCH /api/projects/:id/sitemap. A list that is left out is untouched.",
       },
     ],
   },
@@ -540,7 +540,7 @@ export const taskEndpoints: ApiEndpoint[] = [
         ],
         responseExample: { section: 'string', items: '[item] as in GET' },
         responseNotes:
-          "Writers: Mike's own session, the enforced bast-chat lane, and the Dox lane (a Triage card is open to it; a released card needs the x-dox-project header and an open pass, like every Dox write). Everyone else who can read the plan gets 403 plan_forbidden. 400 plan_invalid names the first bad field in plain words; 404 plan_unknown_section. Each write leaves a change line ('Plan: Billing model updated by the chat') and, while the card is in Triage, raises triage_rev, so a Release tap made before Mike saw the change answers 409 card_changed with what_changed.",
+          "Writers: Mike's own session, Mike's own un-laned API key (his standalone work sessions; a laned key or another user's key is not), the enforced bast-chat lane, and the Dox lane (a Triage card is open to it; a released card needs the x-dox-project header and an open pass, like every Dox write). Everyone else who can read the plan gets 403 plan_forbidden. 400 plan_invalid names the first bad field in plain words; 404 plan_unknown_section. Each write leaves a change line ('Plan: Billing model updated by the chat') and, while the card is in Triage, raises triage_rev, so a Release tap made before Mike saw the change answers 409 card_changed with what_changed.",
       },
       {
         method: 'PATCH',
@@ -552,7 +552,7 @@ export const taskEndpoints: ApiEndpoint[] = [
         ],
         responseExample: { section: 'string', items: '[item] after the change' },
         responseNotes:
-          "Same writers and errors as PUT. mark_wrong is Mike's only (his session, or the chat relaying his words): 403 plan_forbidden for Dox. A changed line loses its marked_wrong flag. 404 plan_item_missing for an id that is not in this section.",
+          "Same writers and errors as PUT. mark_wrong is Mike's only (his session, his own un-laned API key, or the chat relaying his words): 403 plan_forbidden for Dox. A changed line loses its marked_wrong flag. 404 plan_item_missing for an id that is not in this section.",
       },
     ],
   },

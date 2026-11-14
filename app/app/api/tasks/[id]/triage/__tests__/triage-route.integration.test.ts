@@ -70,9 +70,11 @@ describe.skipIf(!SCRATCH)('triage card routes (real database)', () => {
     return card;
   };
 
-  it('PM, admin, tech, designer, bot key, worker lane and Mike\'s own API key are all refused (403) on PATCH, GET and PUT shape; nothing changes', async () => {
+  it('PM, admin, tech, designer, bot key, worker lane, a laned key under Mike and another admin\'s API key are all refused (403) on PATCH, GET and PUT shape; nothing changes', async () => {
     await fresh();
-    for (const actor of [as('pm'), as('admin'), as('tech'), as('designer'), bot(), workerLane(), mikeKey()]) {
+    const mikeLaned = (): AuthPayload => ({ userId: MIKE_USER_ID, role: 'admin', email: 'mike@test', via: 'api_key', apiKeyId: 'k9', lane: 'troubador', laneEnforced: true });
+    const otherAdminKey = (): AuthPayload => ({ userId: otherId, role: 'admin', email: 'oa@test', via: 'api_key', apiKeyId: 'k8' });
+    for (const actor of [as('pm'), as('admin'), as('tech'), as('designer'), bot(), workerLane(), mikeLaned(), otherAdminKey()]) {
       authMock.mockResolvedValue(actor);
       for (const res of [await patch(card, { kind: 'task' }), await GET(req(`http://localhost/api/tasks/${card}/triage`, 'GET'), params(card)), await shape(card, { phases: [{ name: 'A' }] })]) {
         expect(res.status).toBe(403);
@@ -82,6 +84,22 @@ describe.skipIf(!SCRATCH)('triage card routes (real database)', () => {
     const t = await prisma.task.findUniqueOrThrow({ where: { id: card } });
     expect(t.triage_kind).toBeNull();
     expect(t.project_id).toBeNull();
+  });
+
+  it("Mike's own un-laned API key sets the shape from a card but still cannot edit the card's kind, read the card or release it", async () => {
+    const c = await fresh();
+    authMock.mockResolvedValue(mikeKey());
+    expect((await patch(c, { kind: 'task' })).status).toBe(403);
+    expect((await GET(req(`http://localhost/api/tasks/${c}/triage`, 'GET'), params(c))).status).toBe(403);
+    const ownProject = (await prisma.project.create({ data: { name: `${tag} own key project`, client_id: clientId, status: 'queue' } })).id;
+    projectIds.push(ownProject);
+    const pc = await mk('shape card', { project_id: ownProject });
+    const res = await shape(pc, { pages: [{ name: 'Own key page' }] });
+    expect(res.status).toBe(200);
+    expect((await prisma.projectPage.findMany({ where: { project_id: ownProject } })).map((p) => p.name)).toEqual(['Own key page']);
+    // leaving Triage stays Mike's session and the chat lane: his API key is refused.
+    const out = await prisma.task.findUniqueOrThrow({ where: { id: pc } });
+    expect(out.status).toBe('triage');
   });
 
   it('Mike\'s session and the chat lane can set the kind, change it, and clear it; the card payload comes back', async () => {

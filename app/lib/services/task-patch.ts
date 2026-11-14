@@ -158,6 +158,14 @@ export function mayLeaveTriage(auth: Pick<AuthPayload, 'userId' | 'via' | 'lane'
   return auth.via === 'api_key' && auth.lane === CHAT_LANE && auth.laneEnforced === true;
 }
 
+/**
+ * Mike's own standalone work sessions: his API key (his user, via api_key) with NO lane. Not a laned key, not another user's key, not a bot key.
+ * It may write the plan and the pages and shape a project from a card (Mike, 2026-11-14), but it does NOT leave Triage: mayLeaveTriage stays as it was.
+ */
+export function isMikeOwnKey(auth: Pick<AuthPayload, 'userId' | 'via' | 'lane'>): boolean {
+  return auth.via === 'api_key' && auth.userId === MIKE_USER_ID && !auth.lane;
+}
+
 export const TRIAGE_EXIT_TEXT = 'Only Mike can release or drop a task in triage.';
 
 function assertTriageExit(auth: AuthPayload, from: TaskStatus, to: TaskStatus) {

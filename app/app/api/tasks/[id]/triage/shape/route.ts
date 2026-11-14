@@ -5,6 +5,7 @@ import { requireAuth } from '@/lib/auth/middleware';
 import { ApiError, handleApiError } from '@/lib/api/errors';
 import { cardForCaller } from '@/lib/deals/access';
 import { loadCards } from '@/lib/tasks/triage-card';
+import { isMikeOwnKey } from '@/lib/services/task-patch';
 import { requireTriageEditor } from '@/lib/tasks/triage-auth';
 import { actorOf, recordTriageChange, recordProjectChange } from '@/lib/tasks/triage-rev';
 import { guardDeskShape } from '@/lib/triage-desk/guard';
@@ -39,12 +40,12 @@ const bodySchema = z
  * The chat drafts the shape of a project before release: replaces the phases and/or the sitemap of the project this Triage card is linked
  * to. In `queue` a list that is sent replaces the old one (phases with tasks are never dropped). On a project already under way, `pages` is merged by name
  * (see lib/projects/sitemap.ts) and `phases` is refused. A list that is left out is untouched.
- * Mike's session or the chat lane only. Returns the card.
+ * Mike's session, his own un-laned API key or the chat lane only. Returns the card.
  */
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const auth = await requireAuth();
-    requireTriageEditor(auth);
+    if (!isMikeOwnKey(auth)) requireTriageEditor(auth);
     const { id } = await params;
     const body = bodySchema.parse(await request.json());
     const task = await prisma.task.findFirst({ where: { id, is_deleted: false }, select: { id: true, status: true, project: { select: { id: true, status: true } } } });

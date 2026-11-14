@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth } from '@/lib/auth/middleware';
 import { ApiError, handleApiError } from '@/lib/api/errors';
+import { isMikeOwnKey } from '@/lib/services/task-patch';
 import { requireTriageOwner } from '@/lib/tasks/triage-auth';
 import { isTriageDeskLane } from '@/lib/triage-desk/guard';
 import { readCardConversation } from '@/lib/triage-desk/conversation';
@@ -10,12 +11,12 @@ import { readCardConversation } from '@/lib/triage-desk/conversation';
  * GET /api/tasks/:id/conversation?after=<seq>&limit=<n>
  * The conversation Mike has had with the chat about this card, as turns in order: { seq, who: mike|bast, at, text }. Tool-call detail is left out; a turn the
  * daemon redacted comes back as { redacted: true, text: null }; credential-looking text is removed. The general home chat is not included (the payload's
- * `home_chat.note` says why). Mike's own session and the triage-desk lane only (403 for everyone else, a missing task is 404).
+ * `home_chat.note` says why). Mike's own session, his own un-laned API key and the triage-desk lane only (403 for everyone else, a missing task is 404).
  */
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const auth = await requireAuth();
-    if (!isTriageDeskLane(auth)) requireTriageOwner(auth);
+    if (!isTriageDeskLane(auth) && !isMikeOwnKey(auth)) requireTriageOwner(auth);
     const { id } = await params;
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) throw new ApiError('That is not a task id.', 400, 'bad_id');
     const task = await prisma.task.findFirst({ where: { id, is_deleted: false }, select: { id: true } });

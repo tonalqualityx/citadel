@@ -17,7 +17,7 @@ import { ApiError } from '@/lib/api/errors';
 import type { AuthPayload } from '@/lib/auth/middleware';
 import { MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import { guardDoxTaskWrite, isDoxLane } from '@/lib/dox/guard';
-import { mayLeaveTriage } from '@/lib/services/task-patch';
+import { isMikeOwnKey, mayLeaveTriage } from '@/lib/services/task-patch';
 import { contractorItem, isPlanOwner, planReaderOf, viewOf, type PlanReader } from './plan-policy';
 import { isChatLane } from './questions';
 import { descriptionLines } from './project-brief';
@@ -65,7 +65,7 @@ export const MARK_WRONG_FORBIDDEN = 'Only Mike can mark a plan line wrong.';
 
 /** Throws a 403 unless this caller may write the plan (the read check has already run). */
 export async function assertCanWritePlan(task: PlanTaskHead, auth: Auth, headers: Hdrs): Promise<void> {
-  if (mayLeaveTriage(auth)) return;
+  if (mayLeaveTriage(auth) || isMikeOwnKey(auth)) return;
   if (isDoxLane(auth)) {
     await guardDoxTaskWrite(auth, headers, { status: task.status, project_id: task.project_id });
     return;
@@ -213,7 +213,7 @@ export type PatchOp =
 
 /** Add, change, remove or mark wrong one item. Returns the section's items after the change. */
 export async function patchSection(task: PlanTaskHead, auth: Auth, section: PlanSectionName, body: PatchOp): Promise<PlanItemOut[]> {
-  if (body.op === 'mark_wrong' && !mayLeaveTriage(auth)) throw new ApiError(MARK_WRONG_FORBIDDEN, 403, 'plan_forbidden');
+  if (body.op === 'mark_wrong' && !mayLeaveTriage(auth) && !isMikeOwnKey(auth)) throw new ApiError(MARK_WRONG_FORBIDDEN, 403, 'plan_forbidden');
   const actor: Actor = await actorOf(auth);
   const data = body.op === 'add' || body.op === 'change' ? parseItem(section, body.item) : null;
   const rows = await prisma.$transaction(async (tx) => {

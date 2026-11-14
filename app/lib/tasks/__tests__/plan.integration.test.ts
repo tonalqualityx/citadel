@@ -65,6 +65,8 @@ describe.skipIf(!SCRATCH)('triage plan (real database)', () => {
   const dox = () => lane('dox', 'k2');
   const worker = () => lane('bast', 'k3');
   const otherLane = () => lane('troubador', 'k4');
+  const adminKey = (): AuthPayload => ({ userId: adminId, role: 'admin', email: 'a@test', via: 'api_key', apiKeyId: 'k6' });
+  const mikeLaneKey = (): AuthPayload => ({ userId: MIKE_USER_ID, role: 'admin', email: 'm@test', via: 'api_key', apiKeyId: 'k7', lane: 'troubador', laneEnforced: true });
   const botKey = (): AuthPayload => ({ userId: botId, role: 'pm', email: 'b@test', via: 'api_key', apiKeyId: 'k5' });
   const pm = (): AuthPayload => ({ userId: pmId, role: 'pm', email: 'p@test', via: 'session' });
   const admin = (): AuthPayload => ({ userId: adminId, role: 'admin', email: 'a@test', via: 'session' });
@@ -223,16 +225,38 @@ describe.skipIf(!SCRATCH)('triage plan (real database)', () => {
       }
     });
 
-    it("while in Triage: Mike's session, the chat and Dox write; Mike's API key and everyone who cannot read are refused", async () => {
+    it("while in Triage: Mike's session, his own un-laned API key, the chat and Dox write; everyone who cannot read is refused", async () => {
       const t = await mkTask('triage writers');
       expect((await put(t, 'decisions', [{ text: 'a', source: SRC }], mike())).status).toBe(200);
       expect((await put(t, 'decisions', [{ text: 'b', source: SRC }], chat())).status).toBe(200);
       expect((await put(t, 'decisions', [{ text: 'c', source: SRC }], dox())).status).toBe(200);
-      expect((await put(t, 'decisions', [{ text: 'd', source: SRC }], mikeKey())).status).toBe(403); // the same check as leaving Triage: his session, or the chat relaying him
-      for (const who of [pm(), admin(), tech(), designer(), botKey(), worker(), otherLane()]) expect((await put(t, 'decisions', [{ text: 'x', source: SRC }], who)).status).toBe(404);
+      expect((await put(t, 'decisions', [{ text: 'd', source: SRC }], mikeKey())).status).toBe(200); // Mike's standalone work sessions (2026-11-14)
+      for (const who of [pm(), admin(), adminKey(), tech(), designer(), botKey(), worker(), otherLane(), mikeLaneKey()]) expect((await put(t, 'decisions', [{ text: 'x', source: SRC }], who)).status).toBe(404);
       const latest = await get(t, mike());
-      expect(latest.body.sections[7].items.map((i: any) => i.text)).toEqual(['c']);
-      expect(latest.body.sections[7].updated_by).toBe('Dox');
+      expect(latest.body.sections[7].items.map((i: any) => i.text)).toEqual(['d']);
+      expect(latest.body.sections[7].updated_by).toBe('Mike');
+      expect(latest.body.viewer.can_write).toBe(true);
+      expect((await get(t, mikeKey())).body.viewer.can_write).toBe(true);
+    });
+
+    it("Mike's un-laned API key adds, changes, removes and marks wrong on a Triage card and on a released one; other keys are refused", async () => {
+      const t = await mkTask('own key ops');
+      const added = await patch(t, 'requirements', { op: 'add', item: reqItem('Ten pages') }, mikeKey());
+      expect(added.status).toBe(200);
+      const id = added.body.items[0].id;
+      expect((await patch(t, 'requirements', { op: 'change', id, item: reqItem('Eight pages') }, mikeKey())).body.items[0].text).toBe('Eight pages');
+      expect((await patch(t, 'requirements', { op: 'mark_wrong', id, wrong: true }, mikeKey())).body.items[0].marked_wrong).toBe(true);
+      for (const who of [adminKey(), mikeLaneKey(), botKey(), worker()]) expect((await patch(t, 'requirements', { op: 'add', item: reqItem('No') }, who)).status).toBe(404);
+      expect((await patch(t, 'requirements', { op: 'remove', id }, mikeKey())).body.items).toHaveLength(0);
+      await prisma.task.update({ where: { id: t }, data: { status: 'not_started' } });
+      expect((await patch(t, 'requirements', { op: 'add', item: reqItem('After release') }, mikeKey())).status).toBe(200);
+      for (const who of [adminKey(), mikeLaneKey()]) {
+        const r = await patch(t, 'requirements', { op: 'add', item: reqItem('No') }, who);
+        expect(r.status).toBe(403);
+        expect(r.body.code).toBe('plan_forbidden');
+      }
+      const a = (await get(t, mikeKey())).body.sections[0].items;
+      expect((await patch(t, 'requirements', { op: 'mark_wrong', id: a[0].id, wrong: true }, adminKey())).status).toBe(403);
     });
 
     it('after release: staff who can see the task read it, a contractor without billing, a designer never; writing stays with Mike, the chat and Dox', async () => {
@@ -250,7 +274,8 @@ describe.skipIf(!SCRATCH)('triage plan (real database)', () => {
       expect((await get(t, designer())).status).toBe(404);
       expect((await put(t, 'requirements', [reqItem('Changed after release')], chat())).status).toBe(200);
       expect((await put(t, 'requirements', [reqItem('Mine')], mike())).status).toBe(200);
-      for (const who of [pm(), admin(), tech(), worker(), botKey(), mikeKey()]) expect((await put(t, 'requirements', [reqItem('No')], who)).status, JSON.stringify(who.lane)).toBe(403);
+      expect((await put(t, 'requirements', [reqItem('Own key')], mikeKey())).status).toBe(200);
+      for (const who of [pm(), admin(), adminKey(), tech(), worker(), botKey(), mikeLaneKey()]) expect((await put(t, 'requirements', [reqItem('No')], who)).status, JSON.stringify(who.lane)).toBe(403);
       expect((await put(t, 'requirements', [reqItem('No')], designer())).status).toBe(404);
       expect((await put(t, 'requirements', [reqItem('Dox on a card with no project')], dox())).status).toBe(200);
     });

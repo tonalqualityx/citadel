@@ -10,6 +10,7 @@ import { requireAuth, type AuthPayload } from '@/lib/auth/middleware';
 import { SCRATCH } from '@/lib/engine/__tests__/seed';
 import { PATCH as patchSitemap } from '@/app/api/projects/[id]/sitemap/route';
 import { PUT as putShape } from '@/app/api/tasks/[id]/triage/shape/route';
+import { MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import { idParams, makeFixture, chatLane, dox, mikeSession, type Fx } from '@/lib/dox/__tests__/fixture';
 
 const as = (a: AuthPayload) => (requireAuth as Mock).mockResolvedValue(a);
@@ -106,6 +107,36 @@ describe.skipIf(!SCRATCH)('sitemap edits on a project under way (real database)'
       expect(r.status).toBe(409);
       expect(await pages(p)).toHaveLength(0);
     }
+  });
+
+  it("Mike's own un-laned API key edits pages and sets the shape; another admin's key and a laned key under Mike are refused", async () => {
+    const mikeKey = (): AuthPayload => ({ userId: MIKE_USER_ID, role: 'admin', email: 'mike@test', via: 'api_key', apiKeyId: 'mk' });
+    const laned = (): AuthPayload => ({ ...mikeKey(), lane: 'troubador', laneEnforced: true });
+    const otherAdmin = (): AuthPayload => ({ userId: '7f1c0000-0000-4000-8000-0000000000b1', role: 'admin', email: 'oa@test', via: 'api_key', apiKeyId: 'oa' });
+    as(mikeKey());
+    expect((await json(await patchSitemap(call({ add: [{ name: 'Own key page' }] }), idParams(live)))).status).toBe(200);
+    const row = (await pages(live)).find((p) => p.name === 'Own key page')!;
+    expect((await json(await patchSitemap(call({ change: [{ id: row.id, notes: 'n' }] }), idParams(live)))).status).toBe(200);
+    expect((await json(await patchSitemap(call({ drop: [row.id] }), idParams(live)))).status).toBe(200);
+    for (const a of [laned(), otherAdmin()]) {
+      as(a);
+      const r = await json(await patchSitemap(call({ add: [{ name: 'Nope' }] }), idParams(live)));
+      expect(r.status).toBe(403);
+      expect(r.body.code).toBe('triage_forbidden');
+    }
+    expect((await pages(live)).map((p) => p.name)).not.toContain('Nope');
+    const card = await fx.mkTask('Own key shape card', { status: 'triage', project_id: queueP, client_id: fx.clientId });
+    as(mikeKey());
+    expect((await json(await putShape(call({ pages: [{ name: 'K1' }] }, 'PUT'), idParams(card)))).status).toBe(200);
+    expect((await pages(queueP)).map((p) => p.name)).toEqual(['K1']);
+    for (const a of [laned(), otherAdmin()]) {
+      as(a);
+      expect((await json(await putShape(call({ pages: [{ name: 'K2' }] }, 'PUT'), idParams(card)))).status).toBe(403);
+    }
+    // live project rules still hold for the key: phases refused
+    const lCard = await fx.mkTask('Own key live card', { status: 'triage', project_id: live, client_id: fx.clientId });
+    as(mikeKey());
+    expect((await json(await putShape(call({ phases: [{ name: 'X' }] }, 'PUT'), idParams(lCard)))).status).toBe(409);
   });
 
   it('the shape route: a queue project is replaced as before; a live project merges pages by name and refuses phases', async () => {
