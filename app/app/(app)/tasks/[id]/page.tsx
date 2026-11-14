@@ -355,16 +355,16 @@ export default function QuestDetailPage() {
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-start justify-between">
-        <div className="flex items-start gap-4">
-          <Link href="/tasks">
+      <div className="flex flex-wrap items-start justify-between gap-3" data-testid="task-header">
+        <div className="flex min-w-0 items-start gap-4">
+          <Link href="/tasks" className="shrink-0">
             <Button variant="ghost" size="icon">
               <ArrowLeft className="h-4 w-4" />
             </Button>
           </Link>
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-semibold text-text-main">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1" data-testid="task-title-row">
+              <h1 className="min-w-0 break-words text-2xl font-semibold text-text-main">
                 <InlineText
                   value={task.title}
                   onChange={(title) => saveImmediate({ title })}
@@ -490,7 +490,7 @@ export default function QuestDetailPage() {
               </div>
             )}
             {/* Assignee & Phase */}
-            <div className="flex items-center gap-4 mt-2 text-sm text-text-sub">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-sm text-text-sub">
               <div className="flex items-center gap-1">
                 <User className="h-4 w-4" />
                 <InlineUserSelect
@@ -506,7 +506,7 @@ export default function QuestDetailPage() {
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2" data-testid="task-header-actions">
           {updateTask.isPending && (
             <span className="text-sm text-text-sub flex items-center gap-2">
               <Spinner size="sm" />
