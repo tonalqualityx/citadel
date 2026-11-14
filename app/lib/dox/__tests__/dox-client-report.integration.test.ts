@@ -13,8 +13,8 @@ import * as tasksRoute from '@/app/api/tasks/route';
 import { PATCH as patchBrief } from '@/app/api/engagement-briefs/[id]/route';
 import { POST as startPass } from '@/app/api/engagement-briefs/[id]/passes/route';
 import { PATCH as patchPass } from '@/app/api/engagement-passes/[id]/route';
-import { GET as getProjectBrief } from '@/app/api/projects/[id]/engagement-brief/route';
-import { dox, mikeSession, chatLane, idParams, makeFixture, type Fx } from './fixture';
+import { GET as getProjectBrief, POST as startBrief } from '@/app/api/projects/[id]/engagement-brief/route';
+import { dox, mikeSession, chatLane, idParams, makeFixture, BOT_ID, type Fx } from './fixture';
 import { MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
 
 const authMock = requireAuth as Mock;
@@ -70,6 +70,23 @@ describe.skipIf(!SCRATCH)('Dox client reports (real database)', () => {
       const got = await json(await getProjectBrief(call(undefined, {}, 'GET'), idParams(P)));
       expect(got.status).toBe(200);
       expect(got.body.next_report_on).toBe(res.body.next_report_on);
+    });
+    it('Mike\'s own un-laned key turns a report off, changes the mode and starts a brief; another user\'s key and a laned key may not', async () => {
+      const ownKey = (): AuthPayload => ({ userId: MIKE_USER_ID, role: 'admin', email: 'mike@test', via: 'api_key', apiKeyId: 'km' });
+      const p2 = await fx.mkProject('Own key project', { status: 'in_progress' });
+      as(ownKey());
+      const made = await json(await startBrief(call(undefined, {}, 'POST'), idParams(p2)));
+      expect([200, 201], JSON.stringify(made.body)).toContain(made.status);
+      const b2 = (await briefOf(p2)).id;
+      const off = await json(await patchBrief(call(undefined, { report_cadence: 'none', owner_mode: 'dry' }), idParams(b2)));
+      expect(off.status, JSON.stringify(off.body)).toBe(200);
+      expect(off.body.report_cadence).toBe('none');
+      expect(off.body.report_source.kind).toBe('mike');
+      as({ ...ownKey(), userId: BOT_ID });
+      expect((await json(await patchBrief(call(undefined, { report_cadence: 'weekly', report_day: 'fri' }), idParams(b2)))).body.code).toBe('brief_forbidden');
+      as({ ...ownKey(), lane: 'worker', laneEnforced: true });
+      expect((await json(await patchBrief(call(undefined, { owner_mode: 'live' }), idParams(b2)))).body.code).toBe('brief_forbidden');
+      expect((await json(await startBrief(call(undefined, {}, 'POST'), idParams(p2)))).body.code).toBe('brief_forbidden');
     });
     it('Mike\'s session may send a day with the cadence only when both are there', async () => {
       as(mikeSession());

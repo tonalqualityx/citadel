@@ -9,6 +9,7 @@ import { isChatLane } from '@/lib/tasks/questions';
 import { guardDoxBriefReportPatch, isDoxLane } from '@/lib/dox/guard';
 import type { Prisma } from '@prisma/client';
 import { MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
+import { isMikeOwnKey } from '@/lib/services/task-patch';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -37,7 +38,7 @@ const patchSchema = z
 /**
  * PATCH /api/engagement-briefs/[id]: change how often a brief's project is swept (`cadence`), whether Dox only records (`dry`), acts (`live`) or
  * stays away (`off`) (`owner_mode`), and the client report fields (`report_cadence` none|weekly|every_2_weeks|monthly, `report_day` mon..sun,
- * `report_to` emails, `report_source`). The owner's own signed-in session or the owner's chat lane set any of them; with no `report_source` they are
+ * `report_to` emails, `report_source`). The owner's own signed-in session, the owner's own un-laned key or the owner's chat lane set any of them; with no `report_source` they are
  * recorded as Mike's. The Dox lane sets the three report fields only, with a quoted source (lib/dox/guard.ts guardDoxBriefReportPatch); it is refused
  * `cadence` and `owner_mode`. Bumps `version`.
  */
@@ -45,7 +46,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   try {
     const auth = await requireAuth();
     const dox = isDoxLane(auth);
-    const owner = auth.via !== 'api_key' && auth.userId === MIKE_USER_ID;
+    // Mike's own un-laned key (his standalone work sessions) counts as the owner here (Mike, 2026-11-14: sessions must be able to make these changes).
+    const owner = (auth.via !== 'api_key' && auth.userId === MIKE_USER_ID) || isMikeOwnKey(auth);
     if (!dox && !owner && !isChatLane(auth)) throw new ApiError('Only the owner and the owner\'s chat change a brief\'s mode, cadence or client report.', 403, 'brief_forbidden');
     const { id } = await params;
     if (!UUID.test(id)) throw new ApiError('Bad id', 400);

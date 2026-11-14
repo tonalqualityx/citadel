@@ -373,7 +373,9 @@ describe.skipIf(!SCRATCH)('Dox slice 1 (real database)', () => {
       for (const who of [{ userId: stranger, role: 'admin', email: 's@t', via: 'session' }, { userId: MIKE_USER_ID, role: 'admin', email: 'm@t', via: 'api_key', apiKeyId: 'k' }, { userId: BOT_ID, role: 'pm', email: 'b@t', via: 'api_key', apiKeyId: 'k', lane: 'bast', laneEnforced: true }] as AuthPayload[]) {
         as(who);
         expect((await projectSnapshot(call(undefined, undefined, 'GET'), idParams(proj))).status).toBe(403);
-        expect((await startBrief(call(undefined), idParams(proj))).status).toBe(403);
+        // Mike's own un-laned key may start a brief (Mike, 2026-11-14); the snapshot above stays closed to it.
+        const mikeKey = who.userId === MIKE_USER_ID && who.via === 'api_key';
+        expect((await startBrief(call(undefined), idParams(proj))).status).toBe(mikeKey ? 201 : 403);
       }
       as(mikeSession());
       expect((await projectSnapshot(call(undefined, undefined, 'GET'), idParams(proj))).status).toBe(200);

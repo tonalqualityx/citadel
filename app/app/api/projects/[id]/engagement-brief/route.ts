@@ -7,6 +7,7 @@ import { guardDoxSnapshotRead, isDoxLane, mayReadSnapshot, requireDoxBriefBindin
 import { ensureProjectBrief } from '@/lib/engagement/ensure-brief';
 import { MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import { isChatLane } from '@/lib/tasks/questions';
+import { isMikeOwnKey } from '@/lib/services/task-patch';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -38,7 +39,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const auth = await requireAuth();
-    if (!mayReadSnapshot(auth, MIKE_USER_ID) && !isChatLane(auth)) throw new ApiError('Only Dox, the owner and the owner\'s chat start a project brief.', 403, 'brief_forbidden');
+    if (!mayReadSnapshot(auth, MIKE_USER_ID) && !isChatLane(auth) && !isMikeOwnKey(auth)) throw new ApiError('Only Dox, the owner and the owner\'s chat start a project brief.', 403, 'brief_forbidden');
     const { id } = await params;
     if (!UUID.test(id)) throw new ApiError('Bad id', 400);
     await guardDoxSnapshotRead(auth, id);
