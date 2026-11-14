@@ -42,6 +42,7 @@ const EXEMPT: Record<string, string> = {
   'lib/services/charter-generator.ts': 'a generator for a charter period',
   'lib/services/maintenance-generator.ts': 'a generator for a maintenance period',
   'lib/services/kickoff.ts': 'the kickoff tasks of a signed proposal',
+  'lib/engagement/client-report.ts': 'the draft task for the owner when a client report is handed in; no email or session behind it',
 };
 
 function walk(dir: string, out: string[] = []): string[] {

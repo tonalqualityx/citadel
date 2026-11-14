@@ -26,7 +26,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
 /**
  * POST /api/engagement-briefs/[id]/passes: start a pass record. A `live` pass is refused unless the
- * brief's owner_mode is `live`; a `dry` pass needs `dry` or `live`. An `off` brief runs nothing. `kind` (setup, sweep or report) says what the pass is for;
+ * brief's owner_mode is `live`; a `dry` pass needs `dry` or `live`. An `off` brief runs nothing. `kind` (setup, sweep, report or client) says what the pass is for;
  * the Dox lane may run a live setup or report pass on a dry brief while the project holds the released card it is for (lib/dox/guard.ts guardDoxPassStart).
  */
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -39,6 +39,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const brief = await prisma.engagementBrief.findUnique({ where: { id } });
     if (!brief) throw new ApiError('Brief not found', 404);
     if (brief.owner_mode === 'off') throw new ApiError('This brief is off.', 409, 'brief_off');
+    if (body.kind === 'client' && brief.report_cadence === 'none') throw new ApiError('This project has no client report cadence.', 409, 'no_report_cadence');
     if (isDoxLane(auth)) {
       await guardDoxPassStart(auth, brief, body);
     } else if (body.mode === 'live' && brief.owner_mode !== 'live') {

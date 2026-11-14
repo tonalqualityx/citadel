@@ -4440,6 +4440,16 @@ model EngagementBrief {
   cadence            String    @default("weekly") @db.VarChar(40)
   version            Int       @default(1)
   last_pass_at       DateTime?
+  /// Client report cadence (Dox drafts a report email on this schedule). none | weekly | every_2_weeks | monthly.
+  report_cadence     String    @default("none") @db.VarChar(20)
+  /// mon..sun
+  report_day         String?   @db.VarChar(3)
+  /// Recipients; empty means the client's primary contact when the draft is made.
+  report_to          String[]  @default([])
+  /// Where the cadence came from: { kind: deal | sow | client_email | mike, label, quote?, dated?, at, by }
+  report_source      Json?
+  /// When the last client report draft was made. Not last_pass_at: that one is the sweep clock.
+  last_report_at     DateTime?
   created_by_id      String?   @db.Uuid
   created_at         DateTime  @default(now())
   updated_at         DateTime  @updatedAt

@@ -5,6 +5,7 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { serializePass } from '@/lib/engagement/serialize';
+import { clientReportSchema, createClientReportDraft } from '@/lib/engagement/client-report';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const patchSchema = z.object({
@@ -15,11 +16,14 @@ const patchSchema = z.object({
   actions: z.array(z.record(z.string(), z.unknown())).max(500).optional(),
   mike_items: z.array(z.record(z.string(), z.unknown())).max(200).optional(),
   error: z.string().max(5000).nullable().optional(),
+  /** A client pass hands in its draft: Citadel makes Mike's task (lib/engagement/client-report.ts). */
+  client_report: clientReportSchema.optional(),
 });
 
 /**
  * PATCH /api/engagement-passes/[id]: record what a pass did. `finished: true` stamps finished_at
- * once and the brief's last_pass_at.
+ * once and the brief's last_pass_at (not for a `client` pass: that would reset the sweep clock). `client_report` ({to, subject, body, gmail_draft_id?,
+ * gmail_draft_url?}) on a client pass makes the draft task for the owner, adds a client_report action to the pass and stamps the brief's last_report_at.
  */
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -31,19 +35,20 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const pass = await prisma.engagementPass.findUnique({ where: { id } });
     if (!pass) throw new ApiError('Pass not found', 404);
     const now = new Date();
+    if (body.client_report) await createClientReportDraft(prisma, pass, body.client_report, now);
     const row = await prisma.engagementPass.update({
       where: { id },
       data: {
         ...(body.model !== undefined ? { model: body.model } : {}),
         ...(body.cost_usd !== undefined ? { cost_usd: body.cost_usd } : {}),
         ...(body.tasks_read !== undefined ? { tasks_read: body.tasks_read } : {}),
-        ...(body.actions !== undefined ? { actions: body.actions as Prisma.InputJsonValue } : {}),
+        ...(body.actions !== undefined && !body.client_report ? { actions: body.actions as Prisma.InputJsonValue } : {}),
         ...(body.mike_items !== undefined ? { mike_items: body.mike_items as Prisma.InputJsonValue } : {}),
         ...(body.error !== undefined ? { error: body.error } : {}),
         ...(body.finished && !pass.finished_at ? { finished_at: now } : {}),
       },
     });
-    if (body.finished && !pass.finished_at && pass.brief_id) {
+    if (body.finished && !pass.finished_at && pass.brief_id && pass.kind !== 'client') {
       await prisma.engagementBrief.update({ where: { id: pass.brief_id }, data: { last_pass_at: now } });
     }
     return NextResponse.json(serializePass(row));

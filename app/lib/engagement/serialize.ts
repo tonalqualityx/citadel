@@ -1,6 +1,8 @@
 import type { EngagementBrief, EngagementPass } from '@prisma/client';
+import { nextReportOn } from './report-cadence';
 
-export function serializeBrief(b: EngagementBrief) {
+/** `project` (its status) adds the computed `next_report_on`; without it that field is null. */
+export function serializeBrief(b: EngagementBrief, project?: { status: string } | null) {
   return {
     id: b.id,
     client_id: b.client_id,
@@ -17,6 +19,12 @@ export function serializeBrief(b: EngagementBrief) {
     cadence: b.cadence,
     version: b.version,
     last_pass_at: b.last_pass_at?.toISOString() ?? null,
+    report_cadence: b.report_cadence,
+    report_day: b.report_day,
+    report_to: b.report_to,
+    report_source: b.report_source,
+    last_report_at: b.last_report_at?.toISOString() ?? null,
+    next_report_on: project ? nextReportOn(b, project) : null,
     created_by_id: b.created_by_id,
     created_at: b.created_at.toISOString(),
     updated_at: b.updated_at.toISOString(),

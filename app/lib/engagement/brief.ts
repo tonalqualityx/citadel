@@ -16,6 +16,10 @@
 import { z } from 'zod';
 import type { Prisma } from '@prisma/client';
 import path from 'node:path';
+import { dateSourceSchema } from '@/lib/tasks/plan-schema';
+import { REPORT_CADENCES, REPORT_DAYS } from './report-cadence';
+
+export { REPORT_CADENCES, REPORT_DAYS };
 
 export const OWNER_MODES = ['off', 'dry', 'live'] as const;
 /**
@@ -161,3 +165,23 @@ export function scopeWhere(brief: BriefLike): Prisma.TaskWhereInput | null {
   if (ex?.tags?.length) and.push({ NOT: { tags: { hasSome: ex.tags } } });
   return { is_deleted: false, AND: and };
 }
+
+/**
+ * The client report fields of a brief, as one PATCH body (every field optional, at least one). `report_to` is email addresses (lower-cased, de-duplicated,
+ * at most 10; an empty list means the client's primary contact when the draft is made). `report_source` says where the cadence came from (the same
+ * shape as a project date source); the route stamps `at` and `by`.
+ */
+export const reportEmail = z.string().trim().toLowerCase().max(200).email();
+export const reportPatchShape = {
+  report_cadence: z.enum(REPORT_CADENCES).optional(),
+  report_day: z.enum(REPORT_DAYS).nullable().optional(),
+  report_to: z
+    .array(reportEmail)
+    .max(10)
+    .transform((a) => [...new Set(a)])
+    .optional(),
+  report_source: dateSourceSchema.optional(),
+};
+export const reportPatchSchema = z.object(reportPatchShape).strict();
+export type ReportPatch = z.infer<typeof reportPatchSchema>;
+export const REPORT_FIELDS = ['report_cadence', 'report_day', 'report_to', 'report_source'] as const;

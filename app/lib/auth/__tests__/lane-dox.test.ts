@@ -49,6 +49,7 @@ const ALLOWED: [string, string][] = [
   ['GET', '/api/projects/7f1c'],
   ['GET', '/api/projects/7f1c/engagement-snapshot'],
   ['POST', '/api/projects/7f1c/engagement-brief'],
+  ['GET', '/api/projects/7f1c/engagement-brief'],
   ['PATCH', '/api/projects/7f1c'],
   ['PATCH', '/api/projects/7f1c/sitemap'],
   ['GET', '/api/tasks'],
@@ -72,6 +73,8 @@ const ALLOWED: [string, string][] = [
   ['GET', '/api/engagement-briefs/7f1c/tasks'],
   ['GET', '/api/engagement-briefs/7f1c/snapshot'],
   ['POST', '/api/engagement-briefs/7f1c/passes'],
+  // the client report fields only (guardDoxBriefReportPatch refuses the rest)
+  ['PATCH', '/api/engagement-briefs/7f1c'],
   ['PATCH', '/api/engagement-passes/7f1c'],
   ['POST', '/api/tasks/7f1c/card-pass'],
   ['GET', '/api/oracle/projects/refresh-requests'],
@@ -106,7 +109,6 @@ const DENIED: [string, string][] = [
   ['POST', '/api/tasks/7f1c/staged'],
   // brief rewrites and the owner pass's own settings
   ['PUT', '/api/engagement-briefs'],
-  ['PATCH', '/api/engagement-briefs/7f1c'],
   // other task writes, claims, checklist, dependencies, bulk, moves
   ['POST', '/api/tasks/7f1c/dependencies'],
   ['POST', '/api/tasks/7f1c/claim'],

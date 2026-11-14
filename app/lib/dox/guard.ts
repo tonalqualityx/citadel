@@ -27,6 +27,7 @@ import { liveSessionTaskIds } from '@/lib/work/state';
 import { DOX_LANE, DOX_USER_ID, isDoxLaneValue } from './identity';
 import { ASKED_DOX_TAG } from './ask';
 import { DATE_SOURCE_MESSAGE, dateSourceSchema } from '@/lib/tasks/plan-schema';
+import { REPORT_FIELDS, reportPatchSchema, type ReportPatch } from '@/lib/engagement/brief';
 
 export const DOX_PROJECT_HEADER = 'x-dox-project';
 export const DOX_CARD_HEADER = 'x-dox-card';
@@ -632,10 +633,12 @@ export async function guardDoxSnapshotRead(auth: LaneAuth, projectId: string, db
 
 // ---------------------------------------------------------------- passes
 
-export const PASS_KINDS = ['setup', 'sweep', 'report'] as const;
+export const PASS_KINDS = ['setup', 'sweep', 'report', 'client'] as const;
 export type PassKind = (typeof PASS_KINDS)[number];
 /** The tag on the report task Dox creates at setup (Addendum 8). */
 export const REPORT_TASK_TAG = 'project-report';
+/** The tag on the task Citadel makes for Mike when a client report draft is handed in. Dox cannot create or tag it himself. */
+export const CLIENT_REPORT_TAG = 'client-report';
 
 /**
  * POST /api/engagement-briefs/:id/passes as the Dox lane: may this pass start in this mode and kind? Returns nothing; refuses with 409.
@@ -677,4 +680,36 @@ export async function guardDoxPassStart(
       'brief_not_live',
     );
   }
+}
+
+// ---------------------------------------------------------------- client report fields
+
+/**
+ * PATCH /api/engagement-briefs/:id as the Dox lane: the three client report fields (report_cadence, report_day, report_to) and nothing else (never the
+ * sweep cadence or the mode). He must send `report_source` (kind deal, sow or client_email, with its quote: never kind mike), hold a live pass on the
+ * project in play, and may not overwrite a value whose recorded source is Mike's. Returns the parsed body. A no-op for any other caller.
+ */
+export async function guardDoxBriefReportPatch(
+  auth: LaneAuth,
+  headers: Hdrs,
+  rawBody: unknown,
+  brief: { project_id: string | null; report_source: unknown },
+  db: Db = prisma,
+): Promise<ReportPatch | null> {
+  if (!isDoxLane(auth)) return null;
+  const body = requireObject(rawBody);
+  for (const k of Object.keys(body)) {
+    if (!(REPORT_FIELDS as readonly string[]).includes(k)) refuse('Dox sets the client report fields only, never the sweep cadence or the mode.', 'dox_brief_closed');
+  }
+  if (!brief.project_id) refuse('Dox sets a client report on a project brief only.', 'dox_brief_closed');
+  const parsed = reportPatchSchema.safeParse(body);
+  if (!parsed.success) throw new ApiError(parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '), 400, 'dox_bad_body');
+  const src = parsed.data.report_source;
+  if (!src) throw new ApiError(DATE_SOURCE_MESSAGE, 422, 'report_source_required');
+  if (src.kind === 'mike') throw new ApiError('Dox does not record Mike as a source: only the deal, the SOW or a client email, with the quote.', 422, 'report_source_mike');
+  if (!src.quote) throw new ApiError('Send the quote the report cadence comes from.', 422, 'report_source_required');
+  await requireProjectInPlay(headers, brief.project_id, db);
+  const current = (brief.report_source as { kind?: unknown } | null) ?? null;
+  if (current?.kind === 'mike') refuse('Mike set this client report. A later client email that differs goes to Mike as one item; Dox does not overwrite it.', 'dox_report_mike');
+  return parsed.data;
 }

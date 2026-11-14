@@ -38,13 +38,14 @@ const json = async (res: Response) => ({ status: res.status, body: (await res.js
 const createTask = tasksRoute.POST;
 
 describe('the lane routes Slice 3 calls (pure)', () => {
-  it('the dox lane reaches refresh-requests and the next-step write; the chat lane reaches the brief PATCH and POST; the dox lane has no brief PATCH', () => {
+  it('the dox lane reaches refresh-requests and the next-step write; the chat lane reaches the brief PATCH and POST; the dox lane\'s brief PATCH is the report fields only (the route refuses the rest)', () => {
     expect(laneAllows('dox', 'GET', '/api/oracle/projects/refresh-requests')).toBe(true);
     expect(laneAllows('dox', 'PUT', '/api/oracle/projects/9f1c0000-0000-4000-8000-000000000001/next-step/write')).toBe(true);
     expect(laneAllows('dox', 'GET', '/api/users')).toBe(true);
     expect(laneAllows('bast-chat', 'PATCH', '/api/engagement-briefs/9f1c0000-0000-4000-8000-000000000001')).toBe(true);
     expect(laneAllows('bast-chat', 'POST', '/api/projects/9f1c0000-0000-4000-8000-000000000001/engagement-brief')).toBe(true);
-    expect(laneAllows('dox', 'PATCH', '/api/engagement-briefs/9f1c0000-0000-4000-8000-000000000001')).toBe(false);
+    // the report fields only: guardDoxBriefReportPatch refuses the sweep cadence and the mode inside the route
+    expect(laneAllows('dox', 'PATCH', '/api/engagement-briefs/9f1c0000-0000-4000-8000-000000000001')).toBe(true);
   });
 });
 

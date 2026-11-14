@@ -22,7 +22,10 @@ export async function GET(request: NextRequest) {
       orderBy: { created_at: 'asc' },
       take: 200,
     });
-    return NextResponse.json({ briefs: rows.map(serializeBrief) });
+    const ids = rows.map((b) => b.project_id).filter((x): x is string => !!x);
+    const projects = await prisma.project.findMany({ where: { id: { in: ids } }, select: { id: true, status: true } });
+    const status = new Map(projects.map((p) => [p.id, p]));
+    return NextResponse.json({ briefs: rows.map((b) => serializeBrief(b, b.project_id ? status.get(b.project_id) ?? null : null)) });
   } catch (error) {
     return handleApiError(error);
   }
