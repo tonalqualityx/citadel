@@ -1,0 +1,613 @@
+{
+ "about": "Client report cadence cases. Inputs are self-describing; day is mon..sun; times are ISO UTC; next_report_on is YYYY-MM-DD Eastern. Contract shared by lib/engagement/report-cadence.ts and the Dox cadence.py port.",
+ "cases": [
+  {
+   "name": "set on Saturday: first report is the next Friday",
+   "input": {
+    "cadence": "weekly",
+    "day": "fri",
+    "last_report_at": null,
+    "set_at": "2026-11-14T15:00:00Z",
+    "project_status": "in_progress",
+    "brief_mode": "dry",
+    "now": "2026-11-14T16:00:00Z"
+   },
+   "expected": {
+    "due": false,
+    "next_report_on": "2026-11-20"
+   }
+  },
+  {
+   "name": "Friday 06:59 Eastern is not due",
+   "input": {
+    "cadence": "weekly",
+    "day": "fri",
+    "last_report_at": null,
+    "set_at": "2026-11-14T15:00:00Z",
+    "project_status": "in_progress",
+    "brief_mode": "dry",
+    "now": "2026-11-20T11:59:00Z"
+   },
+   "expected": {
+    "due": false,
+    "next_report_on": "2026-11-20"
+   }
+  },
+  {
+   "name": "Friday 07:00 Eastern is due",
+   "input": {
+    "cadence": "weekly",
+    "day": "fri",
+    "last_report_at": null,
+    "set_at": "2026-11-14T15:00:00Z",
+    "project_status": "in_progress",
+    "brief_mode": "dry",
+    "now": "2026-11-20T12:00:00Z"
+   },
+   "expected": {
+    "due": true,
+    "next_report_on": "2026-11-20"
+   }
+  },
+  {
+   "name": "a missed Friday is due on Saturday",
+   "input": {
+    "cadence": "weekly",
+    "day": "fri",
+    "last_report_at": "2026-11-13T12:30:00Z",
+    "set_at": null,
+    "project_status": "in_progress",
+    "brief_mode": "live",
+    "now": "2026-11-21T15:00:00Z"
+   },
+   "expected": {
+    "due": true,
+    "next_report_on": "2026-11-20"
+   }
+  },
+  {
+   "name": "a missed Friday stays due weeks later",
+   "input": {
+    "cadence": "weekly",
+    "day": "fri",
+    "last_report_at": "2026-11-13T12:30:00Z",
+    "set_at": null,
+    "project_status": "in_progress",
+    "brief_mode": "live",
+    "now": "2026-12-10T15:00:00Z"
+   },
+   "expected": {
+    "due": true,
+    "next_report_on": "2026-11-20"
+   }
+  },
+  {
+   "name": "after the Saturday catch-up the next report is the next Friday",
+   "input": {
+    "cadence": "weekly",
+    "day": "fri",
+    "last_report_at": "2026-11-21T13:00:00Z",
+    "set_at": null,
+    "project_status": "in_progress",
+    "brief_mode": "live",
+    "now": "2026-11-21T14:00:00Z"
+   },
+   "expected": {
+    "due": false,
+    "next_report_on": "2026-11-27"
+   }
+  },
+  {
+   "name": "a Monday catch-up leads to Friday",
+   "input": {
+    "cadence": "weekly",
+    "day": "fri",
+    "last_report_at": "2026-11-23T13:00:00Z",
+    "set_at": null,
+    "project_status": "in_progress",
+    "brief_mode": "live",
+    "now": "2026-11-23T14:00:00Z"
+   },
+   "expected": {
+    "due": false,
+    "next_report_on": "2026-11-27"
+   }
+  },
+  {
+   "name": "drafted on the report day: no second draft that day",
+   "input": {
+    "cadence": "weekly",
+    "day": "fri",
+    "last_report_at": "2026-11-20T12:30:00Z",
+    "set_at": null,
+    "project_status": "in_progress",
+    "brief_mode": "live",
+    "now": "2026-11-20T20:00:00Z"
+   },
+   "expected": {
+    "due": false,
+    "next_report_on": "2026-11-27"
+   }
+  },
+  {
+   "name": "weekly Friday to Friday is due the next Friday at 07:00",
+   "input": {
+    "cadence": "weekly",
+    "day": "fri",
+    "last_report_at": "2026-11-20T12:30:00Z",
+    "set_at": null,
+    "project_status": "in_progress",
+    "brief_mode": "live",
+    "now": "2026-11-27T12:00:00Z"
+   },
+   "expected": {
+    "due": true,
+    "next_report_on": "2026-11-27"
+   }
+  },
+  {
+   "name": "every 2 weeks: a week after the last draft is not due",
+   "input": {
+    "cadence": "every_2_weeks",
+    "day": "fri",
+    "last_report_at": "2026-11-13T12:30:00Z",
+    "set_at": null,
+    "project_status": "in_progress",
+    "brief_mode": "live",
+    "now": "2026-11-20T15:00:00Z"
+   },
+   "expected": {
+    "due": false,
+    "next_report_on": "2026-11-27"
+   }
+  },
+  {
+   "name": "every 2 weeks: two weeks after is due",
+   "input": {
+    "cadence": "every_2_weeks",
+    "day": "fri",
+    "last_report_at": "2026-11-13T12:30:00Z",
+    "set_at": null,
+    "project_status": "in_progress",
+    "brief_mode": "live",
+    "now": "2026-11-27T12:00:00Z"
+   },
+   "expected": {
+    "due": true,
+    "next_report_on": "2026-11-27"
+   }
+  },
+  {
+   "name": "every 2 weeks: a late draft on Saturday leads to Friday three weeks on",
+   "input": {
+    "cadence": "every_2_weeks",
+    "day": "fri",
+    "last_report_at": "2026-11-28T13:00:00Z",
+    "set_at": null,
+    "project_status": "in_progress",
+    "brief_mode": "live",
+    "now": "2026-11-28T14:00:00Z"
+   },
+   "expected": {
+    "due": false,
+    "next_report_on": "2026-12-11"
+   }
+  },
+  {
+   "name": "monthly: set mid month, first report is the next Friday",
+   "input": {
+    "cadence": "monthly",
+    "day": "fri",
+    "last_report_at": null,
+    "set_at": "2026-11-14T15:00:00Z",
+    "project_status": "ready",
+    "brief_mode": "dry",
+    "now": "2026-11-14T16:00:00Z"
+   },
+   "expected": {
+    "due": false,
+    "next_report_on": "2026-11-20"
+   }
+  },
+  {
+   "name": "monthly: next report is the first Friday of the next month",
+   "input": {
+    "cadence": "monthly",
+    "day": "fri",
+    "last_report_at": "2026-11-06T13:00:00Z",
+    "set_at": null,
+    "project_status": "in_progress",
+    "brief_mode": "live",
+    "now": "2026-11-27T20:00:00Z"
+   },
+   "expected": {
+    "due": false,
+    "next_report_on": "2026-12-04"
+   }
+  },
+  {
+   "name": "monthly: due on the first Friday of the next month",
+   "input": {
+    "cadence": "monthly",
+    "day": "fri",
+    "last_report_at": "2026-11-06T13:00:00Z",
+    "set_at": null,
+    "project_status": "in_progress",
+    "brief_mode": "live",
+    "now": "2026-12-04T12:00:00Z"
+   },
+   "expected": {
+    "due": true,
+    "next_report_on": "2026-12-04"
+   }
+  },
+  {
+   "name": "monthly: a late Saturday draft still leads to the first Friday of the next month",
+   "input": {
+    "cadence": "monthly",
+    "day": "fri",
+    "last_report_at": "2026-11-07T13:00:00Z",
+    "set_at": null,
+    "project_status": "in_progress",
+    "brief_mode": "live",
+    "now": "2026-11-07T14:00:00Z"
+   },
+   "expected": {
+    "due": false,
+    "next_report_on": "2026-12-04"
+   }
+  },
+  {
+   "name": "monthly: the last draft's month is read in Eastern time",
+   "input": {
+    "cadence": "monthly",
+    "day": "fri",
+    "last_report_at": "2026-12-01T03:00:00Z",
+    "set_at": null,
+    "project_status": "in_progress",
+    "brief_mode": "live",
+    "now": "2026-12-01T04:00:00Z"
+   },
+   "expected": {
+    "due": false,
+    "next_report_on": "2026-12-04"
+   }
+  },
+  {
+   "name": "monthly: December to January",
+   "input": {
+    "cadence": "monthly",
+    "day": "fri",
+    "last_report_at": "2026-12-04T13:00:00Z",
+    "set_at": null,
+    "project_status": "in_progress",
+    "brief_mode": "live",
+    "now": "2026-12-20T13:00:00Z"
+   },
+   "expected": {
+    "due": false,
+    "next_report_on": "2027-01-01"
+   }
+  },
+  {
+   "name": "a Monday report day set on Saturday",
+   "input": {
+    "cadence": "weekly",
+    "day": "mon",
+    "last_report_at": null,
+    "set_at": "2026-11-14T15:00:00Z",
+    "project_status": "in_progress",
+    "brief_mode": "dry",
+    "now": "2026-11-14T16:00:00Z"
+   },
+   "expected": {
+    "due": false,
+    "next_report_on": "2026-11-16"
+   }
+  },
+  {
+   "name": "set on the report day before 07:00 Eastern: today",
+   "input": {
+    "cadence": "weekly",
+    "day": "fri",
+    "last_report_at": null,
+    "set_at": "2026-11-20T10:00:00Z",
+    "project_status": "in_progress",
+    "brief_mode": "dry",
+    "now": "2026-11-20T11:00:00Z"
+   },
+   "expected": {
+    "due": false,
+    "next_report_on": "2026-11-20"
+   }
+  },
+  {
+   "name": "set on the report day before 07:00 Eastern: due at 07:00",
+   "input": {
+    "cadence": "weekly",
+    "day": "fri",
+    "last_report_at": null,
+    "set_at": "2026-11-20T10:00:00Z",
+    "project_status": "in_progress",
+    "brief_mode": "dry",
+    "now": "2026-11-20T12:00:00Z"
+   },
+   "expected": {
+    "due": true,
+    "next_report_on": "2026-11-20"
+   }
+  },
+  {
+   "name": "set on the report day after 07:00 Eastern: next week",
+   "input": {
+    "cadence": "weekly",
+    "day": "fri",
+    "last_report_at": null,
+    "set_at": "2026-11-20T13:00:00Z",
+    "project_status": "in_progress",
+    "brief_mode": "dry",
+    "now": "2026-11-20T14:00:00Z"
+   },
+   "expected": {
+    "due": false,
+    "next_report_on": "2026-11-27"
+   }
+  },
+  {
+   "name": "summer time: 06:59 EDT is not due",
+   "input": {
+    "cadence": "weekly",
+    "day": "fri",
+    "last_report_at": null,
+    "set_at": "2026-10-24T15:00:00Z",
+    "project_status": "in_progress",
+    "brief_mode": "live",
+    "now": "2026-10-30T10:59:00Z"
+   },
+   "expected": {
+    "due": false,
+    "next_report_on": "2026-10-30"
+   }
+  },
+  {
+   "name": "summer time: 07:00 EDT is due",
+   "input": {
+    "cadence": "weekly",
+    "day": "fri",
+    "last_report_at": null,
+    "set_at": "2026-10-24T15:00:00Z",
+    "project_status": "in_progress",
+    "brief_mode": "live",
+    "now": "2026-10-30T11:00:00Z"
+   },
+   "expected": {
+    "due": true,
+    "next_report_on": "2026-10-30"
+   }
+  },
+  {
+   "name": "spring forward: 06:59 EDT is not due",
+   "input": {
+    "cadence": "weekly",
+    "day": "fri",
+    "last_report_at": "2027-03-12T13:00:00Z",
+    "set_at": null,
+    "project_status": "in_progress",
+    "brief_mode": "live",
+    "now": "2027-03-19T10:59:00Z"
+   },
+   "expected": {
+    "due": false,
+    "next_report_on": "2027-03-19"
+   }
+  },
+  {
+   "name": "spring forward: 07:00 EDT is due",
+   "input": {
+    "cadence": "weekly",
+    "day": "fri",
+    "last_report_at": "2027-03-12T13:00:00Z",
+    "set_at": null,
+    "project_status": "in_progress",
+    "brief_mode": "live",
+    "now": "2027-03-19T11:00:00Z"
+   },
+   "expected": {
+    "due": true,
+    "next_report_on": "2027-03-19"
+   }
+  },
+  {
+   "name": "a ready project reports",
+   "input": {
+    "cadence": "weekly",
+    "day": "fri",
+    "last_report_at": "2026-11-13T12:30:00Z",
+    "set_at": null,
+    "project_status": "ready",
+    "brief_mode": "dry",
+    "now": "2026-11-20T12:00:00Z"
+   },
+   "expected": {
+    "due": true,
+    "next_report_on": "2026-11-20"
+   }
+  },
+  {
+   "name": "a in_progress project reports",
+   "input": {
+    "cadence": "weekly",
+    "day": "fri",
+    "last_report_at": "2026-11-13T12:30:00Z",
+    "set_at": null,
+    "project_status": "in_progress",
+    "brief_mode": "dry",
+    "now": "2026-11-20T12:00:00Z"
+   },
+   "expected": {
+    "due": true,
+    "next_report_on": "2026-11-20"
+   }
+  },
+  {
+   "name": "a review project reports",
+   "input": {
+    "cadence": "weekly",
+    "day": "fri",
+    "last_report_at": "2026-11-13T12:30:00Z",
+    "set_at": null,
+    "project_status": "review",
+    "brief_mode": "dry",
+    "now": "2026-11-20T12:00:00Z"
+   },
+   "expected": {
+    "due": true,
+    "next_report_on": "2026-11-20"
+   }
+  },
+  {
+   "name": "a done project is never due",
+   "input": {
+    "cadence": "weekly",
+    "day": "fri",
+    "last_report_at": "2026-11-13T12:30:00Z",
+    "set_at": null,
+    "project_status": "done",
+    "brief_mode": "live",
+    "now": "2026-11-20T12:00:00Z"
+   },
+   "expected": {
+    "due": false,
+    "next_report_on": null
+   }
+  },
+  {
+   "name": "a cancelled project is never due",
+   "input": {
+    "cadence": "weekly",
+    "day": "fri",
+    "last_report_at": "2026-11-13T12:30:00Z",
+    "set_at": null,
+    "project_status": "cancelled",
+    "brief_mode": "live",
+    "now": "2026-11-20T12:00:00Z"
+   },
+   "expected": {
+    "due": false,
+    "next_report_on": null
+   }
+  },
+  {
+   "name": "a suspended project is never due",
+   "input": {
+    "cadence": "weekly",
+    "day": "fri",
+    "last_report_at": "2026-11-13T12:30:00Z",
+    "set_at": null,
+    "project_status": "suspended",
+    "brief_mode": "live",
+    "now": "2026-11-20T12:00:00Z"
+   },
+   "expected": {
+    "due": false,
+    "next_report_on": null
+   }
+  },
+  {
+   "name": "a queue project is never due",
+   "input": {
+    "cadence": "weekly",
+    "day": "fri",
+    "last_report_at": "2026-11-13T12:30:00Z",
+    "set_at": null,
+    "project_status": "queue",
+    "brief_mode": "live",
+    "now": "2026-11-20T12:00:00Z"
+   },
+   "expected": {
+    "due": false,
+    "next_report_on": null
+   }
+  },
+  {
+   "name": "a quote project is never due",
+   "input": {
+    "cadence": "weekly",
+    "day": "fri",
+    "last_report_at": "2026-11-13T12:30:00Z",
+    "set_at": null,
+    "project_status": "quote",
+    "brief_mode": "live",
+    "now": "2026-11-20T12:00:00Z"
+   },
+   "expected": {
+    "due": false,
+    "next_report_on": null
+   }
+  },
+  {
+   "name": "an off brief is never due",
+   "input": {
+    "cadence": "weekly",
+    "day": "fri",
+    "last_report_at": "2026-11-13T12:30:00Z",
+    "set_at": null,
+    "project_status": "in_progress",
+    "brief_mode": "off",
+    "now": "2026-11-20T12:00:00Z"
+   },
+   "expected": {
+    "due": false,
+    "next_report_on": null
+   }
+  },
+  {
+   "name": "a dry brief still reports",
+   "input": {
+    "cadence": "weekly",
+    "day": "fri",
+    "last_report_at": "2026-11-13T12:30:00Z",
+    "set_at": null,
+    "project_status": "in_progress",
+    "brief_mode": "dry",
+    "now": "2026-11-20T12:00:00Z"
+   },
+   "expected": {
+    "due": true,
+    "next_report_on": "2026-11-20"
+   }
+  },
+  {
+   "name": "a missing day is never due",
+   "input": {
+    "cadence": "weekly",
+    "day": null,
+    "last_report_at": "2026-11-13T12:30:00Z",
+    "set_at": null,
+    "project_status": "in_progress",
+    "brief_mode": "live",
+    "now": "2026-11-20T12:00:00Z"
+   },
+   "expected": {
+    "due": false,
+    "next_report_on": null
+   }
+  },
+  {
+   "name": "cadence none is never due",
+   "input": {
+    "cadence": "none",
+    "day": "fri",
+    "last_report_at": "2026-11-13T12:30:00Z",
+    "set_at": null,
+    "project_status": "in_progress",
+    "brief_mode": "live",
+    "now": "2026-11-20T12:00:00Z"
+   },
+   "expected": {
+    "due": false,
+    "next_report_on": null
+   }
+  }
+ ]
+}
