@@ -15,8 +15,8 @@ import { Prisma } from '@prisma/client';
 import type { DesignJob, DesignJobKind } from '@prisma/client';
 import { ApiError } from '@/lib/api/errors';
 import {
-  ADOPT_KINDS, BRIEF_DELAY_MINUTES, JOB_ATTEMPT_LIMIT, JOB_LEASE_SECONDS, NEEDS_MIKE_TAG,
-  addInternalComment, addTaskTag, clearBusy, completeStageTask, errorTail, loadTrack, queueJob, trackTx, type TrackScope,
+  ACTIVE_JOB_STATUSES, ADOPT_KINDS, BRIEF_DELAY_MINUTES, JOB_ATTEMPT_LIMIT, JOB_LEASE_SECONDS, NEEDS_MIKE_TAG,
+  addInternalComment, addTaskTag, clearBusy, completeStageTask, errorTail, loadTrack, lockTrack, queueJob, removeTaskTag, trackTx, type TrackScope,
 } from './track-core';
 
 // Columns are `timestamp without time zone` holding UTC, so compare against UTC now (lib/tasks/claims.ts precedent).
@@ -208,4 +208,37 @@ async function onJobDone(scope: TrackScope, job: DesignJob, actorId: string): Pr
   // "Design research and brief" closes when the brief is published and the outline adopted (SPEC 2.5): the stage
   // machine completes it then, not when the research job alone is done.
   if (job.task_id && job.kind !== 'research') await completeStageTask(job.task_id, actorId, scope);
+}
+
+/**
+ * An admin puts a job that failed for good back in the queue once the cause is fixed. One transaction, serialised on
+ * the track: the job must be failed, the track still running, and no other job of the same kind active. Attempts
+ * restart at 0; the error text stays (the runner injects it as context). The task loses `needs-mike` and gets a note.
+ */
+export async function retryFailedJob(jobId: string, actor: { userId: string }): Promise<DesignJob> {
+  const found = await trackTx(async (scope) => {
+    const { tx } = scope;
+    const first = await tx.designJob.findUnique({ where: { id: jobId } });
+    if (!first) throw new ApiError('Job not found', 404, 'not_found');
+    await lockTrack(tx, first.track_id);
+    const job = await tx.designJob.findUnique({ where: { id: jobId } });
+    if (!job) throw new ApiError('Job not found', 404, 'not_found');
+    if (job.status !== 'failed') throw new ApiError('Only a failed job can be put back in the queue', 409, 'not_failed');
+    const track = await loadTrack(tx, job.track_id);
+    if (track.stage === 'done' || track.stage === 'cancelled') throw new ApiError('This track is finished', 409, 'track_finished');
+    const active = await tx.designJob.findFirst({ where: { track_id: job.track_id, kind: job.kind, id: { not: job.id }, status: { in: [...ACTIVE_JOB_STATUSES] } }, select: { id: true } });
+    if (active) throw new ApiError('Another job of this kind is already waiting or running on this track', 409, 'already_active');
+    const res = await tx.designJob.updateMany({
+      where: { id: job.id, status: 'failed' },
+      data: { status: 'queued', attempts: 0, claimed_by: null, lease_until: null, finished_at: null, not_before: null },
+    });
+    if (res.count !== 1) throw new ApiError('Only a failed job can be put back in the queue', 409, 'not_failed');
+    if (job.task_id) {
+      const user = await tx.user.findUnique({ where: { id: actor.userId }, select: { name: true } });
+      await removeTaskTag(tx, job.task_id, NEEDS_MIKE_TAG);
+      await addInternalComment(tx, job.task_id, actor.userId, `The ${job.kind.replace(/_/g, ' ')} job was put back in the queue by ${user?.name ?? 'an admin'} after the cause was fixed.`);
+    }
+    return tx.designJob.findUniqueOrThrow({ where: { id: job.id } });
+  });
+  return found;
 }

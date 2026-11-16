@@ -53,6 +53,7 @@ export const DESIGN_OPERATOR_ROUTES: Readonly<Record<OperatorKind, readonly Oper
     r('PATCH', '/api/design/admin/projects/:id'),
     r('GET', '/api/design/admin/sessions'),
     r('GET', '/api/design/admin/publishes'),
+    r('POST', '/api/design/admin/jobs/:id/retry'),
   ],
   publish: [
     r('POST', '/api/design/sessions/:id/publish'),

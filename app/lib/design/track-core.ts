@@ -97,6 +97,12 @@ export async function addTaskTag(tx: Tx, taskId: string, tag: string): Promise<v
   await tx.task.update({ where: { id: taskId }, data: { tags: [...t.tags, tag] } });
 }
 
+export async function removeTaskTag(tx: Tx, taskId: string, tag: string): Promise<void> {
+  const t = await tx.task.findUnique({ where: { id: taskId }, select: { tags: true } });
+  if (!t || !t.tags.includes(tag)) return;
+  await tx.task.update({ where: { id: taskId }, data: { tags: t.tags.filter((x) => x !== tag) } });
+}
+
 /** The last 1,500 characters of an error: the tail is where the failure is. */
 export const errorTail = (e: string | null | undefined): string => (e ?? '').slice(-1500);
 

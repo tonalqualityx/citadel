@@ -36,6 +36,7 @@ describe('the allowlist (lib/design/operator.ts) is exactly the ruling', () => {
       'PATCH /api/design/admin/projects/:id',
       'PATCH /api/design/admin/settings',
       'PATCH /api/design/admin/sites/:id',
+      'POST /api/design/admin/jobs/:id/retry',
     ]);
   });
 
