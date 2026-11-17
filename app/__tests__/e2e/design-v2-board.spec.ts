@@ -1,10 +1,12 @@
+import { randomFillSync } from 'node:crypto';
+import { deflateSync } from 'node:zlib';
 import { test, expect, type BrowserContext, type Locator, type Page } from '@playwright/test';
 import { newTag, seedWorld, teardownWorld, type DesignWorld } from './fixtures/design-portal-fixture';
 import { DesignWorker } from './fixtures/design-worker';
 import { BASE_URL, loginState, openTask, startPreview } from './fixtures/design-helpers';
 import { newV2Context, openDockTab, seedBrief, seedCapturedShot, seedReference, seedV2Track, type V2Track } from './fixtures/design-v2-fixture';
 
-// Designer Portal v2 (W4.6): the Board tab (SPEC 4.3) in a real browser against the isolated e2e database. The capture job is
+// Designer Portal v2 (W4.6): the Board and Inspiration tabs (SPEC 4.3) in a real browser against the isolated e2e database. The capture job is
 // never run (no runner here): the card of an added site stays in the state the server gave it, "queued".
 
 test.describe.configure({ mode: 'serial' });
@@ -23,6 +25,30 @@ const ids: Record<'alpine' | 'tide' | 'granite', string> = { alpine: '', tide: '
 
 const TITLES = { alpine: 'Alpine Outfitters', tide: 'Tidewater Goods', granite: 'Granite Works' } as const;
 const SHOT_ALT = `${TITLES.alpine}, Desktop, top of the page`;
+
+/** A real PNG of random RGB noise: it does not shrink when compressed, so the file is about width x height x 3 bytes. */
+function noisePng(width: number, height: number): Buffer {
+  const crcTable = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
+  const crc32 = (buf: Buffer) => { let c = 0xffffffff; for (const b of buf) c = crcTable[(c ^ b) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+  const chunk = (type: string, data: Buffer) => {
+    const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
+    const body = Buffer.concat([Buffer.from(type, 'ascii'), data]);
+    const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(body));
+    return Buffer.concat([len, body, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0); ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8; ihdr[9] = 2; // 8 bits per channel, RGB
+  const stride = width * 3 + 1; // one filter byte (0 = none) in front of every row
+  const raw = Buffer.alloc(stride * height);
+  for (let y = 0; y < height; y++) {
+    const row = y * stride;
+    raw[row] = 0;
+    // Cheap noise: random bytes in 64 KB steps, so building the file stays fast.
+    for (let x = 1; x < stride; x += 65536) randomFillSync(raw, row + x, Math.min(65536, stride - x));
+  }
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(raw, { level: 1 })), chunk('IEND', Buffer.alloc(0))]);
+}
 
 const card = (title: string): Locator => page.getByTestId('reference-card').filter({ has: page.getByRole('heading', { name: title }) });
 const yes = (c: Locator) => c.getByRole('button', { name: /^Yes/ });
@@ -44,7 +70,7 @@ test.afterAll(async () => {
   if (world) await teardownWorld(world);
 });
 
-test('seeded references show as cards: Bast pick with its why and shot, client-named site, and a site not captured yet', async ({ browser }) => {
+test('seeded references show as cards on the Inspiration tab: Bast pick with its why and shot, client-named site, and a site not captured yet', async ({ browser }) => {
   ctx = await newV2Context(browser, stateA, preview.port);
   page = await ctx.newPage();
   sessionId = await openTask(page, track.artTask.title);
@@ -59,8 +85,9 @@ test('seeded references show as cards: Bast pick with its why and shot, client-n
 
   await page.reload();
   await expect(page.getByTestId('preview-state')).toBeVisible({ timeout: 20_000 });
-  await openDockTab(page, 'Board');
+  await openDockTab(page, 'Inspiration');
   await expect(page.getByTestId('reference-card')).toHaveCount(3, { timeout: 15_000 });
+  await expect(page.getByTestId('inspiration-note')).toContainText('These are used only when you ask for the design to be built from inspiration.');
 
   const alpine = card(TITLES.alpine);
   await expect(alpine).toContainText('Picked by Bast');
@@ -129,7 +156,7 @@ test('Yes and No work from the keyboard alone, and a No moves the card to the Se
   expect((await world.prisma.designReference.findUniqueOrThrow({ where: { id: ids.granite } })).decision).toBe('pending');
 });
 
-test('adding a site by address shows its capture status as queued (the capture job is not run), and a bad address is refused in words', async () => {
+test('adding a site by address on the Inspiration tab shows its capture status as queued (the capture job is not run), and a bad address is refused in words', async () => {
   const input = page.getByRole('textbox', { name: 'Add a site' });
   await input.fill('http://plain.example.test/');
   await page.getByRole('button', { name: 'Add site' }).click();
@@ -204,7 +231,7 @@ test('a markup box is drawn on the reference shot, given a like chip, a category
 
   await page.reload();
   await expect(page.getByTestId('preview-state')).toBeVisible({ timeout: 20_000 });
-  await openDockTab(page, 'Board');
+  await openDockTab(page, 'Inspiration');
   const again = card(TITLES.alpine).getByRole('button', { name: /^Markup box 1: Like, Type/ });
   await expect(again).toBeVisible({ timeout: 15_000 });
   expect(await again.getAttribute('data-rect')).toBe(rectBefore);
@@ -215,6 +242,75 @@ test('a markup box is drawn on the reference shot, given a like chip, a category
   await expect(edit.getByRole('radio', { name: /^Like/ })).toBeChecked();
   await expect(edit.getByRole('radio', { name: /^Type/ })).toBeChecked();
   await expect(edit.getByLabel('Note (optional)')).toHaveValue('This heading style, big and square');
+});
+
+test('the Board holds design files: a Figma link shows a card bringing it in, and a site address in that field is refused', async () => {
+  await openDockTab(page, 'Board');
+  await expect(page.getByRole('textbox', { name: 'Add a site' })).toHaveCount(0); // sites live on Inspiration now
+  // The three seeded sites are not design files, so the Board starts empty.
+  await expect(page.getByTestId('reference-card')).toHaveCount(0);
+  await expect(page.getByText('Nothing here yet. Paste a Figma link or upload your designs to start.')).toBeVisible();
+
+  const field = page.getByRole('textbox', { name: 'Add a Figma link' });
+  await field.fill('https://example.com/design/abcdefghij');
+  await page.getByRole('button', { name: 'Add from Figma' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'That is not a Figma link. Sites go on the Inspiration tab.' })).toBeVisible();
+  expect(await world.prisma.designReference.count({ where: { track_id: track.trackId, source: 'designer_figma' } })).toBe(0);
+
+  await field.fill('https://www.figma.com/design/abcdefghij1/Kit?node-id=1-2');
+  const posted = page.waitForResponse((r) => r.url().endsWith(`/api/design/sessions/${sessionId}/references`) && r.request().method() === 'POST');
+  await page.getByRole('button', { name: 'Add from Figma' }).click();
+  expect((await posted).status()).toBe(201);
+  const added = card('Figma design');
+  await expect(added).toBeVisible();
+  await expect(added).toContainText('From your Figma file');
+  await expect(added.getByTestId('capture-chip')).toContainText('Bringing it in'); // nobody ran the capture job
+  await expect(field).toHaveValue('');
+  const row = await world.prisma.designReference.findFirstOrThrow({ where: { track_id: track.trackId, source: 'designer_figma' } });
+  expect(row.capture_status).toBe('queued');
+
+  // It is a design file, so it is not on the Inspiration tab, and that tab's note now says the build follows a design.
+  await openDockTab(page, 'Inspiration');
+  await expect(page.getByRole('heading', { name: 'Figma design' })).toHaveCount(0);
+});
+
+test('a captured Figma reference with a picture shows on the Board and not on Inspiration', async () => {
+  const figmaShot = await seedCapturedShot(world, page.request, sessionId, track.trackId);
+  await seedReference(world, track.trackId, {
+    title: 'Home desktop', source: 'designer_figma', url: 'https://www.figma.com/design/abcdefghij2?node-id=3-4', desktopFoldAssetId: figmaShot, sort_order: 10,
+    extracted: { schema: 1, source: 'figma', figma: { file_key: 'abcdefghij2', file_name: 'UI Kit', page: 'Home', node_id: '3:4', frame: { name: 'Home desktop', width: 1440, height: 900 }, frames_total: 4, frames_imported: 2 } },
+  });
+  await page.reload();
+  await expect(page.getByTestId('preview-state')).toBeVisible({ timeout: 20_000 });
+  await openDockTab(page, 'Board');
+  const frame = card('Home desktop');
+  await expect(frame).toBeVisible({ timeout: 15_000 });
+  await expect(frame).toContainText('From your Figma file');
+  await expect(frame.getByTestId('capture-chip')).toContainText('Ready');
+  await expect(frame.getByRole('img', { name: /Home desktop/ })).toBeVisible();
+  await expect(frame.getByTestId('figma-line')).toContainText('1440 x 900');
+  await expect(frame.getByTestId('figma-line')).toContainText('Showing the first 2 of 4 frames');
+  await expect(frame.getByRole('link', { name: /Open in Figma/ })).toHaveAttribute('target', '_blank');
+
+  await openDockTab(page, 'Inspiration');
+  await expect(page.getByRole('heading', { name: 'Home desktop' })).toHaveCount(0);
+  await expect(page.getByTestId('inspiration-note')).toContainText('You have added your own design, so the build follows that.');
+});
+
+test('a 12 MB picture uploads whole', async () => {
+  const png = noisePng(2000, 2000);
+  expect(png.length, 'the test picture is past the 10 MB a proxied body used to be cut at').toBeGreaterThan(11 * 1024 * 1024);
+  expect(png.length).toBeLessThan(13 * 1024 * 1024);
+  await openDockTab(page, 'Board');
+  const sent = page.waitForResponse((r) => r.url().endsWith(`/api/design/sessions/${sessionId}/uploads`) && r.request().method() === 'POST', { timeout: 60_000 });
+  await page.getByLabel('Choose files to upload').setInputFiles({ name: 'big-noise.png', mimeType: 'image/png', buffer: png });
+  const res = await sent;
+  // A body cut short would come back as an error here, or store fewer bytes below.
+  expect(res.status(), 'the upload route accepted the whole body').toBe(201);
+  const { asset } = (await res.json()) as { asset: { id: string } };
+  const row = await world.prisma.designTrackAsset.findUniqueOrThrow({ where: { id: asset.id } });
+  expect(row.bytes, 'the stored size equals the size of the file sent').toBe(png.length);
+  await expect(card('big-noise.png')).toBeVisible({ timeout: 20_000 });
 });
 
 test('another designer who is not on the project cannot read or change the board', async ({ browser }) => {

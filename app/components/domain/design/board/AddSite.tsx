@@ -27,7 +27,11 @@ export function AddSite({ sessionId, onAdded }: { sessionId: string; onAdded: (m
     if (problem) { setError(problem); return; }
     setError('');
     add.mutate(value.trim(), {
-      onSuccess: ({ reference }) => { setValue(''); onAdded(`${reference.title} is on the board. Capturing it now.`); },
+      onSuccess: ({ reference }) => {
+        setValue('');
+        // The server turns a Figma link into a design file, which lives on the Board.
+        onAdded(reference.source === 'designer_figma' ? 'That is a Figma link, so it went to the Board.' : `${reference.title} is on the board. Capturing it now.`);
+      },
       onError: (err) => setError(err instanceof Error ? err.message : 'Could not add that site'),
     });
   };

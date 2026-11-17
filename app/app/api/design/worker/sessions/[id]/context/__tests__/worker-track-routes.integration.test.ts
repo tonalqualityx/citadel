@@ -177,6 +177,27 @@ describe.skipIf(!SCRATCH)('worker track routes (real database)', () => {
       void otherRefId;
     });
 
+    it('board: has_design_file is false for sites, false for a Figma frame not yet captured, true once captured (over the whole track, even when ids narrow the list); role is on each card', async () => {
+      const before = await (await get('board')).json();
+      expect(before.has_design_file).toBe(false);
+      expect(before.references.map((r: { role: string }) => r.role)).toEqual(['inspiration', 'inspiration']);
+      const fig = await prisma.designReference.create({ data: { track_id: trackId, source: 'designer_figma', url: 'https://www.figma.com/design/AbCdEfGhIjKl?node-id=1-2', title: 'Frame', capture_status: 'queued', sort_order: 99 } });
+      try {
+        expect((await (await get('board')).json()).has_design_file).toBe(false);
+        await prisma.designReference.update({ where: { id: fig.id }, data: { capture_status: 'captured', extracted: { schema: 1, source: 'figma', figma: { file_name: 'Kit', frame: { name: 'Home', width: 1440, height: 900 } } } } });
+        const narrowed = await (await get('board', refId)).json();
+        expect(narrowed.has_design_file).toBe(true);
+        expect(narrowed.references.map((r: { id: string }) => r.id)).toEqual([refId]);
+        const all = await (await get('board')).json();
+        const card = all.references.find((r: { id: string }) => r.id === fig.id);
+        expect(card).toMatchObject({ role: 'design_file', source: 'designer_figma', figma: { file_name: 'Kit', frame_name: 'Home', width: 1440, height: 900 } });
+        await prisma.designReference.update({ where: { id: fig.id }, data: { decision: 'no' } });
+        expect((await (await get('board')).json()).has_design_file).toBe(false);
+      } finally {
+        await prisma.designReference.delete({ where: { id: fig.id } });
+      }
+    });
+
     it('client_statements: the client\'s own words, nothing of the client record, never another client\'s', async () => {
       const res = await get('client_statements');
       const text = await res.text();

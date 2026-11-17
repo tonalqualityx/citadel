@@ -2,7 +2,8 @@
  * Designer Portal v2: job claim, lease, report and park (SPEC 6.1a).
  *
  * - A claim takes the oldest queued job whose `not_before` is null or past (a `brief` job is claimable earlier once
- *   every reference of its track has settled), in ONE statement with `FOR UPDATE SKIP LOCKED`, so two concurrent
+ *   every reference of its track has settled; a `home_build` or `rest_build` job waits while its track still has a queued,
+ *   not set aside Figma frame coming in), in ONE statement with `FOR UPDATE SKIP LOCKED`, so two concurrent
  *   claims give one winner. It sets claimed, `claimed_by`, `lease_until = now + 10 minutes`, `attempts + 1`.
  * - At claim time every job whose lease expired goes back to queued; a job that already used its second attempt
  *   fails for good instead.
@@ -70,7 +71,21 @@ export async function failOrRequeue(
   if (res.count !== 1) return null;
   if (!forGood) return 'requeued';
   await park(scope, job, error, actorId);
+  await failCaptureReference(tx, job);
   return 'failed';
+}
+
+/**
+ * A capture job that failed for good leaves its reference failed, so the card does not wait forever. Only a reference
+ * of the job's own track that is still queued is touched (one the runner already settled is left alone). The payload
+ * is JSON of unknown shape, so it is read defensively.
+ */
+async function failCaptureReference(tx: TrackScope['tx'], job: DesignJob): Promise<void> {
+  if (job.kind !== 'capture') return;
+  const p = job.payload;
+  const referenceId = p && typeof p === 'object' && !Array.isArray(p) ? (p as Record<string, unknown>).reference_id : undefined;
+  if (typeof referenceId !== 'string') return;
+  await tx.designReference.updateMany({ where: { id: referenceId, track_id: job.track_id, capture_status: 'queued' }, data: { capture_status: 'failed' } });
 }
 
 /** Return every job whose lease expired to queued (or fail it for good at its second attempt). */
@@ -112,6 +127,9 @@ export async function claimJob(input: { userId: string; runnerId: string; kinds?
               SELECT 1 FROM design_references r
               WHERE r.track_id = j.track_id AND (r.capture_status = 'queued' OR (r.capture_status = 'none' AND r.url IS NOT NULL))))
           )
+          AND NOT (j.kind IN ('home_build', 'rest_build') AND EXISTS (
+            SELECT 1 FROM design_references r
+            WHERE r.track_id = j.track_id AND r.source = 'designer_figma' AND r.capture_status = 'queued' AND r.decision <> 'no'))
         ORDER BY j.created_at, j.id
         LIMIT 1
         FOR UPDATE SKIP LOCKED

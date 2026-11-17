@@ -104,8 +104,10 @@ export async function seedCapturedShot(world: DesignWorld, designerRequest: APIR
 }
 
 export interface ReferenceSeed {
-  title: string; source?: 'bast_pick' | 'client_named' | 'indelible_site'; url?: string | null; why_md?: string;
+  title: string; source?: 'bast_pick' | 'client_named' | 'indelible_site' | 'designer_url' | 'designer_upload' | 'designer_figma'; url?: string | null; why_md?: string;
   desktopFoldAssetId?: string | null; sort_order: number;
+  /** What the runner stored on the card (a Figma frame's measured values); left unset for every other card. */
+  extracted?: Record<string, unknown>;
 }
 
 export async function seedReference(world: DesignWorld, trackId: string, r: ReferenceSeed): Promise<string> {
@@ -113,6 +115,7 @@ export async function seedReference(world: DesignWorld, trackId: string, r: Refe
     data: {
       track_id: trackId, source: r.source ?? 'bast_pick', url: r.url ?? null, title: r.title, why_md: r.why_md ?? null,
       capture_status: r.desktopFoldAssetId ? 'captured' : 'none', desktop_fold_asset_id: r.desktopFoldAssetId ?? null, sort_order: r.sort_order,
+      ...(r.extracted ? { extracted: r.extracted as never } : {}),
     },
   });
   return row.id;
@@ -152,8 +155,8 @@ export async function previewMessages(page: Page): Promise<Array<{ origin: strin
   return frame.evaluate(() => window.__dpMessages ?? []);
 }
 
-/** The tab (Brief, Board, Direction) of the workspace dock, opened. The dock may be collapsed to its pill first. */
-export async function openDockTab(page: Page, name: 'Brief' | 'Board' | 'Direction'): Promise<void> {
+/** The tab (Brief, Board, Inspiration, Direction) of the workspace dock, opened. The dock may be collapsed to its pill first. */
+export async function openDockTab(page: Page, name: 'Brief' | 'Board' | 'Inspiration' | 'Direction'): Promise<void> {
   const pill = page.getByTestId('chat-pill');
   if (await pill.isVisible()) await pill.click();
   await expect(page.getByTestId('chat-dock')).toBeVisible();

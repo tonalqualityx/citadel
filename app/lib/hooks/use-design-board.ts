@@ -39,9 +39,25 @@ export interface BoardMarkup {
   created_at?: string;
 }
 
+export type ReferenceRole = 'design_file' | 'inspiration';
+
+/** What the server read from a Figma frame (names and numbers only); null for every other card. */
+export interface BoardFigma {
+  file_name: string | null;
+  page: string | null;
+  frame_name: string | null;
+  width: number | null;
+  height: number | null;
+  frames_total: number | null;
+  frames_imported: number | null;
+}
+
 export interface BoardReference {
   id: string;
   source: string;
+  /** design_file: the designer's own Figma frames and uploads. inspiration: sites. Old cached data may lack it, so use referenceRole(). */
+  role: ReferenceRole;
+  figma: BoardFigma | null;
   url: string | null;
   title: string;
   why_md: string | null;
@@ -56,6 +72,21 @@ export interface BoardReference {
 }
 
 type BoardData = { references: BoardReference[] };
+
+/** The role of a card; a card without one (old cached data) is judged by its source. */
+export function referenceRole(r: Pick<BoardReference, 'source'> & { role?: ReferenceRole | null }): ReferenceRole {
+  if (r.role === 'design_file' || r.role === 'inspiration') return r.role;
+  return r.source === 'designer_upload' || r.source === 'designer_figma' ? 'design_file' : 'inspiration';
+}
+
+/** A design file the build can follow: not set aside, and (Figma) imported or (upload) holding a picture that is ready. Same rule as lib/design/reference-role.ts. */
+export function isUsableDesignFile(r: BoardReference): boolean {
+  if (referenceRole(r) !== 'design_file' || r.decision === 'no') return false;
+  if (r.source === 'designer_figma') return r.capture_status === 'captured';
+  return r.uploads.some((u) => u.asset.url !== null || u.renders.some((x) => x.url !== null));
+}
+
+export const hasDesignFile = (refs: BoardReference[]): boolean => refs.some(isUsableDesignFile);
 
 export const boardKeys = {
   references: (sessionId: string) => [...designKeys.all, 'board', sessionId] as const,
@@ -109,6 +140,15 @@ export function useAddSite(sessionId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (url: string) => apiClient.post<{ reference: BoardReference }>(`/design/sessions/${sessionId}/references`, { url }),
+    onSuccess: ({ reference }) => upsertReference(qc, sessionId, reference),
+  });
+}
+
+/** POST references {url, expect: 'figma'}: the card appears at once while the frames are brought in. */
+export function useAddFigma(sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (url: string) => apiClient.post<{ reference: BoardReference }>(`/design/sessions/${sessionId}/references`, { url, expect: 'figma' }),
     onSuccess: ({ reference }) => upsertReference(qc, sessionId, reference),
   });
 }

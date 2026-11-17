@@ -191,9 +191,9 @@ describe('Workspace header', () => {
     expect(workspaceTabsFor(undefined)).toBe(WORKSPACE_TABS);
   });
 
-  it('a tracked session shows Brief, Board, Direction, Chat, Tasks, Changes, Versions, Client files, then Pages from review', () => {
+  it('a tracked session shows Brief, Board, Inspiration, Direction, Chat, Tasks, Changes, Versions, Client files, then Pages from review', () => {
     const track = (stage: string) => ({ id: 'trk', stage, busy: false, busy_line: null, preview_alias: 'design-t-abcdefghijklmnop', preview_url: null, finish: null });
-    const labels = ['Brief', 'Board', 'Direction', 'Chat', 'Tasks', 'Changes', 'Versions', 'Client files'];
+    const labels = ['Brief', 'Board', 'Inspiration', 'Direction', 'Chat', 'Tasks', 'Changes', 'Versions', 'Client files'];
     expect(TRACKED_WORKSPACE_TABS.map((t) => t.label)).toEqual(labels);
     for (const stage of ['art_direction', 'home_build', 'refine', 'rest_build']) {
       const { unmount } = render(<Workspace data={base({ track: track(stage) })} feed={undefined} />);

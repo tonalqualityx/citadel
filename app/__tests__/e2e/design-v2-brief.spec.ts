@@ -72,8 +72,8 @@ test('a designer opens a session on a tracked project and the stage strip shows 
   }
   for (const next of ['Home', 'Refine', 'Rest of site', 'Review']) await expect(steps.filter({ hasText: next })).toHaveAttribute('data-state', 'upcoming');
 
-  // A tracked session shows Brief, Board and Direction ahead of the v1 tabs.
-  for (const name of ['Brief', 'Board', 'Direction', 'Chat', 'Tasks', 'Changes', 'Versions', 'Client files']) await expect(page.getByRole('tab', { name })).toBeVisible();
+  // A tracked session shows Brief, Board, Inspiration and Direction ahead of the v1 tabs.
+  for (const name of ['Brief', 'Board', 'Inspiration', 'Direction', 'Chat', 'Tasks', 'Changes', 'Versions', 'Client files']) await expect(page.getByRole('tab', { name })).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Pages' })).toHaveCount(0);
 });
 

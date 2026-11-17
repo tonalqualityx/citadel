@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
+import crypto from 'node:crypto';
 import { NextRequest } from 'next/server';
 import { SCRATCH, seedDesign, teardownDesign, type DesignFixture } from '@/lib/design/__tests__/fixtures';
 import { seedWorld, teardownWorlds, type TrackWorld } from '@/lib/design/__tests__/track-world';
@@ -506,7 +507,9 @@ describe.skipIf(!SCRATCH)('design track engine (real database)', () => {
       // a duplicate URL is skipped
       asRunner();
       const dup = await refs.POST(json('POST', `/api/design/runner/tracks/${t.id}/references`, { references: [{ source: 'bast_pick', url: 'https://example.com/a', title: 'A again' }] }), ctx({ id: t.id }));
-      expect((await dup.json()).skipped).toEqual(['https://example.com/a']);
+      const dupBody = await dup.json();
+      expect(dupBody.skipped).toEqual(['https://example.com/a']);
+      expect(dupBody.left_out).toEqual([]);
     });
   });
 
@@ -530,6 +533,120 @@ describe.skipIf(!SCRATCH)('design track engine (real database)', () => {
       expect(cm.some((c) => c.content.includes('the tail'))).toBe(true);
       // a finished job cannot be reported again
       expect((await report(j2!.id, { action: 'failed' })).status).toBe(409);
+    });
+
+    describe('a capture that fails for good, and a build held for Figma frames', () => {
+      const addRef = async (trackId: string, source: string, url: string) => {
+        asRunner();
+        const res = await refs.POST(json('POST', `/api/design/runner/tracks/${trackId}/references`, { references: [{ source, url, title: 'R' }] }), ctx({ id: trackId }));
+        expect(res.status).toBe(201);
+        return (await res.json()).references[0] as { id: string };
+      };
+      const status = async (id: string) => (await prisma.designReference.findUniqueOrThrow({ where: { id } })).capture_status;
+      const FRAME = 'https://www.figma.com/design/AbCdEfGhIjKl?node-id=1-1';
+      const buildJob = (trackId: string) => prisma.designJob.create({ data: { track_id: trackId, kind: 'home_build', payload: {}, created_at: new Date(Date.now() - 3_600_000) } });
+
+      it('a capture job reported failed twice leaves its reference failed', async () => {
+        const w = await world('cap-fail');
+        const t = await start(w);
+        const r = await addRef(t.id, 'bast_pick', 'https://example.com/cap-fail');
+        const j1 = await claim(['capture']);
+        await report(j1!.id, { action: 'failed', error: 'killed' });
+        const j2 = await claim(['capture']);
+        expect(j2!.id).toBe(j1!.id);
+        await report(j2!.id, { action: 'failed', error: 'killed again' });
+        expect(await status(r.id)).toBe('failed');
+      });
+
+      it('a capture job whose lease expires twice leaves its reference failed', async () => {
+        const w = await world('cap-lease');
+        const t = await start(w);
+        const r = await addRef(t.id, 'designer_figma', FRAME);
+        const j1 = await claim(['capture']);
+        await prisma.designJob.update({ where: { id: j1!.id }, data: { lease_until: new Date(Date.now() - 60_000) } });
+        const j2 = await claim(['capture']);
+        expect(j2!.attempts).toBe(2);
+        expect(await status(r.id)).toBe('queued');
+        await prisma.designJob.update({ where: { id: j2!.id }, data: { lease_until: new Date(Date.now() - 60_000) } });
+        expect(await claim(['capture'])).toBeNull();
+        expect(await status(r.id)).toBe('failed');
+      });
+
+      it('a reference the runner already captured is left alone when its job fails for good', async () => {
+        const w = await world('cap-settled');
+        const t = await start(w);
+        const r = await addRef(t.id, 'bast_pick', 'https://example.com/cap-settled');
+        const j1 = await claim(['capture']);
+        await prisma.designReference.update({ where: { id: r.id }, data: { capture_status: 'captured' } });
+        await report(j1!.id, { action: 'failed' });
+        const j2 = await claim(['capture']);
+        await report(j2!.id, { action: 'failed' });
+        expect((await prisma.designJob.findUniqueOrThrow({ where: { id: j1!.id } })).status).toBe('failed');
+        expect(await status(r.id)).toBe('captured');
+      });
+
+      it('with attempts left the reference stays queued', async () => {
+        const w = await world('cap-first');
+        const t = await start(w);
+        const r = await addRef(t.id, 'bast_pick', 'https://example.com/cap-first');
+        const j1 = await claim(['capture']);
+        const res = await report(j1!.id, { action: 'failed' });
+        expect((await res.json()).job.status).toBe('queued');
+        expect(await status(r.id)).toBe('queued');
+      });
+
+      it('a build is not claimed while a Figma frame is queued; another job behind it is; it is claimed once the frame settles', async () => {
+        const w = await world('hold');
+        const t = await start(w);
+        const r = await addRef(t.id, 'designer_figma', FRAME);
+        await prisma.designJob.updateMany({ where: { track_id: t.id, kind: 'capture' }, data: { status: 'cancelled' } });
+        const b = await buildJob(t.id);
+        expect(await claim(['home_build'])).toBeNull();
+        const other = await claim();
+        expect(other!.track_id).toBe(t.id);
+        expect(other!.id).not.toBe(b.id);
+        await prisma.designReference.update({ where: { id: r.id }, data: { capture_status: 'captured' } });
+        expect((await claim(['home_build']))!.id).toBe(b.id);
+        // a failed frame does not hold it either
+        const w2 = await world('hold-failed');
+        const t2 = await start(w2);
+        const r2 = await addRef(t2.id, 'designer_figma', FRAME);
+        await prisma.designJob.updateMany({ where: { track_id: t2.id, kind: 'capture' }, data: { status: 'cancelled' } });
+        const b2 = await buildJob(t2.id);
+        expect(await claim(['home_build'])).toBeNull();
+        await prisma.designReference.update({ where: { id: r2.id }, data: { capture_status: 'failed' } });
+        expect((await claim(['home_build']))!.id).toBe(b2.id);
+      });
+
+      it('a queued Figma frame the designer set aside does not hold the build', async () => {
+        const w = await world('hold-no');
+        const t = await start(w);
+        const r = await addRef(t.id, 'designer_figma', FRAME);
+        await prisma.designJob.updateMany({ where: { track_id: t.id, kind: 'capture' }, data: { status: 'cancelled' } });
+        await prisma.designReference.update({ where: { id: r.id }, data: { decision: 'no' } });
+        const b = await buildJob(t.id);
+        expect((await claim(['home_build']))!.id).toBe(b.id);
+      });
+
+      it('a queued site capture does not hold the build', async () => {
+        const w = await world('hold-site');
+        const t = await start(w);
+        await addRef(t.id, 'bast_pick', 'https://example.com/hold-site');
+        await prisma.designJob.updateMany({ where: { track_id: t.id, kind: 'capture' }, data: { status: 'cancelled' } });
+        const b = await buildJob(t.id);
+        expect((await claim(['home_build']))!.id).toBe(b.id);
+      });
+
+      it('a queued Figma frame on another track does not hold the build', async () => {
+        const w = await world('hold-a');
+        const t = await start(w);
+        const w2 = await world('hold-b');
+        const t2 = await start(w2);
+        await addRef(t2.id, 'designer_figma', FRAME);
+        await prisma.designJob.updateMany({ where: { track_id: { in: [t.id, t2.id] }, kind: 'capture' }, data: { status: 'cancelled' } });
+        const b = await buildJob(t.id);
+        expect((await claim(['home_build']))!.id).toBe(b.id);
+      });
     });
 
     it('provision done queues the wireframe once; research done queues a brief 20 minutes out; research task waits for the brief', async () => {
@@ -652,6 +769,114 @@ describe.skipIf(!SCRATCH)('design track engine (real database)', () => {
       expect(Object.keys(body).sort()).toEqual(['brand_profile', 'brief', 'client_statements', 'direction', 'imports', 'pages', 'recipients', 'references', 'track']);
       expect((await track.GET(new NextRequest(`http://localhost:3000/api/design/runner/tracks/${t.id}?include=secrets`), ctx({ id: t.id }))).status).toBe(400);
       expect((await track.GET(new NextRequest('http://localhost:3000/api/design/runner/tracks/nope'), ctx({ id: 'nope' }))).status).toBe(404);
+    });
+
+    describe('Figma references', () => {
+      const FIG = 'https://www.figma.com/design/AbCdEfGhIjKl/Kit?node-id=12-34&t=x';
+      const CANON = 'https://www.figma.com/design/AbCdEfGhIjKl?node-id=12-34';
+      const asset = (trackId: string, extra: Record<string, unknown> = {}) => prisma.designTrackAsset.create({
+        data: { track_id: trackId, kind: 'ref_fold', status: 'ready', content_type: 'image/png', bytes: 1, width: 1440, height: 900, sha256: crypto.randomUUID().replace(/-/g, '').padEnd(64, '0'), storage_key: `design/tracks/${trackId}/${crypto.randomUUID()}`, source: 'runner', ...extra },
+      });
+      const patch = (id: string, body: unknown) => { asRunner(); return ref.PATCH(json('PATCH', `/api/design/runner/references/${id}`, body), ctx({ id })); };
+      const post = (trackId: string, references: unknown[]) => { asRunner(); return refs.POST(json('POST', `/api/design/runner/tracks/${trackId}/references`, { references }), ctx({ id: trackId })); };
+
+      it('POST stores a designer_figma item canonical with the figma payload; refuses it without a node id or with a bad link', async () => {
+        const w = await world('fig-post');
+        const t = await start(w);
+        const res = await post(t.id, [{ source: 'designer_figma', url: FIG, title: 'Home' }]);
+        expect(res.status).toBe(201);
+        const body = await res.json();
+        expect(body.references[0]).toMatchObject({ source: 'designer_figma', url: CANON, capture_status: 'queued' });
+        const jobs = await prisma.designJob.findMany({ where: { track_id: t.id, kind: 'capture' } });
+        expect(jobs[0].payload).toEqual({ reference_id: body.references[0].id, url: CANON, figma: { file_key: 'AbCdEfGhIjKl', node_id: '12:34' }, by: 'runner' });
+        // the same frame again is skipped
+        const again = await (await post(t.id, [{ source: 'designer_figma', url: 'https://figma.com/file/AbCdEfGhIjKl/x?node-id=12%3A34', title: 'Again' }])).json();
+        expect(again.skipped).toEqual([CANON]);
+        expect(again.left_out).toEqual([]);
+        for (const url of ['https://www.figma.com/design/AbCdEfGhIjKl/Kit', 'https://www.figma.com/board/AbCdEfGhIjKl/Jam', 'https://example.org/design/AbCdEfGhIjKl?node-id=1-2']) {
+          const bad = await post(t.id, [{ source: 'designer_figma', url, title: 'x' }]);
+          expect(bad.status, url).toBe(400);
+        }
+        expect((await post(t.id, [{ source: 'designer_figma', title: 'no url' }])).status).toBe(400);
+      });
+
+      it('items beyond 200 Figma frames on a track are left out, not skipped', async () => {
+        const w = await world('fig-cap');
+        const t = await start(w);
+        await prisma.designReference.createMany({ data: Array.from({ length: 200 }, (_, i) => ({ track_id: t.id, source: 'designer_figma', url: `https://www.figma.com/design/AbCdEfGhIjKl?node-id=${i}-1`, title: 'f' })) });
+        const body = await (await post(t.id, [{ source: 'designer_figma', url: 'https://www.figma.com/design/AbCdEfGhIjKl?node-id=900-1', title: 'over' }])).json();
+        expect(body.references).toEqual([]);
+        expect(body.skipped).toEqual([]);
+        expect(body.left_out).toEqual(['https://www.figma.com/design/AbCdEfGhIjKl?node-id=900-1']);
+      });
+
+      it('PATCH: title only on a Figma reference; extracted up to 40 KB for Figma and 16 KB for a site; unknown key refused', async () => {
+        const w = await world('fig-patch');
+        const t = await start(w);
+        const fig = (await (await post(t.id, [{ source: 'designer_figma', url: FIG, title: 'Home' }])).json()).references[0];
+        const site = (await (await post(t.id, [{ source: 'bast_pick', url: 'https://example.com/p', title: 'P' }])).json()).references[0];
+        const blob = (kb: number) => ({ schema: 1, source: 'figma', figma: { pad: 'x'.repeat(kb * 1024) } });
+        expect((await patch(fig.id, { capture_status: 'captured', title: 'Home desktop', extracted: blob(30) })).status).toBe(200);
+        expect((await prisma.designReference.findUniqueOrThrow({ where: { id: fig.id } })).title).toBe('Home desktop');
+        const big = await patch(fig.id, { capture_status: 'captured', extracted: blob(41) });
+        expect(big.status).toBe(413);
+        expect((await big.json()).code).toBe('extracted_too_large');
+        const noTitle = await patch(site.id, { capture_status: 'captured', title: 'New name' });
+        expect(noTitle.status).toBe(400);
+        expect((await noTitle.json()).code).toBe('title_not_allowed');
+        const siteBig = await patch(site.id, { capture_status: 'captured', extracted: blob(17) });
+        expect(siteBig.status).toBe(413);
+        expect((await patch(site.id, { capture_status: 'captured', extracted: blob(10) })).status).toBe(200);
+        expect((await patch(fig.id, { capture_status: 'captured', mystery: 1 })).status).toBe(400);
+        expect((await patch(fig.id, { capture_status: 'captured', title: '' })).status).toBe(400);
+      });
+
+      it('the track read gives every row role and design_assets: figma captures, upload renders or the ready upload, none for a site', async () => {
+        const w = await world('fig-read');
+        const t = await start(w);
+        const fig = (await (await post(t.id, [{ source: 'designer_figma', url: FIG, title: 'Home' }, { source: 'bast_pick', url: 'https://example.com/q', title: 'Q' }])).json()).references as Array<{ id: string }>;
+        const fold = await asset(t.id);
+        const full = await asset(t.id, { kind: 'ref_full', height: 4000 });
+        // a picture that is not ready is never listed, even when a slot points at it
+        const pending = await asset(t.id, { status: 'pending' });
+        const unready = await prisma.designReference.create({ data: { track_id: t.id, source: 'designer_figma', url: 'https://www.figma.com/design/AbCdEfGhIjKl?node-id=77-1', title: 'unready', capture_status: 'captured', desktop_fold_asset_id: pending.id, sort_order: 60 } });
+        await patch(fig[0].id, { capture_status: 'captured', desktop_fold_asset_id: fold.id, desktop_full_asset_id: full.id, extracted: { schema: 1, source: 'figma' } });
+        const rawUp = await asset(t.id, { kind: 'upload', purpose: 'board', source: 'designer', content_type: 'image/png' });
+        const withRender = await asset(t.id, { kind: 'upload', purpose: 'board', source: 'designer', content_type: 'image/png' });
+        const render = await asset(t.id, { kind: 'render', parent_asset_id: withRender.id });
+        const notReady = await asset(t.id, { kind: 'upload', purpose: 'board', source: 'designer', status: 'pending' });
+        const up1 = await prisma.designReference.create({ data: { track_id: t.id, source: 'designer_upload', title: 'up1', upload_asset_ids: [rawUp.id, withRender.id], sort_order: 50 } });
+        const up2 = await prisma.designReference.create({ data: { track_id: t.id, source: 'designer_upload', title: 'up2', upload_asset_ids: [notReady.id], sort_order: 51 } });
+        asRunner();
+        const res = await track.GET(new NextRequest(`http://localhost:3000/api/design/runner/tracks/${t.id}?include=references`), ctx({ id: t.id }));
+        const rows = (await res.json()).references as Array<Record<string, unknown> & { id: string; design_assets: Array<{ id: string; view: string }> }>;
+        const row = (id: string) => rows.find((r) => r.id === id)!;
+        // every stored key is still there
+        expect(Object.keys(row(fig[0].id))).toEqual(expect.arrayContaining(['id', 'track_id', 'source', 'url', 'title', 'decision', 'capture_status', 'desktop_fold_asset_id', 'upload_asset_ids', 'extracted', 'role', 'design_assets']));
+        expect(row(fig[0].id).role).toBe('design_file');
+        expect(row(fig[0].id).design_assets).toEqual([
+          { id: fold.id, kind: 'ref_fold', content_type: 'image/png', width: 1440, height: 900, view: 'frame_fold' },
+          { id: full.id, kind: 'ref_full', content_type: 'image/png', width: 1440, height: 4000, view: 'frame_full' },
+        ]);
+        expect(row(fig[1].id)).toMatchObject({ role: 'inspiration', design_assets: [] });
+        expect(row(up1.id).role).toBe('design_file');
+        expect(row(up1.id).design_assets.map((a) => [a.id, a.view])).toEqual([[rawUp.id, 'upload'], [render.id, 'upload']]);
+        expect(row(up2.id).design_assets).toEqual([]);
+        expect(row(unready.id).design_assets).toEqual([]);
+      });
+
+      it('a phone-sized Figma frame, stored in the phone slots, still lists its pictures on the track read', async () => {
+        const w = await world('fig-phone');
+        const t = await start(w);
+        const fig = (await (await post(t.id, [{ source: 'designer_figma', url: FIG, title: 'Phone home' }])).json()).references as Array<{ id: string }>;
+        const fold = await asset(t.id, { width: 390, height: 844 });
+        const full = await asset(t.id, { kind: 'ref_full', width: 390, height: 2400 });
+        await patch(fig[0].id, { capture_status: 'captured', phone_fold_asset_id: fold.id, phone_full_asset_id: full.id, extracted: { schema: 1, source: 'figma' } });
+        asRunner();
+        const res = await track.GET(new NextRequest(`http://localhost:3000/api/design/runner/tracks/${t.id}?include=references`), ctx({ id: t.id }));
+        const rows = (await res.json()).references as Array<{ id: string; design_assets: Array<{ id: string; view: string }> }>;
+        expect(rows.find((r) => r.id === fig[0].id)!.design_assets.map((a) => [a.id, a.view])).toEqual([[fold.id, 'frame_fold'], [full.id, 'frame_full']]);
+      });
     });
 
     it('a new brief supersedes the old one; an invalid brief is 400; a brief after art direction is 409', async () => {

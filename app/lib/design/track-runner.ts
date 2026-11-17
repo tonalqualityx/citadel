@@ -10,7 +10,10 @@ import { ApiError } from '@/lib/api/errors';
 import { briefBodySchema, MAX_BRIEF_BYTES } from './brief-schema';
 import { loadTrack, lockTrack, queueJob, trackTx, type Tx } from './track-core';
 import { maybeEnterArtDirection } from './track-stage';
-import { statementScope, statementView, type ClientStatement } from './track-board';
+import { statementScope, statementView, MAX_FIGMA_REFERENCES_PER_TRACK, type ClientStatement } from './track-board';
+import { parseFigmaLink } from './figma-link';
+import { referenceRole } from './reference-role';
+import { isBrowserServable } from './track-assets';
 
 const B32 = 'abcdefghijklmnopqrstuvwxyz234567';
 /** 16 characters of lowercase base32 from a cryptographic source: 80 bits (SPEC 2.2). Lowercase only, `[a-z2-7]{16}`. */
@@ -225,6 +228,49 @@ export async function clientNameFor(projectId: string, siteId: string): Promise<
   return site?.client?.name ?? null;
 }
 
+type DesignAsset = { id: string; kind: string; content_type: string; width: number | null; height: number | null; view: 'frame_fold' | 'frame_full' | 'upload' };
+
+/**
+ * The track's references, every key as stored plus `role` and `design_assets`. Design files list their ready raster
+ * pictures (one query for all of them): a Figma frame's two pictures (desktop or phone slots), or an upload's render pictures when it has any,
+ * else the upload itself when it is a ready raster. Inspiration gets an empty list.
+ */
+async function referencesWithDesignAssets(trackId: string) {
+  const refs = await prisma.designReference.findMany({ where: { track_id: trackId }, orderBy: [{ sort_order: 'asc' }, { created_at: 'asc' }] });
+  const design = refs.filter((r) => referenceRole(r.source) === 'design_file');
+  const ids = new Set<string>();
+  for (const r of design) {
+    for (const id of [r.desktop_fold_asset_id, r.desktop_full_asset_id, r.phone_fold_asset_id, r.phone_full_asset_id, ...r.upload_asset_ids]) if (id) ids.add(id);
+  }
+  const rows = ids.size ? await prisma.designTrackAsset.findMany({ where: { track_id: trackId, status: 'ready', OR: [{ id: { in: [...ids] } }, { parent_asset_id: { in: [...ids] } }] } }) : [];
+  const byId = new Map(rows.map((a) => [a.id, a]));
+  const pic = (a: (typeof rows)[number], view: DesignAsset['view']): DesignAsset => ({ id: a.id, kind: a.kind, content_type: a.content_type, width: a.width, height: a.height, view });
+  const usable = (id: string | null) => {
+    const a = id ? byId.get(id) : undefined;
+    return a && isBrowserServable(a) ? a : null;
+  };
+  return refs.map((r) => {
+    const assets: DesignAsset[] = [];
+    if (r.source === 'designer_figma') {
+      // A frame narrower than a tablet is stored in the phone slots; a frame fills one pair of slots, never both.
+      const fold = usable(r.desktop_fold_asset_id) ?? usable(r.phone_fold_asset_id);
+      const full = usable(r.desktop_full_asset_id) ?? usable(r.phone_full_asset_id);
+      if (fold) assets.push(pic(fold, 'frame_fold'));
+      if (full) assets.push(pic(full, 'frame_full'));
+    } else if (r.source === 'designer_upload') {
+      for (const id of r.upload_asset_ids) {
+        const renders = rows.filter((a) => a.parent_asset_id === id && a.kind === 'render' && isBrowserServable(a)).sort((x, y) => (x.page ?? 0) - (y.page ?? 0));
+        if (renders.length > 0) for (const a of renders) assets.push(pic(a, 'upload'));
+        else {
+          const own = usable(id);
+          if (own) assets.push(pic(own, 'upload'));
+        }
+      }
+    }
+    return { ...r, role: referenceRole(r.source), design_assets: assets };
+  });
+}
+
 export async function readTrack(trackId: string, includes: TrackInclude[]) {
   const track = await loadTrack(prisma, trackId);
   // client_name rides on the runner's track read only (never in trackView, which the claim and start routes share).
@@ -237,7 +283,7 @@ export async function readTrack(trackId: string, includes: TrackInclude[]) {
         break;
       }
       case 'references':
-        out.references = await prisma.designReference.findMany({ where: { track_id: trackId }, orderBy: [{ sort_order: 'asc' }, { created_at: 'asc' }] });
+        out.references = await referencesWithDesignAssets(trackId);
         break;
       case 'direction': {
         const d = track.art_direction_id
@@ -271,7 +317,7 @@ export async function readTrack(trackId: string, includes: TrackInclude[]) {
 // ---------------------------------------------------------------------------------------------------------------
 
 export interface ReferenceInput {
-  source: 'bast_pick' | 'client_named' | 'indelible_site';
+  source: 'bast_pick' | 'client_named' | 'indelible_site' | 'designer_figma';
   url?: string;
   title: string;
   why_md?: string;
@@ -282,6 +328,14 @@ export interface ReferenceInput {
  * index is the backstop). Citadel queues one `capture` job per new reference with a URL.
  */
 export async function addReferences(trackId: string, items: ReferenceInput[]) {
+  // A Figma item must be a design link with a frame (node id); stored canonical. Checked before anything is written.
+  const figmaOf = new Map<ReferenceInput, { file_key: string; node_id: string; canonical_url: string }>();
+  for (const it of items) {
+    if (it.source !== 'designer_figma') continue;
+    const f = it.url ? parseFigmaLink(it.url) : null;
+    if (!f || !f.node_id) throw new ApiError('A Figma item needs a link to one frame (it must carry a node id)', 400, 'bad_figma_link');
+    figmaOf.set(it, { file_key: f.file_key, node_id: f.node_id, canonical_url: f.canonical_url });
+  }
   return trackTx(async ({ tx }) => {
     await lockTrack(tx, trackId);
     const track = await loadTrack(tx, trackId);
@@ -289,21 +343,30 @@ export async function addReferences(trackId: string, items: ReferenceInput[]) {
     let order = (last._max.sort_order ?? -1) + 1;
     const created = [];
     const skipped: string[] = [];
+    const left_out: string[] = [];
+    let figmaCount = await tx.designReference.count({ where: { track_id: trackId, source: 'designer_figma' } });
     for (const it of items) {
-      if (it.url) {
-        const dup = await tx.designReference.findFirst({ where: { track_id: trackId, url: it.url }, select: { id: true } });
-        if (dup) { skipped.push(it.url); continue; }
+      const fg = figmaOf.get(it);
+      const url = fg ? fg.canonical_url : it.url;
+      if (url) {
+        const dup = await tx.designReference.findFirst({ where: { track_id: trackId, url }, select: { id: true } });
+        if (dup) { skipped.push(url); continue; }
+      }
+      if (fg) {
+        // Over the per-track cap: refused and named in `left_out` (`skipped` is for URLs already on the track).
+        if (figmaCount >= MAX_FIGMA_REFERENCES_PER_TRACK) { left_out.push(fg.canonical_url); continue; }
+        figmaCount++;
       }
       const ref = await tx.designReference.create({
         data: {
-          track_id: trackId, source: it.source, url: it.url ?? null, title: it.title, why_md: it.why_md ?? null,
+          track_id: trackId, source: it.source, url: url ?? null, title: it.title, why_md: it.why_md ?? null,
           sort_order: order++, capture_status: it.url ? 'queued' : 'none',
         },
       });
-      if (it.url) await queueJob(tx, track, 'capture', { payload: { reference_id: ref.id, url: it.url }, taskId: null });
+      if (url) await queueJob(tx, track, 'capture', { payload: { reference_id: ref.id, url, ...(fg ? { figma: { file_key: fg.file_key, node_id: fg.node_id }, by: 'runner' } : {}) }, taskId: null });
       created.push(ref);
     }
-    return { references: created, skipped };
+    return { references: created, skipped, left_out };
   });
 }
 
@@ -315,6 +378,8 @@ export interface CaptureResult {
   phone_fold_asset_id?: string;
   phone_full_asset_id?: string;
   extracted?: Prisma.InputJsonValue;
+  /** A Figma frame's card name, set by the importer. */
+  title?: string;
 }
 
 /** PATCH /runner/references/:id: the capture result. Asset ids must be assets of the reference's own track. */
@@ -326,8 +391,11 @@ export async function recordCapture(referenceId: string, input: CaptureResult) {
     const n = await prisma.designTrackAsset.count({ where: { id: { in: assetIds }, track_id: ref.track_id } });
     if (n !== new Set(assetIds).size) throw new ApiError('An asset id is not an asset of this track', 400, 'bad_asset');
   }
-  if (input.extracted !== undefined && Buffer.byteLength(JSON.stringify(input.extracted), 'utf8') > 16 * 1024) {
-    throw new ApiError('extracted is over 16 KB', 413, 'extracted_too_large');
+  const isFigma = ref.source === 'designer_figma';
+  if (input.title !== undefined && !isFigma) throw new ApiError('A title can only be set on a Figma reference', 400, 'title_not_allowed');
+  const capKb = isFigma ? 40 : 16;
+  if (input.extracted !== undefined && Buffer.byteLength(JSON.stringify(input.extracted), 'utf8') > capKb * 1024) {
+    throw new ApiError(`extracted is over ${capKb} KB`, 413, 'extracted_too_large');
   }
   return prisma.designReference.update({
     where: { id: referenceId },
@@ -339,6 +407,7 @@ export async function recordCapture(referenceId: string, input: CaptureResult) {
       ...(input.phone_fold_asset_id ? { phone_fold_asset_id: input.phone_fold_asset_id } : {}),
       ...(input.phone_full_asset_id ? { phone_full_asset_id: input.phone_full_asset_id } : {}),
       ...(input.extracted !== undefined ? { extracted: input.extracted } : {}),
+      ...(input.title !== undefined ? { title: input.title } : {}),
     },
   });
 }

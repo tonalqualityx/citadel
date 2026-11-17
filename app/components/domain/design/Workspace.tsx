@@ -49,12 +49,13 @@ export const WORKSPACE_TABS: ReadonlyArray<{ id: string; label: string; task: st
 ];
 
 /**
- * The tab list of a session on a design track (SPEC 4, W0.4 #13): Brief, Board, Direction, Chat, Tasks, Changes, Versions,
+ * The tab list of a session on a design track (SPEC 4, W0.4 #13): Brief, Board, Inspiration, Direction, Chat, Tasks, Changes, Versions,
  * Client files, then Pages once the track reaches review. `WORKSPACE_TABS` above stays the untracked (v1) list.
  */
 export const TRACKED_WORKSPACE_TABS: ReadonlyArray<{ id: string; label: string; task: string }> = [
   { id: 'brief', label: 'Brief', task: 'W1.3' },
   { id: 'board', label: 'Board', task: 'W1.3' },
+  { id: 'inspiration', label: 'Inspiration', task: 'W1.3' },
   { id: 'direction', label: 'Direction', task: 'W1.3' },
   ...WORKSPACE_TABS,
 ];
@@ -73,6 +74,7 @@ export function workspaceTabsFor(track: { stage: string } | null | undefined) {
 export interface WorkspaceSlots {
   brief?: React.ReactNode;
   board?: React.ReactNode;
+  inspiration?: React.ReactNode;
   direction?: React.ReactNode;
   pages?: React.ReactNode;
   chat?: React.ReactNode;

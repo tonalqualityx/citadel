@@ -60,10 +60,10 @@ const trackAssetExample = {
 };
 const markupExample = { id: 'uuid', reference_id: 'uuid', asset_id: 'uuid', rect: { x: 'number', y: 'number', w: 'number', h: 'number' }, sentiment: 'like|dislike|note', category: 'string', note: 'string|null', created_at: 'ISO-8601' };
 const referenceExample = {
-  id: 'uuid', source: 'bast_pick|client_named|designer_url|designer_upload|indelible_site', url: 'string|null', title: 'string', why_md: 'string|null', decision: 'pending|yes|no',
+  id: 'uuid', source: 'bast_pick|client_named|designer_url|designer_upload|designer_figma|indelible_site', role: 'design_file|inspiration', url: 'string|null', title: 'string', why_md: 'string|null', decision: 'pending|yes|no',
   decided_at: 'ISO-8601|null', decision_note: 'string|null', capture_status: 'none|queued|captured|failed|blocked', capture_error: 'string|null',
   captures: { desktop_fold: trackAssetExample, desktop_full: trackAssetExample, phone_fold: trackAssetExample, phone_full: trackAssetExample },
-  uploads: [{ asset: trackAssetExample, renders: [trackAssetExample] }], extracted: 'object|null', sort_order: 'number', markups: [markupExample],
+  uploads: [{ asset: trackAssetExample, renders: [trackAssetExample] }], extracted: 'object|null', figma: { file_name: 'string|null', page: 'string|null', frame_name: 'string|null', width: 'number|null', height: 'number|null', frames_total: 'number|null', frames_imported: 'number|null' }, sort_order: 'number', markups: [markupExample],
 };
 
 const pinExample = {
@@ -1025,7 +1025,7 @@ export const designEndpoints: ApiEndpoint[] = [
           { name: 'ids', type: 'string', required: false, description: 'Comma separated uuids, at most 20; narrows board, client_statements and pages' },
         ],
         responseExample: { part: 'direction', track: { id: 'uuid', stage: 'art_direction', busy: false }, direction: null },
-        responseNotes: '404 for an untracked, closed or abandoned session. 400 bad_part, bad_ids or too_many_ids. Asset views carry ids only, never a URL or a storage key. The direction part carries the revision to send back as base_revision.',
+        responseNotes: '404 for an untracked, closed or abandoned session. 400 bad_part, bad_ids or too_many_ids. Asset views carry ids only, never a URL or a storage key. The direction part carries the revision to send back as base_revision. The board part is {has_design_file, references}: has_design_file is true when any design file (Figma frame or upload) on the whole track is usable, whatever ids were asked for; each reference carries role and figma.',
       },
     ],
   },
@@ -1313,12 +1313,13 @@ export const designEndpoints: ApiEndpoint[] = [
         roles: DESIGNER,
         queryParams: [sessionIdParam],
         bodySchema: [
-          { name: 'url', type: 'string', required: false, description: 'https URL; or send upload_asset_ids instead' },
+          { name: 'url', type: 'string', required: false, description: 'https URL (a Figma design link becomes a Figma card); or send upload_asset_ids instead' },
+          { name: 'expect', type: 'string', required: false, description: "'figma': the URL must be a Figma link" },
           { name: 'upload_asset_ids', type: 'string[]', required: false, description: 'Board uploads of this track (1 to 20)' },
           { name: 'title', type: 'string', required: false, description: 'At most 200 characters' },
         ],
         responseExample: { reference: referenceExample },
-        responseNotes: '201. 400 bad_url for a non-https, credentialed, IP-literal or local address; 409 duplicate_url; 409 upload_in_use; 400 bad_upload_ids.',
+        responseNotes: '201. 400 bad_url for a non-https, credentialed, IP-literal or local address; 400 not_figma (expect figma with another site); 400 bad_figma_link (a Figma host that is not a design, file or prototype link); 409 duplicate_url (a Figma link is compared in its canonical form); 409 reference_limit (40 sites, 200 Figma frames); 429 references_per_minute and captures_in_flight count sites and Figma links together; 409 upload_in_use; 400 bad_upload_ids.',
       },
     ],
   },
@@ -1531,7 +1532,7 @@ export const designEndpoints: ApiEndpoint[] = [
         roles: RUNNER,
         queryParams: [
           trackIdParam,
-          { name: 'include', type: 'string', required: false, description: 'Comma list of brief, references, direction, client_statements, brand_profile, pages, imports, recipients. client_statements here includes active and superseded notes with superseded_by_id, reference_url and source_ref (runner only; designers get active notes without them). brand_profile is the client\'s {voice_profile, brand_tokens, figma_url, component_library_ref} or null' },
+          { name: 'include', type: 'string', required: false, description: 'Comma list of brief, references (each row also carries role and design_assets: [{id, kind, content_type, width, height, view: frame_fold|frame_full|upload}], ready raster pictures of design files only), direction, client_statements, brand_profile, pages, imports, recipients. client_statements here includes active and superseded notes with superseded_by_id, reference_url and source_ref (runner only; designers get active notes without them). brand_profile is the client\'s {voice_profile, brand_tokens, figma_url, component_library_ref} or null' },
         ],
         responseExample: { track: { id: 'uuid', stage: 'string', busy_job_id: 'uuid|null', head_sha: 'string|null', preview_url: 'string|null' }, recipients: [{ contact_id: 'uuid', name: 'string|null', email: 'string', basis: 'grant|client_fallback' }], client_statements: [{ id: 'uuid', quote: 'string', speaker_name: 'string', speaker_role: 'string', source_date: 'ISO-8601', source_kind: 'string', is_paraphrase: 'boolean', subject: 'string', category: 'string', polarity: 'string', status: 'active|superseded', superseded_by_id: 'uuid|null', reference_url: 'string|null', source_ref: 'string' }], brand_profile: { voice_profile: 'json|null', brand_tokens: 'json|null', figma_url: 'string|null', component_library_ref: 'string|null' } },
         responseNotes: 'Statements are ordered by source_date, created_at, id; group a superseded note under the note whose id is its superseded_by_id. Recipients are computed by Citadel (owner or member grants; client contacts who can initiate work when the project has no grants; other email domains only with a grant).',
@@ -1655,12 +1656,12 @@ export const designEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'POST',
-        summary: 'Add up to 20 Bast picks or client-named sites; Citadel queues one capture job per reference with a URL. Design-track lane only.',
+        summary: 'Add up to 20 Bast picks, client-named sites or Figma frames; Citadel queues one capture job per reference with a URL (a Figma item\'s job carries {file_key, node_id}). Design-track lane only.',
         auth: 'required',
         roles: RUNNER,
         queryParams: [trackIdParam],
-        bodySchema: [{ name: 'references', type: 'object', required: true, description: '[{source: bast_pick|client_named|indelible_site, url? (https), title, why_md? (800)}], 1 to 20' }],
-        responseExample: { references: [{ id: 'uuid', url: 'string|null', capture_status: 'queued|none' }], skipped: ['url already on the track'] },
+        bodySchema: [{ name: 'references', type: 'object', required: true, description: '[{source: bast_pick|client_named|indelible_site|designer_figma, url? (https; a designer_figma url must be a Figma design link with a node-id, stored canonical), title, why_md? (800)}], 1 to 20. 400 bad_figma_link for a bad Figma item; Figma items beyond 200 on the track are returned in left_out (skipped holds only URLs already on the track)' }],
+        responseExample: { references: [{ id: 'uuid', url: 'string|null', capture_status: 'queued|none' }], skipped: ['url already on the track'], left_out: ['Figma frame refused for the per-track limit'] },
       },
     ],
   },
@@ -1678,7 +1679,8 @@ export const designEndpoints: ApiEndpoint[] = [
           { name: 'capture_status', type: 'string', required: true, description: 'captured | failed | blocked' },
           { name: 'capture_error', type: 'string', required: false, description: 'Max 500 chars' },
           { name: 'desktop_fold_asset_id', type: 'uuid', required: false, description: 'Track asset of the same track' },
-          { name: 'extracted', type: 'object', required: false, description: 'At most 16 KB' },
+          { name: 'title', type: 'string', required: false, description: '1 to 200; only on a designer_figma reference, else 400 title_not_allowed' },
+          { name: 'extracted', type: 'object', required: false, description: 'At most 16 KB (40 KB on a designer_figma reference); body at most 96 KB' },
         ],
         responseExample: { reference: { id: 'uuid', capture_status: 'captured|failed|blocked' } },
       },

@@ -46,6 +46,9 @@ const nextConfig: NextConfig = {
   // `next dev` processes cannot share one dist dir (lock). Unset = the default `.next`, nothing changes.
   ...(process.env.NEXT_DIST_DIR ? { distDir: process.env.NEXT_DIST_DIR } : {}),
   generateBuildId: async () => buildId,
+  // Every /api request passes through proxy.ts, and Next keeps only the first 10 MB of a request body that does.
+  // The Designer Portal accepts uploads up to 25 MB (lib/design/track-assets.ts), so the whole body must get through.
+  experimental: { proxyClientMaxBodySize: '26mb' },
   env: buildId ? { NEXT_PUBLIC_BUILD_ID: buildId } : {},
   async headers() {
     return [

@@ -11,6 +11,8 @@ import { FORBIDDEN_PROJECTION_KEYS } from './projections';
 import { isUuid } from './helpers';
 import { ACTIVE_JOB_STATUSES, loadTrack, lockTrack, queueJob, trackTx, type Tx } from './track-core';
 import { isBrowserServable, trackAssetView } from './track-assets';
+import { isFigmaHost, parseFigmaLink } from './figma-link';
+import { referenceRole } from './reference-role';
 
 export const REACTIONS = ['useful', 'not_relevant'] as const;
 export const MARKUP_SENTIMENTS = ['like', 'dislike', 'note'] as const;
@@ -21,6 +23,8 @@ export const MAX_LIVE_MARKUPS_PER_REFERENCE = 50;
 export const MAX_URL_REFERENCES_PER_TRACK = 40;
 export const MAX_URL_REFERENCES_PER_MINUTE = 10;
 export const MAX_ACTIVE_DESIGNER_CAPTURES_PER_TRACK = 10;
+/** Figma frames added to the board (links and runner imports): per track. */
+export const MAX_FIGMA_REFERENCES_PER_TRACK = 200;
 
 const FORBIDDEN = new Set<string>(FORBIDDEN_PROJECTION_KEYS);
 /** Brief and direction bodies are runner or designer JSON: rename `client` (a forbidden key) and drop any other forbidden key at any depth. */
@@ -147,13 +151,28 @@ export function parseReferenceUrl(raw: string): string {
 
 type RefWithMarkups = DesignReference & { markups: Array<{ id: string; asset_id: string; rect: unknown; sentiment: string; category: string; note: string | null; created_at: Date }> };
 
+const cut = (v: unknown): string | null => (typeof v === 'string' && v.length > 0 ? v.slice(0, 120) : null);
+const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+
+/** The small summary of an imported Figma frame; null unless the runner wrote Figma data. Never holds ids named kind, content_type and id together. */
+function figmaSummary(extracted: unknown) {
+  const e = extracted as { source?: unknown; figma?: Record<string, unknown> } | null;
+  if (!e || typeof e !== 'object' || e.source !== 'figma') return null;
+  const f = (e.figma && typeof e.figma === 'object' ? e.figma : {}) as Record<string, unknown>;
+  const frame = (f.frame && typeof f.frame === 'object' ? f.frame : {}) as Record<string, unknown>;
+  return {
+    file_name: cut(f.file_name), page: cut(f.page), frame_name: cut(frame.name), width: num(frame.width), height: num(frame.height),
+    frames_total: num(f.frames_total), frames_imported: num(f.frames_imported),
+  };
+}
+
 function referenceView(r: RefWithMarkups, assets: Map<string, DesignTrackAsset>, rendersByParent: Map<string, DesignTrackAsset[]>, sessionId: string) {
   const one = (id: string | null) => {
     const a = id ? assets.get(id) : undefined;
     return a ? trackAssetView(a, sessionId) : null;
   };
   return {
-    id: r.id, source: r.source, url: r.url, title: r.title, why_md: r.why_md, decision: r.decision, decided_at: r.decided_at,
+    id: r.id, source: r.source, role: referenceRole(r.source), url: r.url, title: r.title, why_md: r.why_md, decision: r.decision, decided_at: r.decided_at,
     decision_note: r.decision_note, capture_status: r.capture_status, capture_error: r.capture_error,
     captures: { desktop_fold: one(r.desktop_fold_asset_id), desktop_full: one(r.desktop_full_asset_id), phone_fold: one(r.phone_fold_asset_id), phone_full: one(r.phone_full_asset_id) },
     uploads: r.upload_asset_ids.flatMap((id) => {
@@ -161,6 +180,7 @@ function referenceView(r: RefWithMarkups, assets: Map<string, DesignTrackAsset>,
       return a ? [{ asset: trackAssetView(a, sessionId), renders: (rendersByParent.get(id) ?? []).map((x) => trackAssetView(x, sessionId)) }] : [];
     }),
     extracted: r.extracted === null ? null : stripForbidden(r.extracted),
+    figma: figmaSummary(r.extracted),
     sort_order: r.sort_order,
     markups: r.markups.map((m) => ({ id: m.id, asset_id: m.asset_id, rect: m.rect, sentiment: m.sentiment, category: m.category, note: m.note, created_at: m.created_at })),
   };
@@ -200,9 +220,21 @@ async function oneReference(trackId: string, id: string, sessionId: string) {
  * (board uploads of this track become one card of source `designer_upload`). A URL already on the track is 409.
  */
 export async function addDesignerReference(
-  trackId: string, sessionId: string, input: { url?: string; upload_asset_ids?: string[]; title?: string },
+  trackId: string, sessionId: string, input: { url?: string; upload_asset_ids?: string[]; title?: string; expect?: 'figma' },
 ) {
-  const url = input.url !== undefined ? parseReferenceUrl(input.url) : null;
+  // A Figma host is read by the Figma parser; every other address goes the ordinary way. `expect` is the Figma field's promise.
+  let figma: { file_key: string; node_id: string | null } | null = null;
+  let url: string | null = null;
+  if (input.url !== undefined) {
+    if (isFigmaHost(input.url)) {
+      const f = parseFigmaLink(input.url);
+      figma = { file_key: f.file_key, node_id: f.node_id };
+      url = f.canonical_url;
+    } else {
+      if (input.expect === 'figma') throw new ApiError('That is not a Figma link. Sites go on the Inspiration tab.', 400, 'not_figma');
+      url = parseReferenceUrl(input.url);
+    }
+  }
   const uploadIds = input.upload_asset_ids ? [...new Set(input.upload_asset_ids)] : [];
   const id = await trackTx(async ({ tx }) => {
     await lockTrack(tx, trackId);
@@ -211,10 +243,10 @@ export async function addDesignerReference(
     const sort_order = (last._max.sort_order ?? -1) + 1;
     if (url) {
       if (await tx.designReference.findFirst({ where: { track_id: trackId, url }, select: { id: true } })) throw new ApiError('That site is already on the board', 409, 'duplicate_url');
-      await assertUrlReferenceRoom(tx, trackId);
-      const title = (input.title?.trim() || new URL(url).hostname.replace(/^www\./, '')).slice(0, 200);
-      const ref = await tx.designReference.create({ data: { track_id: trackId, source: 'designer_url', url, title, capture_status: 'queued', sort_order } });
-      await queueJob(tx, track, 'capture', { payload: { reference_id: ref.id, url }, taskId: null });
+      await assertUrlReferenceRoom(tx, trackId, figma ? 'designer_figma' : 'designer_url');
+      const title = (input.title?.trim() || (figma ? 'Figma design' : new URL(url).hostname.replace(/^www\./, ''))).slice(0, 200);
+      const ref = await tx.designReference.create({ data: { track_id: trackId, source: figma ? 'designer_figma' : 'designer_url', url, title, capture_status: 'queued', sort_order } });
+      await queueJob(tx, track, 'capture', { payload: { reference_id: ref.id, url, ...(figma ? { figma } : {}) }, taskId: null });
       return ref.id;
     }
     const assets = await tx.designTrackAsset.findMany({ where: { id: { in: uploadIds }, track_id: trackId, kind: 'upload', purpose: 'board', source: 'designer' } });
@@ -234,19 +266,29 @@ export async function addDesignerReference(
  * (409 `reference_limit`), 10 a minute (429 `references_per_minute`), and 10 designer captures queued or running at
  * once (429 `captures_in_flight`), so one session cannot push every other track's jobs back on the shared queue.
  */
-async function assertUrlReferenceRoom(tx: Tx, trackId: string): Promise<void> {
-  const refs = await tx.designReference.findMany({ where: { track_id: trackId, source: 'designer_url' }, select: { id: true, created_at: true } });
-  if (refs.length >= MAX_URL_REFERENCES_PER_TRACK) throw new ApiError(`This board already has ${MAX_URL_REFERENCES_PER_TRACK} sites added by address`, 409, 'reference_limit');
+async function assertUrlReferenceRoom(tx: Tx, trackId: string, kind: 'designer_url' | 'designer_figma' = 'designer_url'): Promise<void> {
+  // The per-minute and in-flight caps count both link sources together; the per-track cap is per source.
+  const refs = await tx.designReference.findMany({ where: { track_id: trackId, source: { in: ['designer_url', 'designer_figma'] } }, select: { id: true, created_at: true, source: true } });
+  const ofKind = refs.filter((r) => r.source === kind).length;
+  if (kind === 'designer_url' && ofKind >= MAX_URL_REFERENCES_PER_TRACK) throw new ApiError(`This board already has ${MAX_URL_REFERENCES_PER_TRACK} sites added by address`, 409, 'reference_limit');
+  if (kind === 'designer_figma' && ofKind >= MAX_FIGMA_REFERENCES_PER_TRACK) throw new ApiError(`This board already has ${MAX_FIGMA_REFERENCES_PER_TRACK} Figma frames`, 409, 'reference_limit');
   const since = Date.now() - 60_000;
-  if (refs.filter((r) => r.created_at.getTime() > since).length >= MAX_URL_REFERENCES_PER_MINUTE) {
+  // The other frames of a pasted Figma link are added by the runner (payload `by: 'runner'`). They are not the
+  // designer's adds, so they count toward neither window: one page of frames must not lock the Inspiration tab.
+  const jobs = await tx.designJob.findMany({
+    where: { track_id: trackId, kind: 'capture', OR: [{ status: { in: [...ACTIVE_JOB_STATUSES] } }, { created_at: { gt: new Date(since) } }] },
+    select: { payload: true, status: true },
+  });
+  const facts = jobs.map((j) => {
+    const p = j.payload as { reference_id?: unknown; by?: unknown } | null;
+    return { refId: typeof p?.reference_id === 'string' ? p.reference_id : null, byRunner: p?.by === 'runner', active: (ACTIVE_JOB_STATUSES as readonly string[]).includes(j.status) };
+  });
+  const runnerAdded = new Set(facts.filter((f) => f.byRunner && f.refId).map((f) => f.refId as string));
+  if (refs.filter((r) => r.created_at.getTime() > since && !runnerAdded.has(r.id)).length >= MAX_URL_REFERENCES_PER_MINUTE) {
     throw new ApiError(`At most ${MAX_URL_REFERENCES_PER_MINUTE} sites a minute; wait a moment and try again`, 429, 'rate_limited', 'references_per_minute');
   }
   const mine = new Set(refs.map((r) => r.id));
-  const active = await tx.designJob.findMany({ where: { track_id: trackId, kind: 'capture', status: { in: [...ACTIVE_JOB_STATUSES] } }, select: { payload: true } });
-  const inFlight = active.filter((j) => {
-    const refId = (j.payload as { reference_id?: unknown } | null)?.reference_id;
-    return typeof refId === 'string' && mine.has(refId);
-  }).length;
+  const inFlight = facts.filter((f) => f.active && !f.byRunner && f.refId !== null && mine.has(f.refId)).length;
   if (inFlight >= MAX_ACTIVE_DESIGNER_CAPTURES_PER_TRACK) {
     throw new ApiError(`Bast is still capturing ${inFlight} sites for this board; add more when those are done`, 429, 'rate_limited', 'captures_in_flight');
   }

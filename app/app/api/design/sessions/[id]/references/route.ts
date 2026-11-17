@@ -7,7 +7,7 @@ import { assertTrackWritable } from '@/lib/design/track-session';
 import { addDesignerReference, listReferences } from '@/lib/design/track-board';
 
 const schema = z.union([
-  z.object({ url: z.string().max(600), title: z.string().trim().min(1).max(200).optional() }).strict(),
+  z.object({ url: z.string().max(600), expect: z.literal('figma').optional(), title: z.string().trim().min(1).max(200).optional() }).strict(),
   z.object({ upload_asset_ids: z.array(z.string().uuid()).min(1).max(20), title: z.string().trim().min(1).max(200).optional() }).strict(),
 ]);
 

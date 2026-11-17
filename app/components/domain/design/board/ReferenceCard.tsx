@@ -14,6 +14,7 @@ const SOURCE_WORDS: Record<string, string> = {
   client_named: 'Named by the client',
   designer_url: 'Added by you',
   designer_upload: 'Uploaded by you',
+  designer_figma: 'From your Figma file',
   indelible_site: 'One of our own sites',
 };
 
@@ -28,10 +29,24 @@ const STATUS_WORDS: Record<CaptureStatus, string> = {
 };
 
 /** Capture error text from the box is shown when it reads as a sentence; a bare code gets a plain sentence instead. */
-export function captureSentence(status: CaptureStatus, error: string | null): string | null {
-  if (status === 'failed') return error && /\s/.test(error) ? error : 'We could not take pictures of this site. You can try adding it again.';
-  if (status === 'blocked') return error && /\s/.test(error) ? error : 'This site does not allow us to take pictures of it.';
+export function captureSentence(status: CaptureStatus, error: string | null, figma = false): string | null {
+  const stored = error && /\s/.test(error) ? error : null;
+  if (status === 'failed') return stored ?? (figma ? 'We could not bring in this Figma design. Check that the file is shared with Indelible\'s Figma account, then paste the link again.' : 'We could not take pictures of this site. You can try adding it again.');
+  if (status === 'blocked') return stored ?? (figma ? 'We are not allowed to open this Figma file. Share it with Indelible\'s Figma account, then paste the link again.' : 'This site does not allow us to take pictures of it.');
   return null;
+}
+
+const FIGMA_STATUS_WORDS: Record<CaptureStatus, string> = { ...STATUS_WORDS, none: 'Not brought in', queued: 'Bringing it in', captured: 'Ready', failed: 'Could not bring in', blocked: 'Blocked' };
+
+/** The small line of what was read from a Figma frame: its name, its size, and a note when only some frames came in. */
+export function figmaLines(f: NonNullable<BoardReference['figma']>): { read: string | null; partial: string | null } {
+  const parts: string[] = [];
+  if (f.frame_name) parts.push(f.frame_name);
+  if (f.width && f.height) parts.push(`${f.width} x ${f.height}`);
+  const partial = f.frames_total != null && f.frames_imported != null && f.frames_total > f.frames_imported
+    ? `Showing the first ${f.frames_imported} of ${f.frames_total} frames. Paste a link to a single frame to add another.`
+    : null;
+  return { read: parts.length > 0 ? parts.join(' - ') : null, partial };
 }
 
 function hostOf(url: string): string {
@@ -93,7 +108,10 @@ export function ReferenceCard({ sessionId, reference: r }: ReferenceCardProps) {
   const noteId = React.useId();
   const headingId = React.useId();
   const link = safeHttpsUrl(r.url);
-  const sentence = captureSentence(r.capture_status, r.capture_error);
+  const isFigma = r.source === 'designer_figma';
+  const sentence = captureSentence(r.capture_status, r.capture_error, isFigma);
+  const figmaInfo = r.figma ? figmaLines(r.figma) : null;
+  const statusWords = isFigma ? FIGMA_STATUS_WORDS : STATUS_WORDS;
   const isUrlCard = r.url !== null;
 
   const choose = (decision: 'yes' | 'no') => {
@@ -125,7 +143,7 @@ export function ReferenceCard({ sessionId, reference: r }: ReferenceCardProps) {
           <p className="text-xs text-text-sub">
             {sourceWords(r.source)}
             {r.url && (link
-              ? <> - <a href={link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 rounded text-primary underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">{hostOf(r.url)}<ExternalLink className="h-3 w-3" aria-hidden="true" /><span className="sr-only"> (opens in a new tab)</span></a></>
+              ? <> - <a href={link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 rounded text-primary underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">{isFigma ? 'Open in Figma' : hostOf(r.url)}<ExternalLink className="h-3 w-3" aria-hidden="true" /><span className="sr-only"> (opens in a new tab)</span></a></>
               : <> - {hostOf(r.url)}</>)}
           </p>
         </div>
@@ -134,7 +152,7 @@ export function ReferenceCard({ sessionId, reference: r }: ReferenceCardProps) {
             {r.capture_status === 'queued' && <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />}
             {r.capture_status === 'captured' && <Check className="h-3 w-3" aria-hidden="true" />}
             {(r.capture_status === 'failed' || r.capture_status === 'blocked') && <X className="h-3 w-3" aria-hidden="true" />}
-            {STATUS_WORDS[r.capture_status]}
+            {statusWords[r.capture_status]}
           </Badge>
         )}
       </div>
@@ -146,11 +164,17 @@ export function ReferenceCard({ sessionId, reference: r }: ReferenceCardProps) {
         </div>
       )}
       {sentence && <p className="mt-2 text-sm text-text-main" data-testid="capture-sentence">{sentence}</p>}
+      {figmaInfo && (figmaInfo.read || figmaInfo.partial) && (
+        <div className="mt-2 text-xs text-text-sub" data-testid="figma-line">
+          {figmaInfo.read && <p>{figmaInfo.read}</p>}
+          {figmaInfo.partial && <p>{figmaInfo.partial}</p>}
+        </div>
+      )}
 
       {hasCaptures && (
-        <div className="mt-3 grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-3">
-          {c.desktop_fold ? <MarkupImage sessionId={sessionId} referenceId={r.id} asset={c.desktop_fold} label="Desktop, top of the page" title={r.title} markups={r.markups} /> : <div />}
-          {c.phone_fold ? <MarkupImage sessionId={sessionId} referenceId={r.id} asset={c.phone_fold} label="Phone, top of the page" title={r.title} markups={r.markups} /> : <div />}
+        <div className={cn('mt-3 grid gap-3', c.desktop_fold && c.phone_fold ? 'grid-cols-[minmax(0,2fr)_minmax(0,1fr)]' : 'grid-cols-1')}>
+          {c.desktop_fold && <MarkupImage sessionId={sessionId} referenceId={r.id} asset={c.desktop_fold} label={isFigma ? 'Frame' : 'Desktop, top of the page'} title={r.title} markups={r.markups} />}
+          {c.phone_fold && <MarkupImage sessionId={sessionId} referenceId={r.id} asset={c.phone_fold} label={isFigma ? 'Frame' : 'Phone, top of the page'} title={r.title} markups={r.markups} />}
         </div>
       )}
       {fullAssets.length > 0 && <div className="mt-2"><MorePages sessionId={sessionId} reference={r} assets={fullAssets} labels={fullLabels} buttonText="See the full pages" /></div>}

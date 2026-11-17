@@ -19,6 +19,7 @@ import { ApiError } from '@/lib/api/errors';
 import { isUuid } from './helpers';
 import { loadTrack } from './track-core';
 import { clientStatementsFor, listReferences, readBrief, stripForbidden } from './track-board';
+import { hasDesignFile } from './reference-role';
 import { patchDirectionAs, readDirection } from './track-direction';
 
 export const CONTEXT_PARTS = ['brief', 'board', 'direction', 'client_statements', 'pages'] as const;
@@ -83,9 +84,12 @@ export async function readWorkerContext(track: DesignTrack, session: Pick<Design
       data = { brief, assets: swapAssetViews(assets) };
       break;
     }
-    case 'board':
-      data = { references: swapAssetViews(only(await listReferences(track.id, session.id), ids)) };
+    case 'board': {
+      // has_design_file looks at every card on the track, not only the ones asked for.
+      const all = await listReferences(track.id, session.id);
+      data = { has_design_file: hasDesignFile(all), references: swapAssetViews(only(all, ids)) };
       break;
+    }
     case 'direction':
       data = await readDirection(track);
       break;

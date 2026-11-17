@@ -12,6 +12,7 @@ vi.mock('../VersionsTab', () => ({ VersionsTab: () => <div>versions</div> }));
 vi.mock('../ClientFilesTab', () => ({ ClientFilesTab: () => <div>files</div> }));
 vi.mock('../brief/BriefTab', () => ({ BriefTab: (p: { track: { id: string } }) => <div data-testid="brief-tab">{p.track.id}</div> }));
 vi.mock('../board/BoardTab', () => ({ BoardTab: () => <div data-testid="board-tab" /> }));
+vi.mock('../board/InspirationTab', () => ({ InspirationTab: () => <div data-testid="inspiration-tab" /> }));
 vi.mock('../direction/DirectionTab', () => ({ DirectionTab: () => <div data-testid="direction-tab" /> }));
 
 import { useWorkspaceTabSlots, type WorkspaceTabsProps } from '../WorkspaceTabs';
@@ -30,6 +31,7 @@ function Probe(props: WorkspaceTabsProps) {
       <p data-testid="keys">{Object.keys(slots).sort().join(',')}</p>
       {slots.brief}
       {slots.board}
+      {slots.inspiration}
       {slots.direction}
     </div>
   );
@@ -61,11 +63,12 @@ describe('useWorkspaceTabSlots on a design track', () => {
     expect(screen.queryByTestId('brief-tab')).toBeNull();
   });
 
-  it('a tracked session adds Brief, Board and Direction and hands them the track', () => {
+  it('a tracked session adds Brief, Board, Inspiration and Direction and hands them the track', () => {
     mount({ sessionId: SID, data: session(TRACK), feed: feedWith([]), bridge });
-    expect(screen.getByTestId('keys').textContent).toBe('board,brief,changes,chat,client-files,direction,tasks,versions');
+    expect(screen.getByTestId('keys').textContent).toBe('board,brief,changes,chat,client-files,direction,inspiration,tasks,versions');
     expect(screen.getByTestId('brief-tab').textContent).toBe('trk-1');
     expect(screen.getByTestId('board-tab')).toBeTruthy();
+    expect(screen.getByTestId('inspiration-tab')).toBeTruthy();
     expect(screen.getByTestId('direction-tab')).toBeTruthy();
   });
 

@@ -96,6 +96,69 @@ jobs:
             npx prisma migrate deploy
             pm2 restart citadel
 
+      # UPLOAD SIZE. nginx sits in front of the app and refuses any request body over 1 MB unless told
+      # otherwise, which stopped designers uploading their own designs (the app allows 25 MB; found
+      # 2026-11-17). This writes one drop-in file, tests the nginx config, and removes the file again if
+      # the test fails, so a bad setting can never stop nginx. It runs after the app has restarted and
+      # never fails the deploy (continue-on-error): a red step here means "limit not raised", nothing else.
+      # To undo: sudo rm /etc/nginx/conf.d/citadel-upload-limit.conf && sudo nginx -t && sudo systemctl reload nginx
+      - name: Set the upload size limit on the web server
+        continue-on-error: true
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -u
+            CONF=/etc/nginx/conf.d/citadel-upload-limit.conf
+            LINE='client_max_body_size 26m;'
+            if [ -f "$CONF" ] && grep -qxF "$LINE" "$CONF"; then
+              # Reload again in case an earlier reload did not take; it costs nothing when nothing changed.
+              if sudo nginx -t && sudo systemctl reload nginx; then
+                echo "Upload limit already set; nginx reloaded."
+                exit 0
+              fi
+              echo "Upload limit file is in place but nginx did not reload."
+              exit 1
+            fi
+            if [ ! -f "$CONF" ] && ! sudo nginx -t; then
+              echo "The nginx config does not pass its own test before any change. Leaving it alone."
+              exit 1
+            fi
+            FULL="$(sudo nginx -T 2>/dev/null)"
+            echo "Sites this nginx serves:"
+            printf '%s\n' "$FULL" | grep -E '^[[:space:]]*server_name' | sort -u
+            # Any setting outside our own file would override ours or clash with it, so leave the config alone.
+            OTHER="$(printf '%s\n' "$FULL" | awk -v own="# configuration file $CONF:" '
+              /^# configuration file / { file = $0; mine = ($0 == own); next }
+              !mine && $0 !~ /^[[:space:]]*#/ && /client_max_body_size/ { print file " " $0 }')"
+            if [ -n "$OTHER" ]; then
+              echo "A client_max_body_size is already set elsewhere in the nginx config. Not adding a second one:"
+              printf '%s\n' "$OTHER"
+              exit 1
+            fi
+            if ! printf '# Written by the Citadel deploy (.github/workflows/deploy.yml). The app allows uploads up to 25 MB.\n%s\n' "$LINE" | sudo tee "$CONF" > /dev/null; then
+              echo "Could not write $CONF."
+              exit 1
+            fi
+            if ! sudo nginx -t; then
+              sudo rm -f "$CONF"
+              sudo nginx -t && echo "The new setting failed the config test and was removed. nginx is unchanged."
+              exit 1
+            fi
+            if ! sudo nginx -T 2>/dev/null | grep -qxF "# configuration file $CONF:"; then
+              sudo rm -f "$CONF"
+              echo "This nginx does not load /etc/nginx/conf.d, so the file was removed. nginx is unchanged."
+              exit 1
+            fi
+            if sudo systemctl reload nginx; then
+              echo "Upload limit set to 26 MB and nginx reloaded."
+            else
+              echo "Upload limit file written and it passes the config test, but nginx did not reload."
+              exit 1
+            fi
+
       # If any step above failed, surface it as a CRITICAL Citadel task for Mike
       # so a broken deploy lands in front of a human, not just in a CI log.
       # Requires the CITADEL_API_TOKEN secret (task-create scope). If the secret

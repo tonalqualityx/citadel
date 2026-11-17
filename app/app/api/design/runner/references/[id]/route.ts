@@ -14,6 +14,7 @@ const schema = z.object({
   desktop_full_asset_id: uuid,
   phone_fold_asset_id: uuid,
   phone_full_asset_id: uuid,
+  title: z.string().min(1).max(200).optional(),
   extracted: z.record(z.string(), z.unknown()).optional(),
 }).strict();
 
@@ -22,7 +23,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   try {
     await requireTrackRunner();
     const id = idParam((await params).id, 'Reference not found');
-    const b = await workerBody(request, schema, 64 * 1024);
+    const b = await workerBody(request, schema, 96 * 1024);
     const ref = await recordCapture(id, { ...b, extracted: b.extracted as Prisma.InputJsonValue | undefined });
     return NextResponse.json({ reference: ref });
   } catch (error) {

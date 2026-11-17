@@ -6,7 +6,7 @@ import { idParam, workerBody } from '@/lib/design/worker-kit';
 import { addReferences } from '@/lib/design/track-runner';
 
 const item = z.object({
-  source: z.enum(['bast_pick', 'client_named', 'indelible_site']),
+  source: z.enum(['bast_pick', 'client_named', 'indelible_site', 'designer_figma']),
   url: z.string().url().startsWith('https://').max(500).optional(),
   title: z.string().min(1).max(200),
   why_md: z.string().max(800).optional(),

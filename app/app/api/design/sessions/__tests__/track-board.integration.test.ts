@@ -38,6 +38,7 @@ import * as sign from '../[id]/art-direction/sign/route';
 import * as revise from '../[id]/art-direction/revise/route';
 import * as runnerAssets from '../../runner/tracks/[id]/assets/route';
 import * as runnerAsset from '../../runner/tracks/[id]/assets/[assetId]/route';
+import * as runnerReference from '../../runner/references/[id]/route';
 
 const as = requireAuth as ReturnType<typeof vi.fn>;
 const ctx = <T extends Record<string, string>>(p: T) => ({ params: Promise.resolve(p) });
@@ -748,6 +749,68 @@ describe.skipIf(!SCRATCH)('brief, board, art direction and track uploads (real d
   });
 
   // ------------------------------------------------------------------------------------------------------------
+  describe('Figma links on the board', () => {
+    const LINK = 'https://www.figma.com/design/AbCdEfGhIjKl/VDCP-Kit?node-id=12-34&t=share&m=dev#frag';
+    const CANON = 'https://www.figma.com/design/AbCdEfGhIjKl?node-id=12-34';
+
+    it('a Figma link becomes a queued design-file card with a canonical address and a job carrying the file key and frame', async () => {
+      const { track, session } = await tracked('figma-add');
+      const res = await references.POST(json('POST', '/x', { url: LINK, expect: 'figma' }), ctx({ id: session.id }));
+      expect(res.status).toBe(201);
+      const ref = (await res.json()).reference;
+      expect(ref).toMatchObject({ source: 'designer_figma', url: CANON, role: 'design_file', title: 'Figma design', capture_status: 'queued', figma: null });
+      const jobs = await prisma.designJob.findMany({ where: { track_id: track.id, kind: 'capture' } });
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0].payload).toEqual({ reference_id: ref.id, url: CANON, figma: { file_key: 'AbCdEfGhIjKl', node_id: '12:34' } });
+      // the same frame with other share parameters is the same card
+      const dup = await references.POST(json('POST', '/x', { url: 'https://figma.com/file/AbCdEfGhIjKl/Other?node-id=12%3A34&t=zzz' }), ctx({ id: session.id }));
+      expect(dup.status).toBe(409);
+      expect(await code(dup)).toBe('duplicate_url');
+      // a site keeps its own source and role
+      const site = (await (await references.POST(json('POST', '/x', { url: 'https://example.org/' }), ctx({ id: session.id }))).json()).reference;
+      expect(site).toMatchObject({ source: 'designer_url', role: 'inspiration', figma: null });
+    });
+
+    it('refuses a site when a Figma link was expected, and a Figma host that is not a design file', async () => {
+      const { session } = await tracked('figma-bad');
+      const sid = ctx({ id: session.id });
+      const notFigma = await references.POST(json('POST', '/x', { url: 'https://example.org/', expect: 'figma' }), sid);
+      expect(notFigma.status).toBe(400);
+      expect(await code(notFigma)).toBe('not_figma');
+      for (const url of ['https://www.figma.com/board/AbCdEfGhIjKl/Jam', 'https://www.figma.com/', 'https://www.figma.com/community/file/123', 'https://www.figma.com/design/short']) {
+        const res = await references.POST(json('POST', '/x', { url, expect: 'figma' }), sid);
+        expect(res.status, url).toBe(400);
+        expect(await code(res), url).toBe('bad_figma_link');
+      }
+      // look-alike hosts are sites, so with the expectation they are not_figma
+      const evil = await references.POST(json('POST', '/x', { url: 'https://figma.com.evil.example/design/AbCdEfGhIjKl', expect: 'figma' }), sid);
+      expect(await code(evil)).toBe('not_figma');
+      expect((await references.POST(json('POST', '/x', { url: 'https://example.org/', expect: 'other' }), sid)).status).toBe(400);
+    });
+
+    it('after the runner writes the capture the card shows the Figma summary, carries no forbidden key and takes a markup on its picture', async () => {
+      const { track, session } = await tracked('figma-view');
+      asDesigner();
+      const ref = (await (await references.POST(json('POST', '/x', { url: LINK }), ctx({ id: session.id }))).json()).reference;
+      asRunner();
+      const up = await runnerUpload(track.id, PNG, { kind: 'ref_fold' });
+      expect(up.status).toBe(201);
+      const asset = (await up.json()).asset as { id: string };
+      const extracted = { schema: 1, source: 'figma', figma: { file_key: 'AbCdEfGhIjKl', file_name: 'VDCP UI Kit', page: 'Home', node_id: '12:34', frame: { name: 'Home desktop', width: 1440, height: 900 }, colours: [{ hex: '#112233', uses: 4 }], frames_total: 4, frames_imported: 4 } };
+      const patched = await runnerReference.PATCH(json('PATCH', '/x', { capture_status: 'captured', desktop_fold_asset_id: asset.id, title: 'Home desktop', extracted }), ctx({ id: ref.id }));
+      expect(patched.status).toBe(200);
+      asDesigner();
+      const list = (await (await references.GET(get('/x'), ctx({ id: session.id }))).json()) as { references: Array<Record<string, unknown> & { id: string }> };
+      const card = list.references.find((r) => r.id === ref.id)!;
+      expect(card.title).toBe('Home desktop');
+      expect(card.figma).toEqual({ file_name: 'VDCP UI Kit', page: 'Home', frame_name: 'Home desktop', width: 1440, height: 900, frames_total: 4, frames_imported: 4 });
+      expect(findForbiddenKeys(list)).toEqual([]);
+      const box = await markups.POST(json('POST', '/x', { reference_id: ref.id, asset_id: asset.id, rect: { x: 0.1, y: 0.1, w: 0.3, h: 0.3 }, sentiment: 'like', category: 'colour' }), ctx({ id: session.id }));
+      expect(box.status).toBe(201);
+    });
+  });
+
+  // ------------------------------------------------------------------------------------------------------------
   // W6.3b: fixes for the W6.1 and W6.2 adversarial passes, through the real routes.
   describe('W6.3b hardening', () => {
     const W_NAV = { desktop: { pattern: 'inline', items: [{ label: 'Shop', url: '/shop/' }] }, mobile: { pattern: 'drawer_right' } };
@@ -765,6 +828,10 @@ describe.skipIf(!SCRATCH)('brief, board, art direction and track uploads (real d
       expect(fast.status).toBe(429);
       expect(await fast.json()).toMatchObject({ code: 'rate_limited', limit: 'references_per_minute' });
       expect(await prisma.designJob.count({ where: { track_id: track.id, kind: 'capture' } })).toBe(10);
+      // a Figma link counts toward the same per-minute cap
+      const fastFigma = await references.POST(json('POST', '/x', { url: 'https://www.figma.com/design/AbCdEfGhIjKl/Kit?node-id=1-2' }), sid);
+      expect(fastFigma.status).toBe(429);
+      expect(await fastFigma.json()).toMatchObject({ code: 'rate_limited', limit: 'references_per_minute' });
       // a minute on: the per-minute window is clear, but ten captures are still queued
       await prisma.designReference.updateMany({ where: { track_id: track.id }, data: { created_at: new Date(Date.now() - 120_000) } });
       const busy = await references.POST(json('POST', '/x', { url: 'https://inflight.example.com/' }), sid);
@@ -775,7 +842,24 @@ describe.skipIf(!SCRATCH)('brief, board, art direction and track uploads (real d
       const pick = await prisma.designReference.create({ data: { track_id: track.id, source: 'bast_pick', url: 'https://pick.example.com/', title: 'pick' } });
       await prisma.designJob.createMany({ data: Array.from({ length: 12 }, () => ({ track_id: track.id, kind: 'capture' as const, payload: { reference_id: pick.id, url: pick.url } })) });
       expect((await references.POST(json('POST', '/x', { url: 'https://after.example.com/' }), sid)).status).toBe(201);
-      // fill the board to 40 designer URL references: the 41st is 409 reference_limit
+      // Figma frames have their own per-track cap of 200 and do not use up the 40 for sites
+      const figmaRows = Array.from({ length: 200 }, (_, i) => ({ track_id: track.id, source: 'designer_figma', url: `https://www.figma.com/design/AbCdEfGhIjKl?node-id=${i}-1`, title: 'f', created_at: new Date(Date.now() - 300_000) }));
+      await prisma.designReference.createMany({ data: figmaRows });
+      const figmaFull = await references.POST(json('POST', '/x', { url: 'https://www.figma.com/design/AbCdEfGhIjKl?node-id=999-1' }), sid);
+      expect(figmaFull.status).toBe(409);
+      expect(await code(figmaFull)).toBe('reference_limit');
+      // frames the runner brought in from a pasted link use up neither window: 12 just added, their jobs queued, and a site still goes on
+      const frames = await prisma.designReference.findMany({ where: { track_id: track.id, source: 'designer_figma' }, take: 12, select: { id: true, url: true } });
+      await prisma.designReference.updateMany({ where: { id: { in: frames.map((f) => f.id) } }, data: { created_at: new Date() } });
+      await prisma.designJob.createMany({ data: frames.map((f) => ({ track_id: track.id, kind: 'capture' as const, payload: { reference_id: f.id, url: f.url, figma: { file_key: 'AbCdEfGhIjKl', node_id: '1:1' }, by: 'runner' } })) });
+      expect((await references.POST(json('POST', '/x', { url: 'https://beside-frames.example.com/' }), sid)).status).toBe(201);
+      // the same 12 without the runner mark would hold the designer back
+      await prisma.designJob.updateMany({ where: { track_id: track.id, kind: 'capture', status: 'queued' }, data: { payload: { reference_id: frames[0].id, url: frames[0].url } } });
+      const held = await references.POST(json('POST', '/x', { url: 'https://held.example.com/' }), sid);
+      expect(held.status).toBe(429);
+      await prisma.designJob.updateMany({ where: { track_id: track.id, kind: 'capture' }, data: { status: 'done' } });
+      await prisma.designReference.updateMany({ where: { track_id: track.id }, data: { created_at: new Date(Date.now() - 300_000) } });
+      // fill the board to 40 designer URL references with the 200 Figma frames still there: the 41st is 409 reference_limit
       const have = await prisma.designReference.count({ where: { track_id: track.id, source: 'designer_url' } });
       for (let i = have; i < 40; i++) await mkRef(track.id, i, 5);
       const full = await references.POST(json('POST', '/x', { url: 'https://one-more.example.com/' }), sid);
