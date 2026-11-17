@@ -51,6 +51,13 @@ async function expectFillsViewport(page: Page): Promise<void> {
     });
     await expect.poll(async () => { const l = await layout(); return l.stageBottom <= l.innerHeight + 1; }, { message: `stage bottom inside the viewport at ${vp.width}x${vp.height}`, timeout: 10_000 }).toBe(true);
     await expect.poll(async () => (await layout()).wrapperHeight, { message: `preview wrapper height at ${vp.width}x${vp.height}`, timeout: 10_000 }).toBeGreaterThan(150);
+    // The chat keeps its message box on the bottom edge of the panel at every size (Mike, 2026-11-17: "It should be anchored to the bottom").
+    const chat = () => page.evaluate(() => {
+      const dock = document.querySelector('[data-testid="chat-dock"]')?.getBoundingClientRect();
+      const form = document.querySelector('[data-testid="chat-panel"] form')?.getBoundingClientRect();
+      return dock && form ? { gap: dock.bottom - form.bottom, below: form.top - dock.top } : null;
+    });
+    await expect.poll(async () => { const c = await chat(); return !!c && c.gap >= 0 && c.gap <= 24 && c.below > 0; }, { message: `message box on the chat panel's bottom edge at ${vp.width}x${vp.height}`, timeout: 10_000 }).toBe(true);
     if (vp.desktop) {
       const iframe = page.locator('iframe[title="Site preview"]');
       await expect(iframe).toBeVisible();

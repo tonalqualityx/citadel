@@ -195,7 +195,8 @@ export function ChatDock({ children, events, busy = false, selectionCount = 0, s
             <ChevronDown className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto p-3">{children}</div>
+        {/* A flex column so a tab can fill the panel: the chat keeps its message box on the bottom edge and scrolls its messages above it. */}
+        <div data-testid="chat-dock-body" className="flex min-h-0 flex-1 flex-col overflow-y-auto p-3">{children}</div>
       </div>
     </>
   );

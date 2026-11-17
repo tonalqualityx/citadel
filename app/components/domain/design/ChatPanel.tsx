@@ -72,7 +72,7 @@ export function ChatPanel({ sessionId, initialStatus = 'pending', createdAt = nu
   const liveAction = latest?.live.action ?? null;
 
   return (
-    <div className="flex min-h-[24rem] flex-col gap-3" data-testid="chat-panel">
+    <div className="flex min-h-0 flex-1 flex-col gap-3" data-testid="chat-panel">
       {silent && (
         <div role="status" data-testid="worker-silent" className="flex items-start gap-2 rounded-lg border border-border-warm px-3 py-2 text-sm" style={{ backgroundColor: 'var(--warning-subtle)', color: 'var(--warning)' }}>
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
@@ -91,7 +91,7 @@ export function ChatPanel({ sessionId, initialStatus = 'pending', createdAt = nu
           const el = e.currentTarget;
           stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
         }}
-        className="max-h-[60vh] min-h-[12rem] flex-1 space-y-3 overflow-y-auto"
+        className="min-h-16 flex-1 space-y-3 overflow-y-auto"
         role="log"
         aria-label="Activity"
       >

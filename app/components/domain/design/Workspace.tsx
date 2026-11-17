@@ -183,14 +183,15 @@ export function Workspace({ data, feed, slots: givenSlots = {}, useSlots = useNo
           selectionCount={bridge.drafts?.length ?? 0}
           selectMode={bridge.selectMode}
         >
-          <Tabs defaultValue="chat">
-            <TabsList className="h-auto w-full flex-nowrap justify-start gap-0.5 overflow-x-auto">
+          {/* The tab strip stays put; the open tab takes the rest of the panel and scrolls inside it. */}
+          <Tabs defaultValue="chat" className="flex min-h-0 flex-1 flex-col">
+            <TabsList className="h-auto w-full shrink-0 flex-nowrap justify-start gap-0.5 overflow-x-auto">
               {tabs.map((t) => (
                 <TabsTrigger key={t.id} value={t.id} className="px-2.5">{t.label}</TabsTrigger>
               ))}
             </TabsList>
             {tabs.map((t) => (
-              <TabsContent key={t.id} value={t.id}>
+              <TabsContent key={t.id} value={t.id} className="flex min-h-0 flex-1 flex-col overflow-y-auto">
                 {slots[t.id as keyof WorkspaceSlots] ?? (
                   <p className="p-4 text-sm text-text-sub">{t.label}: coming in {t.task}.</p>
                 )}
