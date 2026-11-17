@@ -17,15 +17,17 @@ export interface DesignFixture {
   designer: DesignActor;
   admin: DesignActor;
   other: DesignActor;
+  /** A tech user on no project (Sabeen's role). */
+  tech: DesignActor;
   taskIds: string[];
   settingsExisted: boolean;
   workerExisted: boolean;
 }
 
 export async function seedDesign(tag: string): Promise<DesignFixture> {
-  const mkUser = (role: 'designer' | 'admin', n: string) =>
+  const mkUser = (role: 'designer' | 'admin' | 'tech', n: string) =>
     prisma.user.create({ data: { email: `dp-${tag}-${n}@example.test`, password_hash: 'x', name: `${n} ${tag}`, role } });
-  const [d, a, o] = await Promise.all([mkUser('designer', 'd'), mkUser('admin', 'a'), mkUser('designer', 'o')]);
+  const [d, a, o, t] = await Promise.all([mkUser('designer', 'd'), mkUser('admin', 'a'), mkUser('designer', 'o'), mkUser('tech', 't')]);
   const client = await prisma.client.create({ data: { name: `DP ${tag} Co`, type: 'direct', status: 'active' } });
   const site = await prisma.site.create({
     data: { name: `${tag} site`, url: `https://${tag}.example.test`, client_id: client.id, design_portal_enabled: true, site_type: 'eleventy' },
@@ -41,10 +43,10 @@ export async function seedDesign(tag: string): Promise<DesignFixture> {
     update: { configured_site_ids: [...(w?.configured_site_ids ?? []), site.id] },
     create: { id: 1, configured_site_ids: [site.id] },
   });
-  const actor = (u: { id: string; email: string }, role: 'designer' | 'admin') => designActorFrom({ userId: u.id, email: u.email, role, via: 'session' });
+  const actor = (u: { id: string; email: string }, role: 'designer' | 'admin' | 'tech') => designActorFrom({ userId: u.id, email: u.email, role, via: 'session' });
   return {
     tag, clientId: client.id, siteId: site.id, projectId: project.id, functionId: fn.id,
-    designer: actor(d, 'designer'), admin: actor(a, 'admin'), other: actor(o, 'designer'),
+    designer: actor(d, 'designer'), admin: actor(a, 'admin'), other: actor(o, 'designer'), tech: actor(t, 'tech'),
     taskIds: [], settingsExisted, workerExisted: !!w,
   };
 }
@@ -79,7 +81,7 @@ export async function seedTrack(
 }
 
 export async function teardownDesign(f: DesignFixture): Promise<void> {
-  const userIds = [f.designer.userId, f.admin.userId, f.other.userId];
+  const userIds = [f.designer.userId, f.admin.userId, f.other.userId, f.tech.userId];
   await cleanupDesign({ taskIds: f.taskIds, siteIds: [f.siteId], userIds, clientIds: [f.clientId] });
   await prisma.task.deleteMany({ where: { id: { in: f.taskIds } } });
   await prisma.projectTeamAssignment.deleteMany({ where: { project_id: f.projectId } });

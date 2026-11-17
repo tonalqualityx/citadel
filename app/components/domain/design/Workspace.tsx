@@ -8,10 +8,12 @@ import { ChatDock } from './ChatDock';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useDesignBridge, type UseDesignBridgeResult } from '@/lib/hooks/use-design-bridge';
 import type { DesignFeedResponse, DesignSessionResponse } from '@/lib/hooks/use-design';
+import { ChevronsDown, ChevronsUp } from 'lucide-react';
 import { PreviewLinks } from './PreviewLinks';
 import { PreviewPane } from './PreviewPane';
 import { TimerPill } from './TimerPill';
 import { StageStrip } from './track/StageStrip';
+import { useTopHidden } from './workspace-chrome';
 
 export const STATUS_LABELS: Record<string, { label: string; variant: 'default' | 'success' | 'warning' | 'error' | 'info' }> = {
   pending: { label: 'Setting up', variant: 'info' },
@@ -113,10 +115,24 @@ export function Workspace({ data, feed, slots: givenSlots = {}, useSlots = useNo
   const view = { path: pageView?.path ?? null, width: pageView?.width ?? null, previewSha: previewSha ?? null };
   const slots: WorkspaceSlots = { ...useSlots({ bridge, view }), ...givenSlots };
   const state = previewState({ preview_url: previewUrl, preview_sha: previewSha, head_sha: headSha });
+  const [topHidden, setTopHidden] = useTopHidden();
+  const topToggle = (
+    <button
+      type="button"
+      data-testid="top-toggle"
+      aria-pressed={topHidden}
+      aria-label={topHidden ? 'Show top bar' : 'Hide top bar'}
+      title={topHidden ? 'Show top bar' : 'Hide top bar'}
+      onClick={() => setTopHidden(!topHidden)}
+      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border-warm bg-surface text-text-sub hover:text-text-main"
+    >
+      {topHidden ? <ChevronsDown className="h-4 w-4" aria-hidden="true" /> : <ChevronsUp className="h-4 w-4" aria-hidden="true" />}
+    </button>
+  );
 
   return (
-    <div className="flex w-full min-w-0 flex-col gap-3">
-      <header className="flex flex-wrap items-center gap-x-3 gap-y-2">
+    <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col gap-2">
+      <header hidden={topHidden} className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <Link href="/design" className="inline-flex min-h-[44px] items-center text-sm text-text-sub hover:text-text-main sm:min-h-0">
           Back
         </Link>
@@ -143,7 +159,7 @@ export function Workspace({ data, feed, slots: givenSlots = {}, useSlots = useNo
         <StageStrip track={data.session.track} />
       </header>
 
-      <div data-testid="workspace-stage" className="relative h-[calc(100dvh-11rem)] min-h-[560px] min-w-0">
+      <div data-testid="workspace-stage" className="relative min-h-0 min-w-0 flex-1">
         <section aria-label="Preview" className="h-full min-w-0">
           <PreviewPane
             previewUrl={previewUrl}
@@ -158,6 +174,7 @@ export function Workspace({ data, feed, slots: givenSlots = {}, useSlots = useNo
             sendPreviewToken={data.session.track ? bridge.sendPreviewToken : undefined}
             frameEpoch={bridge.frameEpoch}
             directionSessionId={data.session.track ? data.session.id : null}
+            toolbarEnd={topToggle}
           />
         </section>
         <ChatDock

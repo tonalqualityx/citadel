@@ -7,7 +7,8 @@
  * must never appear at any depth, and `findForbiddenKeys()` lets route tests prove it.
  */
 import { toUsd, type DesignActor } from './helpers';
-import type { DrawerData, DrawerRow, DrawerSessionRow } from './access';
+import { opensSessions, type DrawerData, type DrawerRow, type DrawerSessionRow } from './access';
+import { isStageTask } from './track-session';
 import type { SessionTrackView } from './track-session';
 import { normalizeMainRole, parsePrecheck, type ConfirmationShown, type MainRole, type PolicyCode, type Precheck } from './publish-policy';
 
@@ -121,19 +122,124 @@ export interface DrawerTaskView {
   session: DrawerSessionView | null;
 }
 
+export interface DrawerEntry {
+  /**
+   * resume: the caller's own live session. join: admin or tech entering someone else's live session.
+   * view: a read-only role looking at a live session. start: open a session on a task. none: see reason.
+   */
+  action: 'resume' | 'join' | 'view' | 'start' | 'none';
+  /** resume, join, view: the page goes straight to /design/s/:id. */
+  session_id: string | null;
+  /** start: the page POSTs /api/design/sessions {task_id}; resume: the task the session sits on. */
+  task_id: string | null;
+  /** Only when action is 'none'. */
+  reason: 'unavailable' | 'read_only' | 'taken' | 'not_ready' | null;
+  /** The chip of the session shown on the row (resume, join, view: that session; taken: the blocking session; else null). */
+  chip: SessionChip | null;
+}
+
+export interface DrawerProjectView {
+  id: string;
+  name: string;
+  site: { id: string; name: string; available: boolean };
+  /** Tasks in the group. */
+  open_tasks: number;
+  /** First non-null task.track_stage in the group. */
+  track_stage: string | null;
+  entry: DrawerEntry;
+  phases: Array<{ name: string | null; tasks: DrawerTaskView[] }>;
+}
+
 export interface DrawerResponse {
-  projects: Array<{
-    id: string;
-    name: string;
-    site: { id: string; name: string; available: boolean };
-    phases: Array<{ name: string | null; tasks: DrawerTaskView[] }>;
-  }>;
+  projects: DrawerProjectView[];
   worker: WorkerView;
+}
+
+const NOT_STARTABLE_TASK = ['done', 'cancelled'];
+const ENDED_TRACK_STAGES = ['done', 'cancelled'];
+
+export interface GroupEntryInput {
+  role: string;
+  /** The site's availability flag (the one the task rows use for "Not available yet"). */
+  available: boolean;
+  /** The group's projected tasks in display order (phase order, then task order). */
+  tasks: readonly DrawerTaskView[];
+  /** created_at of each session by session id (internal; never part of the response). */
+  createdAt?: ReadonlyMap<string, Date>;
+  /** Tasks the server would refuse to open (a design-stage task whose project has no track yet). */
+  unstartable?: ReadonlySet<string>;
+  /** Ids of tasks whose session row belongs to the caller (internal; never part of the response). */
+  ownTaskIds?: ReadonlySet<string>;
+}
+
+const live = (t: DrawerTaskView): boolean => !!t.session && t.session.chip !== 'closed';
+
+/** One row's button on the Sites list: what a click does, decided on the server so the page stays dumb. */
+export function groupEntry(input: GroupEntryInput): DrawerEntry {
+  const { tasks } = input;
+  const none = (reason: 'unavailable' | 'read_only' | 'taken' | 'not_ready', chip: SessionChip | null = null): DrawerEntry =>
+    ({ action: 'none', session_id: null, task_id: null, reason, chip });
+  const enter = (action: 'resume' | 'join' | 'view', t: DrawerTaskView): DrawerEntry =>
+    ({ action, session_id: t.session!.id, task_id: t.id, reason: null, chip: t.session!.chip });
+  const stamp = (t: DrawerTaskView) => input.createdAt?.get(t.session!.id!)?.getTime() ?? 0;
+  /** Tracked tasks first, then newest session. */
+  const prefer = (list: DrawerTaskView[]): DrawerTaskView | undefined =>
+    [...list].sort((a, b) => (b.track_stage !== null ? 1 : 0) - (a.track_stage !== null ? 1 : 0) || stamp(b) - stamp(a))[0];
+  /** One task per session id. */
+  const perSession = (list: DrawerTaskView[]): DrawerTaskView[] => {
+    const seen = new Map<string, DrawerTaskView>();
+    for (const t of list) if (!seen.has(t.session!.id!)) seen.set(t.session!.id!, t);
+    return [...seen.values()];
+  };
+  const canSee = (t: DrawerTaskView) => live(t) && t.session!.mine && !!t.session!.id;
+  const isOwn = (t: DrawerTaskView) => canSee(t) && !!input.ownTaskIds?.has(t.id);
+
+  // 1. The caller's own live session (a read-only role sees any live session it may view).
+  if (!opensSessions(input.role)) {
+    const pick = prefer(perSession(tasks.filter(canSee)));
+    if (pick) return enter('view', pick);
+  } else {
+    const pick = prefer(perSession(tasks.filter(isOwn)));
+    if (pick) return enter('resume', pick);
+  }
+  // 2. The box does not serve the site.
+  if (!input.available) return none('unavailable');
+  // 3. A read-only role (pm) cannot open sessions.
+  if (!opensSessions(input.role)) return none('read_only');
+
+  const openable = (t: DrawerTaskView) =>
+    !NOT_STARTABLE_TASK.includes(t.status) &&
+    !input.unstartable?.has(t.id) &&
+    !(t.track_stage !== null && ENDED_TRACK_STAGES.includes(t.track_stage));
+  const heldByOther = (t: DrawerTaskView) => live(t) && !isOwn(t);
+  const start = (t: DrawerTaskView): DrawerEntry => ({ action: 'start', session_id: null, task_id: t.id, reason: null, chip: null });
+  let blocker: DrawerTaskView | undefined;
+  // 4. The track's task.
+  const tracked = tasks.find((t) => t.track_stage !== null && openable(t));
+  if (tracked) {
+    if (heldByOther(tracked)) {
+      if (canSee(tracked)) return enter('join', tracked);
+      blocker = tracked;
+    } else {
+      return start(tracked);
+    }
+  }
+  // 5. The first task nobody else holds.
+  const free = tasks.find((t) => openable(t) && !heldByOther(t));
+  if (free) return start(free);
+  // 6. A live session held by someone else that the caller may enter.
+  const joinable = tasks.find((t) => heldByOther(t) && canSee(t));
+  if (joinable) return enter('join', joinable);
+  // 7. Someone holds a session the caller cannot enter.
+  blocker = blocker ?? tasks.find((t) => heldByOther(t));
+  if (blocker) return none('taken', blocker.session!.chip);
+  // 8. Nothing can be opened and nobody holds anything.
+  return none('not_ready');
 }
 
 function drawerSession(s: DrawerSessionRow | undefined, actor: Pick<DesignActor, 'userId' | 'role'>, publishedAt: Map<string, Date | null>): DrawerSessionView | null {
   if (!s) return null;
-  const mine = actor.role === 'admin' || actor.role === 'pm' || s.designer_id === actor.userId;
+  const mine = actor.role === 'admin' || actor.role === 'pm' || actor.role === 'tech' || s.designer_id === actor.userId;
   return {
     id: mine ? s.id : null,
     status: s.status,
@@ -149,6 +255,9 @@ function drawerSession(s: DrawerSessionRow | undefined, actor: Pick<DesignActor,
  */
 export function projectDrawer(data: DrawerData, actor: Pick<DesignActor, 'userId' | 'role'>, now: Date = new Date()): DrawerResponse {
   type Group = { id: string; name: string; site: { id: string; name: string; available: boolean }; phases: Map<string, { name: string | null; order: number; tasks: DrawerTaskView[] }> };
+  const createdAt = new Map<string, Date>();
+  const unstartable = new Set<string>();
+  const ownTaskIds = new Set<string>();
   const groups = new Map<string, Group>();
   const rows: DrawerRow[] = data.rows;
   for (const { task, site, available } of rows) {
@@ -167,6 +276,10 @@ export function projectDrawer(data: DrawerData, actor: Pick<DesignActor, 'userId
       ph = { name: phaseName, order, tasks: [] };
       g.phases.set(phaseKey, ph);
     }
+    const sessionRow = data.sessionsByTask.get(task.id);
+    if (sessionRow) createdAt.set(sessionRow.id, sessionRow.created_at);
+    if (sessionRow && sessionRow.designer_id === actor.userId) ownTaskIds.add(task.id);
+    if (isStageTask(task.tags) && !data.trackStageByTask?.get(task.id)) unstartable.add(task.id);
     ph.tasks.push({
       id: task.id,
       title: task.title,
@@ -178,14 +291,21 @@ export function projectDrawer(data: DrawerData, actor: Pick<DesignActor, 'userId
   }
   const projects = [...groups.values()]
     .sort((a, b) => a.name.localeCompare(b.name) || a.site.name.localeCompare(b.site.name))
-    .map((g) => ({
-      id: g.id,
-      name: g.name,
-      site: g.site,
-      phases: [...g.phases.values()]
+    .map((g) => {
+      const phases = [...g.phases.values()]
         .sort((a, b) => a.order - b.order || (a.name ?? '￿').localeCompare(b.name ?? '￿'))
-        .map((p) => ({ name: p.name, tasks: p.tasks })),
-    }));
+        .map((p) => ({ name: p.name, tasks: p.tasks }));
+      const tasks = phases.flatMap((p) => p.tasks);
+      return {
+        id: g.id,
+        name: g.name,
+        site: g.site,
+        open_tasks: tasks.length,
+        track_stage: tasks.find((t) => t.track_stage !== null)?.track_stage ?? null,
+        entry: groupEntry({ role: actor.role, available: g.site.available, tasks, createdAt, unstartable, ownTaskIds }),
+        phases,
+      };
+    });
   return { projects, worker: workerView(data.worker, now) };
 }
 
@@ -475,6 +595,8 @@ export function projectPublish(p: PublishRowForProjection) {
 export function projectPublishPage(input: {
   publish: PublishRowForProjection;
   session: { id: string; task: { id: string; title: string }; designer: { name: string } };
+  /** The user who published (not always the session's designer). Empty name when unknown. */
+  actor: { name: string };
   changes: ReadonlyArray<{ id: string; summary: string; data_libs: string[]; pages: string[]; before_asset_ids: string[]; after_asset_ids: string[]; decision: string; edit_scope?: string | null; render_count?: number | null }>;
   rollback: { ok: true } | { ok: false; code: PolicyCode };
 }) {
@@ -485,6 +607,7 @@ export function projectPublishPage(input: {
       task: { id: input.session.task.id, title: input.session.task.title },
       designer: { name: input.session.designer.name },
     },
+    actor: { name: input.actor.name },
     changes: input.changes.map((c) => ({
       id: c.id, summary: c.summary, data_libs: c.data_libs, pages: c.pages,
       before_asset_ids: c.before_asset_ids, after_asset_ids: c.after_asset_ids, decision: c.decision,

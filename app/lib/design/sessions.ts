@@ -14,7 +14,7 @@ import type { DesignSession, DesignSessionStatus, DesignTrack, PrismaClient } fr
 import { prisma as defaultDb } from '@/lib/db/prisma';
 import { ApiError } from '@/lib/api/errors';
 import { claimTask, releaseClaim } from '@/lib/tasks/claims';
-import { DRAWER_TASK_SELECT, designerOnProject, drawerDecision, DESIGN_TERMINAL_SESSION_STATUSES, type DrawerDecision, type DrawerTask } from './access';
+import { DRAWER_TASK_SELECT, designerOnProject, opensSessions, reachesAllSessions, drawerDecision, DESIGN_TERMINAL_SESSION_STATUSES, type DrawerDecision, type DrawerTask } from './access';
 import { stopTimer } from './timer';
 import { designClaimHolder, isUuid, task8, type DesignActor } from './helpers';
 import { findTaskByTag, lockTrack } from './track-core';
@@ -155,7 +155,7 @@ export interface CreateOrGetResult {
  *    own session only while she is still on its project (W8.2 H2: 404 once she is removed). Another
  *    designer's live session is 409 `session_owned` only when the task is in this designer's drawer (she is
  *    on the project, so the drawer already shows her the task and its session chip); otherwise 404, so task
- *    ids cannot be probed (W8.2 H6, T10). An admin may open any live session.
+ *    ids cannot be probed (W8.2 H6, T10). An admin or tech may open any live session.
  *  - a new session needs: the kill switch on (409 portal_disabled), the task passing the drawer filter for this
  *    caller (404; claimed by someone else is 409 task_claimed), the site served by the box (409
  *    site_not_available), and the task claim (holder `design:<task8>`); the claim is taken inside the
@@ -168,7 +168,7 @@ export interface CreateOrGetResult {
  */
 export async function createOrGetSession(actor: DesignActor, taskId: string, db: Db = defaultDb): Promise<CreateOrGetResult> {
   if (!isUuid(taskId)) throw new ApiError('Task not found', 404, 'not_found');
-  if (actor.role !== 'designer' && actor.role !== 'admin') throw new ApiError('Forbidden', 403, 'forbidden');
+  if (!opensSessions(actor.role)) throw new ApiError('Forbidden', 403, 'forbidden');
   return db.$transaction(async (tx) => {
     // v2 (SPEC 2.3): a Bast-run task (design-runner) never opens a workspace; a design-stage task opens the track's.
     const head = await tx.task.findUnique({ where: { id: taskId }, select: { tags: true, project_id: true } });
@@ -215,7 +215,7 @@ export async function createOrGetSession(actor: DesignActor, taskId: string, db:
       ? track ? await tx.designSession.findFirst({ where: { track_id: track.id, status: { notIn: ['closed', 'abandoned'] } } }) : null
       : await tx.designSession.findFirst({ where: { task_id: taskId, status: { notIn: ['closed', 'abandoned'] } } });
     if (live) {
-      if (actor.role !== 'admin') {
+      if (!reachesAllSessions(actor.role)) {
         if (live.designer_id === actor.userId) {
           if (!(await designerOnProject(actor.userId, live.project_id, tx as unknown as Db))) throw new ApiError('Task not found', 404, 'not_found');
         } else {

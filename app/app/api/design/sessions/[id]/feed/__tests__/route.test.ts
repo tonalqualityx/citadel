@@ -106,5 +106,20 @@ describe('GET /api/design/sessions/:id/feed', () => {
     const json = await (await call()).json();
     expect(json.publish).toMatchObject({ can_publish: false, reason: 'publish_in_progress', running_publish_id: 'pub-1' });
   });
+  it("a tech user reads another designer's feed; the publish control follows the designer switch", async () => {
+    signIn(auth, userFind, 'tech');
+    arrange({ publish_precheck: { head_sha: 'head2222', gates_ok: true } });
+    const res = await call();
+    expect(res.status).toBe(200);
+    expect((await res.json()).publish).toMatchObject({ can_publish: true, main_role: 'client_preview' });
+    (prisma.site.findUnique as Mock).mockResolvedValue({ id: SITE_ID, design_portal_enabled: true, designer_publish: false, is_deleted: false });
+    const off = (await (await call()).json()).publish;
+    expect(off).toMatchObject({ can_publish: false, reason: 'designer_publish_off' });
+  });
+  it('a tech user on an API key is 403 on the feed', async () => {
+    signIn(auth, userFind, 'tech', { via: 'api_key' });
+    expect((await call()).status).toBe(403);
+  });
+
   sessionRouteMatrix('feed', { invoke: () => call(), requireAuth: auth, userFind, assignmentFind: prisma.projectTeamAssignment.findFirst as Mock, arrange: () => arrange(), write: false });
 });

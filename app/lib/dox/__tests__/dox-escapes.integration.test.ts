@@ -255,7 +255,9 @@ describe.skipIf(!SCRATCH)('Dox escape attempts (real database)', () => {
       const gone = await fx.mkStaff('Gone');
       await prisma.user.update({ where: { id: gone }, data: { is_active: false } });
       const other = BOT_USER_IDS.find((b) => b !== BOT_ID)!;
-      await prisma.user.upsert({ where: { id: other }, update: {}, create: { id: other, email: `bot2-${fx.tag}@example.test`, password_hash: 'x', name: 'Other bot', role: 'pm' } });
+      // The row stays in the scratch database (dox-slice2a reads it too). Its first name is two letters on purpose: the portal
+      // chat gate reads user first names of three letters or more as staff names, and "Other" made it refuse the word "other".
+      await prisma.user.upsert({ where: { id: other }, update: { name: 'B2 bot' }, create: { id: other, email: `bot2-${fx.tag}@example.test`, password_hash: 'x', name: 'B2 bot', role: 'pm' } });
       as(dox());
       expect((await json(await patchTask(call(P, { assignee_id: ghost }, 'PATCH'), idParams(plainTask)))).status).toBe(400);
       expect((await json(await createTask(call(P, { title: `${fx.tag} c`, project_id: P, assignee_id: ghost })))).status).toBe(400);

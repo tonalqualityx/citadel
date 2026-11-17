@@ -90,7 +90,7 @@ describe('designerMayPublish: every D5 row', () => {
   });
 });
 
-describe('canPublish: D5 table x actor (designer, admin, pm, admin API key)', () => {
+describe('canPublish: D5 table x actor (designer, tech, admin, pm, admin API key)', () => {
   for (const [mode, role, flag, designerAllowed] of DESIGNER_TABLE) {
     const label = `${mode} / ${role ?? 'unknown'} / flag ${flag}`;
     const settings = { designer_publish_mode: mode };
@@ -102,6 +102,19 @@ describe('canPublish: D5 table x actor (designer, admin, pm, admin API key)', ()
       } else {
         expect(d).toMatchObject({ ok: false, status: 403, code: 'designer_publish_off' });
       }
+    });
+
+    it(`${label}: tech -> ${designerAllowed ? 'allowed (stamped designer)' : '403 designer_publish_off'}, on a session she does not own`, () => {
+      const d = canPublish(actor(TECH, 'tech'), session({ designer_id: OTHER_DESIGNER, designer_on_project: false }), site(flag), settings, role);
+      if (designerAllowed) {
+        expect(d).toMatchObject({ ok: true, actor_role: 'designer', publish_mode: mode, site_designer_publish: flag, main_role: role ?? 'production' });
+      } else {
+        expect(d).toMatchObject({ ok: false, status: 403, code: 'designer_publish_off' });
+      }
+    });
+
+    it(`${label}: tech with an API key -> 403 session_required`, () => {
+      expect(canPublish(actor(TECH, 'tech', 'api_key'), session(), site(flag), settings, role)).toMatchObject({ ok: false, status: 403, code: 'session_required' });
     });
 
     it(`${label}: admin -> allowed`, () => {
@@ -130,8 +143,13 @@ describe('canPublish: who else, and the state checks', () => {
   it('another designer gets 404 (no id probing)', () => {
     expect(canPublish(actor(OTHER_DESIGNER, 'designer'), session(), site(true), defaults, 'client_preview')).toMatchObject({ status: 404, code: 'not_found' });
   });
-  it('tech gets 404', () => {
-    expect(canPublish(actor(TECH, 'tech'), session(), site(true), defaults, 'client_preview')).toMatchObject({ status: 404 });
+  it('tech publishes any session under the designer switch, stamped designer', () => {
+    expect(canPublish(actor(TECH, 'tech'), session({ designer_id: OTHER_DESIGNER, designer_on_project: false }), site(true), defaults, 'client_preview'))
+      .toMatchObject({ ok: true, actor_role: 'designer' });
+  });
+  it('tech with the switch off gets 403 designer_publish_off', () => {
+    expect(canPublish(actor(TECH, 'tech'), session(), site(true), { designer_publish_mode: 'off' }, 'client_preview'))
+      .toMatchObject({ ok: false, status: 403, code: 'designer_publish_off' });
   });
   it('a lane key (tech, api key) gets 403 session_required', () => {
     expect(canPublish(actor(TECH, 'tech', 'api_key'), session(), site(true), defaults, 'client_preview')).toMatchObject({ status: 403, code: 'session_required' });
@@ -193,6 +211,10 @@ describe('designer rights are current (W8.2 H2)', () => {
     expect(canRequestPublish(actor(DESIGNER, 'designer'), session({ designer_on_project: false }), site(true), { designer_publish_mode: 'off' }, 'client_preview'))
       .toMatchObject({ ok: false, status: 404, code: 'not_found' });
   });
+  it('tech is not held to the on-project flag or to ownership', () => {
+    expect(canPublish(actor(TECH, 'tech'), session({ designer_on_project: false }), site(true), { designer_publish_mode: 'per_site' }, 'client_preview').ok).toBe(true);
+    expect(canRequestPublish(actor(TECH, 'tech'), session({ designer_on_project: false, designer_id: OTHER_DESIGNER }), site(true), { designer_publish_mode: 'off' }, 'client_preview').ok).toBe(true);
+  });
   it('an admin is unaffected by the flag', () => {
     expect(canPublish(actor(ADMIN, 'admin'), session({ designer_on_project: false }), site(true), { designer_publish_mode: 'per_site' }, 'client_preview').ok).toBe(true);
   });
@@ -207,6 +229,15 @@ describe('canRequestPublish', () => {
     expect(canRequestPublish(d, session(), site(true), { designer_publish_mode: 'off' }, 'client_preview').ok).toBe(true);
     expect(canRequestPublish(d, session(), site(false), { designer_publish_mode: 'per_site' }, 'client_preview').ok).toBe(true);
     expect(canRequestPublish(d, session(), site(true), { designer_publish_mode: 'pre_launch_only' }, 'production').ok).toBe(true);
+  });
+  it('tech: allowed when the switch is off, on any session; 409 publish_allowed when on; api key 403', () => {
+    const t = actor(TECH, 'tech');
+    const other = session({ designer_id: OTHER_DESIGNER, designer_on_project: false });
+    expect(canRequestPublish(t, other, site(true), { designer_publish_mode: 'off' }, 'production').ok).toBe(true);
+    expect(canRequestPublish(t, other, site(false), { designer_publish_mode: 'per_site' }, 'production').ok).toBe(true);
+    expect(canRequestPublish(t, other, site(true), { designer_publish_mode: 'per_site' }, 'production')).toMatchObject({ status: 409, code: 'publish_allowed' });
+    expect(canRequestPublish(actor(TECH, 'tech', 'api_key'), other, site(true), { designer_publish_mode: 'off' }, 'production')).toMatchObject({ status: 403, code: 'session_required' });
+    expect(canRequestPublish(t, session({ status: 'closed' }), site(true), { designer_publish_mode: 'off' }, 'production')).toMatchObject({ code: 'session_closed' });
   });
   it('pm 403, other designer 404, api key 403, closed 409', () => {
     const s = { designer_publish_mode: 'off' };
@@ -414,7 +445,9 @@ describe('canRollback (T23)', () => {
     ['the actor (designer)', actor(DESIGNER, 'designer'), pub, latest, true],
     ['another designer', actor(OTHER_DESIGNER, 'designer'), pub, latest, [404, 'not_found']],
     ['pm', actor(PM, 'pm'), pub, latest, [403, 'forbidden']],
-    ['tech', actor(TECH, 'tech'), pub, latest, [404, 'not_found']],
+    ['tech (not her publish)', actor(TECH, 'tech'), pub, latest, [404, 'not_found']],
+    ['tech (her own publish)', actor(TECH, 'tech'), { ...pub, actor_id: TECH }, latest, true],
+    ['tech API key (her own publish)', actor(TECH, 'tech', 'api_key'), { ...pub, actor_id: TECH }, latest, [403, 'session_required']],
     ['admin API key', actor(ADMIN, 'admin', 'api_key'), pub, latest, [403, 'session_required']],
     ['the actor with an API key', actor(DESIGNER, 'designer', 'api_key'), pub, latest, [403, 'session_required']],
     ['an older publish (a later one exists)', actor(ADMIN, 'admin'), { ...pub, id: 'pub-1', result_sha: 'r1' }, latest, [409, 'not_latest']],
@@ -427,7 +460,7 @@ describe('canRollback (T23)', () => {
   ];
   for (const [name, who, p, l, expected] of cases) {
     it(`${name} -> ${expected === true ? 'allowed' : expected.join(' ')}`, () => {
-      const standing = who.role === 'designer' ? { designer: { has_session_access: true, may_publish: true } } : {};
+      const standing = who.role === 'designer' || who.role === 'tech' ? { designer: { has_session_access: true, may_publish: true } } : {};
       const r = canRollback(who, p, l, standing);
       if (expected === true) expect(r).toEqual({ ok: true });
       else expect(r).toMatchObject({ ok: false, status: expected[0], code: expected[1] });
@@ -445,9 +478,15 @@ describe('canRollback (T23)', () => {
   it('her publish with no standing given: 404 (fail closed)', () => {
     expect(canRollback(actor(DESIGNER, 'designer'), pub, latest)).toMatchObject({ ok: false, status: 404, code: 'not_found' });
   });
-  it('her publish after she was demoted to tech: 404', () => {
-    expect(canRollback(actor(TECH, 'tech'), { ...pub, actor_id: TECH }, latest, { designer: { has_session_access: true, may_publish: true } }))
-      .toMatchObject({ ok: false, status: 404, code: 'not_found' });
+  it('tech: her own publish rolls back while designer publish is on', () => {
+    expect(canRollback(actor(TECH, 'tech'), { ...pub, actor_id: TECH }, latest, { designer: { has_session_access: true, may_publish: true } })).toEqual({ ok: true });
+  });
+  it('tech: her own publish with the switch off is 403 designer_publish_off', () => {
+    expect(canRollback(actor(TECH, 'tech'), { ...pub, actor_id: TECH }, latest, { designer: { has_session_access: true, may_publish: false } }))
+      .toMatchObject({ ok: false, status: 403, code: 'designer_publish_off' });
+  });
+  it('tech: with no standing given, 404 (fail closed)', () => {
+    expect(canRollback(actor(TECH, 'tech'), { ...pub, actor_id: TECH }, latest)).toMatchObject({ ok: false, status: 404, code: 'not_found' });
   });
   it('her publish after she was promoted to pm: 403 like any pm', () => {
     expect(canRollback(actor(PM, 'pm'), { ...pub, actor_id: PM }, latest)).toMatchObject({ ok: false, status: 403, code: 'forbidden' });

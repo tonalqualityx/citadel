@@ -17,6 +17,10 @@
  *   Unknown = production (the stronger wording).
  * - A publish is refused only for: red (or unknown) gates on the head, a stale head, a running publish, or a
  *   missing/invalid confirmation; plus the actor rule above and the session being over.
+ * - A tech user (Mike, 2026-11-17: "Sabeen should have full access to the portal.") is under the SAME
+ *   designer-publish switch but with no ownership and no on-project test: a tech may publish any session while
+ *   designer publish is on, request a publish while it is off, and roll back their own publish while it is on.
+ *   A tech publish is stamped `actor_role: 'designer'`.
  * - A designer's rights are CURRENT (W8.2 H2, H4): she acts only on her own session while she is on its
  *   project now (`designer_on_project`, computed by the caller through access.ts; absent counts as false),
  *   and only while her DATABASE role is designer. Rollback follows the designer-publish switch too: where an
@@ -183,6 +187,13 @@ export function publishActorRule(
     }
     return { ok: true, actor_role: 'designer' };
   }
+  if (actor.role === 'tech') {
+    if (!designerMayPublish(site, settings, mainRole)) {
+      return refuse('designer_publish_off', 'Designer publish is switched off for this site; request a publish instead');
+    }
+    // 'designer' on purpose: the daemon refuses any role but admin or designer, and re-checks this same switch.
+    return { ok: true, actor_role: 'designer' };
+  }
   if (actor.role === 'pm') return refuse('forbidden', 'A pm cannot publish');
   return refuse('not_found', 'Session not found');
 }
@@ -291,7 +302,7 @@ export function canPublish(
 
 /**
  * POST .../request-publish: only where an admin override stops the designer publishing on this site (else
- * 409 publish_allowed: publish it yourself). The session's designer or an admin; pm 403; others 404.
+ * 409 publish_allowed: publish it yourself). The session's designer, a tech or an admin; pm 403; others 404.
  */
 export function canRequestPublish(
   actor: Pick<DesignActor, 'userId' | 'role' | 'via'>,
@@ -302,7 +313,7 @@ export function canRequestPublish(
 ): { ok: true } | PolicyRefusal {
   if (actor.via !== 'session') return refuse('session_required', 'Requesting a publish needs a signed-in session');
   if (actor.role === 'pm') return refuse('forbidden', 'A pm cannot request a publish');
-  if (actor.role !== 'admin' && !(actor.role === 'designer' && session.designer_id === actor.userId && session.designer_on_project === true)) {
+  if (actor.role !== 'admin' && actor.role !== 'tech' && !(actor.role === 'designer' && session.designer_id === actor.userId && session.designer_on_project === true)) {
     return refuse('not_found', 'Session not found');
   }
   if (!site.design_portal_enabled || site.is_deleted) return refuse('site_not_enabled', 'The design portal is not enabled for this site');
@@ -508,8 +519,8 @@ export interface DesignerRollbackStanding {
 }
 
 /**
- * D5 and T23: admin, or that publish's actor while she is a designer with current access to the session
- * (pm 403, anyone else 404, including a publisher demoted to tech or removed from the project); a designer
+ * D5 and T23: admin, or that publish's actor while she is a designer or tech with current access to the
+ * session (pm 403, anyone else 404, including a designer removed from the project); a designer or tech
  * also needs designer publish on for the site (403 designer_publish_off; Mike's ruling: switching designer
  * publish off hands live deploys, rollback included, to the admin). Signed-in session only; only a
  * `published` publish of kind `publish` that is the site's latest successful publish (`latest`, the newest
@@ -524,7 +535,7 @@ export function canRollback(
 ): { ok: true } | PolicyRefusal {
   if (!actsAsSignedIn(actor)) return refuse('session_required', 'Rolling back needs a signed-in session');
   if (actor.role !== 'admin') {
-    const herPublish = actor.role === 'designer' && publish.actor_id === actor.userId && ctx.designer?.has_session_access === true;
+    const herPublish = (actor.role === 'designer' || actor.role === 'tech') && publish.actor_id === actor.userId && ctx.designer?.has_session_access === true;
     if (!herPublish) return actor.role === 'pm' ? refuse('forbidden', 'A pm cannot roll back') : refuse('not_found', 'Publish not found');
     if (ctx.designer?.may_publish !== true) {
       return refuse('designer_publish_off', 'Designer publish is switched off for this site, so an admin rolls it back');

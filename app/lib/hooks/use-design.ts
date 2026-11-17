@@ -4,13 +4,15 @@ import * as React from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
 import { showToast } from '@/lib/hooks/use-toast';
-import type { DrawerResponse } from '@/lib/design/projections';
+import type { DrawerResponse, DrawerEntry as ProjectedDrawerEntry } from '@/lib/design/projections';
 import { initialFeedState, mergeFeedPage, type FeedState } from '@/lib/design/feed-reducer';
 
 // Designer Portal hooks (design 7.1). Only /api/design/* routes: a designer is 403 on most others.
 
 export type DesignDrawer = DrawerResponse & { /** Sites the caller may start new work on (GET /api/design/tasks). */ start_sites?: Array<{ id: string; name: string }> };
 export type DrawerProject = DrawerResponse['projects'][number];
+/** What the Sites list button does for one project group (GET /api/design/tasks `projects[].entry`). */
+export type DrawerEntry = ProjectedDrawerEntry;
 export type DrawerTask = DrawerProject['phases'][number]['tasks'][number];
 
 export interface SessionListItem {

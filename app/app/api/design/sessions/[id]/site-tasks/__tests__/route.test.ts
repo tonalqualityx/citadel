@@ -90,5 +90,14 @@ describe('GET /api/design/sessions/:id/site-tasks', () => {
     expect(taskFind.mock.calls[0][0].where.project_id).toEqual({ not: null });
   });
 
+  it("a tech user reads another designer's session, not limited to assigned projects, with no assignment lookup", async () => {
+    signIn(auth, userFind, 'tech');
+    const res = await call();
+    expect(res.status).toBe(200);
+    expect((await res.json()).tasks).toHaveLength(2);
+    expect(taskFind.mock.calls[0][0].where.project_id).toEqual({ not: null });
+    expect(assignFind).not.toHaveBeenCalled();
+  });
+
   sessionRouteMatrix('site-tasks', { invoke: () => call(), requireAuth: auth, userFind, assignmentFind: prisma.projectTeamAssignment.findFirst as Mock, arrange: () => arrange(), write: false });
 });

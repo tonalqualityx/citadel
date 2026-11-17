@@ -56,6 +56,24 @@ describe('POST /api/design/sessions/:id/request-publish', () => {
     expect(mockDispatch.mock.calls.map((c) => c[0].userId).sort()).toEqual([IDS.admin, IDS.owner].sort());
   });
 
+  it("tech: where designer publish is off, requests a publish on another person's session; the owner gets the FYI", async () => {
+    siteOf(fakeDb).designer_publish = false;
+    const res = await call('tech', { note: 'please look' });
+    expect(res.status).toBe(200);
+    expect(sessionOf(fakeDb).publish_requested_by).toBe(IDS.tech);
+    expect(mockDispatch).toHaveBeenCalledTimes(1);
+    expect(mockDispatch.mock.calls[0][0]).toMatchObject({ userId: IDS.owner, type: 'design_publish_requested' });
+  });
+
+  it('tech: with designer publish on, 409 publish_allowed; through an API key, 403', async () => {
+    const res = await call('tech');
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe('publish_allowed');
+    siteOf(fakeDb).designer_publish = false;
+    expect((await call('tech', {}, 'api_key')).status).toBe(403);
+    expect(mockDispatch).not.toHaveBeenCalled();
+  });
+
   it('pm 403, another designer 404, an API key 403, cross-site 403', async () => {
     siteOf(fakeDb).designer_publish = false;
     expect((await call('pm')).status).toBe(403);

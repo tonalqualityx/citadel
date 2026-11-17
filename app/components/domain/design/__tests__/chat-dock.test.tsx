@@ -55,6 +55,14 @@ describe('ChatDock', () => {
     expect(screen.getByTestId('chat-dock').hidden).toBe(true);
   });
 
+  it('never grows taller than the stage on desktop', () => {
+    render(dock());
+    const cls = screen.getByTestId('chat-dock').className;
+    expect(cls).toContain('min-[1100px]:max-h-[calc(100%-2rem)]');
+    expect(cls).toContain('min-[1100px]:min-h-[min(420px,calc(100%-2rem))]');
+    expect(cls).not.toContain('min-[1100px]:min-h-[420px]');
+  });
+
   it('Wide toggles the width and persists', () => {
     render(dock());
     expect(screen.getByTestId('chat-dock').className).toContain('min-[1100px]:w-[460px]');

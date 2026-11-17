@@ -4,13 +4,13 @@
  * engine (createOrGetSession) runs, so every drawer rule still applies to it.
  *
  * Open project for a site: the most recent non-deleted project in `ready | in_progress | review` whose `site_id`
- * is the site or that has a live task naming the site. A designer is limited to projects she is on.
+ * is the site or that has a live task naming the site. A designer is limited to projects she is on; admin and tech are not.
  */
 import type { PrismaClient, Prisma } from '@prisma/client';
 import { prisma as defaultDb } from '@/lib/db/prisma';
 import { ApiError } from '@/lib/api/errors';
 import { calculateEstimatedMinutes } from '@/lib/calculations/energy';
-import { DESIGN_SITE_TYPE, DESIGN_VISIBLE_PROJECT_STATUSES, assignedProjectIdsFor } from './access';
+import { DESIGN_SITE_TYPE, DESIGN_VISIBLE_PROJECT_STATUSES, assignedProjectIdsFor, opensSessions } from './access';
 import { createOrGetSession, loadSessionDefaults } from './sessions';
 import { isUuid, type DesignActor } from './helpers';
 import { OPEN_TRACK_STAGES_EXCLUDED } from './track-session';
@@ -31,9 +31,9 @@ function openProjectWhere(assigned: readonly string[] | null): Prisma.ProjectWhe
   };
 }
 
-/** Sites the caller may start work on: design-enabled, eleventy, with an open project (a designer: one she is on). admin only; pm gets none (it cannot open sessions). */
+/** Sites the caller may start work on: design-enabled, eleventy, with an open project (a designer: one she is on; admin and tech: any). pm gets none (it cannot open sessions). */
 export async function loadStartSites(actor: Pick<DesignActor, 'userId' | 'role'>, db: Pick<Db, 'site' | 'projectTeamAssignment'> = defaultDb): Promise<Array<{ id: string; name: string }>> {
-  if (actor.role !== 'designer' && actor.role !== 'admin') return [];
+  if (!opensSessions(actor.role)) return [];
   const assigned = actor.role === 'designer' ? await assignedProjectIdsFor(actor.userId, db) : null;
   if (assigned && assigned.length === 0) return [];
   const project = openProjectWhere(assigned);
@@ -56,7 +56,7 @@ export interface StartWorkInput {
 }
 
 export async function startWork(actor: DesignActor, input: StartWorkInput, db: Db = defaultDb): Promise<{ session_id: string; task_id: string }> {
-  if (actor.role !== 'designer' && actor.role !== 'admin') throw new ApiError('Forbidden', 403, 'forbidden');
+  if (!opensSessions(actor.role)) throw new ApiError('Forbidden', 403, 'forbidden');
   if (!isUuid(input.site_id)) throw new ApiError('Site not found', 404, 'not_found');
   const title = input.title.trim();
   if (!title) throw new ApiError('Title is required', 400, 'bad_title');

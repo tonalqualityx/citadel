@@ -31,7 +31,7 @@ interface NavSection {
 export function MobileNav({ open, onClose, anyWidth = false }: MobileNavProps) {
   const pathname = usePathname();
   const { t } = useTerminology();
-  const { isPmOrAdmin, isAdmin } = useAuth();
+  const { isPmOrAdmin, isAdmin, isTech } = useAuth();
   const initialPathname = useRef(pathname);
 
   // Close on route change (but not on initial mount)
@@ -78,12 +78,9 @@ export function MobileNav({ open, onClose, anyWidth = false }: MobileNavProps) {
     emoji: '🔥',
     defaultOpen: true,
     items: [
-      ...(isPmOrAdmin
-        ? [
-            { name: t('projects'), href: '/projects', emoji: '🤝' },
-            { name: 'Design', href: '/design', emoji: '🎨' },
-          ]
-        : []),
+      ...(isPmOrAdmin ? [{ name: t('projects'), href: '/projects', emoji: '🤝' }] : []),
+      // Design: pm, admin and tech (Mike, 2026-11-17); projects stay pm/admin only
+      ...(isPmOrAdmin || isTech ? [{ name: 'Design', href: '/design', emoji: '🎨' }] : []),
       { name: t('clients'), href: '/clients', emoji: '🧑‍🚀' },
       { name: t('sites'), href: '/sites', emoji: '🏰' },
       { name: t('domains'), href: '/domains', emoji: '🔗' },

@@ -29,6 +29,8 @@ export interface PreviewPaneProps {
   frameEpoch?: number;
   /** The session whose art direction receives a saved width. Null or missing: the control previews only. */
   directionSessionId?: string | null;
+  /** Rendered last in the toolbar row (and in the corner of the setting-up state): the workspace's hide-top toggle. */
+  toolbarEnd?: React.ReactNode;
 }
 
 function isTypingTarget(t: EventTarget | null): boolean {
@@ -36,7 +38,7 @@ function isTypingTarget(t: EventTarget | null): boolean {
   return t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName);
 }
 
-export function PreviewPane({ previewUrl, status, liveText, iframeRef, selectMode, onSelectModeChange, reportedPath, onViewChange, sendPreviewToken, frameEpoch, directionSessionId }: PreviewPaneProps) {
+export function PreviewPane({ previewUrl, status, liveText, iframeRef, selectMode, onSelectModeChange, reportedPath, onViewChange, sendPreviewToken, frameEpoch, directionSessionId, toolbarEnd }: PreviewPaneProps) {
   const [viewport, setViewport] = React.useState<ViewportKey>('fit');
   const [framePath, setFramePath] = React.useState<string>('/');
   const [barText, setBarText] = React.useState('/');
@@ -144,10 +146,13 @@ export function PreviewPane({ previewUrl, status, liveText, iframeRef, selectMod
 
   if (!previewUrl || status === 'pending') {
     return (
-      <div className="flex h-full min-h-[320px] flex-col items-center justify-center gap-3 rounded-lg border border-border-warm bg-surface p-6 text-center" role="status">
-        <Spinner />
-        <p className="text-sm font-medium text-text-main">Setting up your preview</p>
-        <p className="max-w-sm text-xs text-text-sub">{liveText || 'Creating your branch and building the first preview. This usually takes a few minutes.'}</p>
+      <div className="relative flex h-full min-h-0 flex-col items-center justify-center gap-3 overflow-auto rounded-lg border border-border-warm bg-surface p-6 text-center">
+        {toolbarEnd && <div className="absolute right-2 top-2">{toolbarEnd}</div>}
+        <div role="status" className="flex flex-col items-center gap-3">
+          <Spinner />
+          <p className="text-sm font-medium text-text-main">Setting up your preview</p>
+          <p className="max-w-sm text-xs text-text-sub">{liveText || 'Creating your branch and building the first preview. This usually takes a few minutes.'}</p>
+        </div>
       </div>
     );
   }
@@ -186,12 +191,13 @@ export function PreviewPane({ previewUrl, status, liveText, iframeRef, selectMod
             Scaled to {vs.percent}%
           </span>
         )}
+        {toolbarEnd}
       </div>
       {sendPreviewToken && <WidthControl sendToken={sendPreviewToken} frameEpoch={frameEpoch} sessionId={directionSessionId} />}
       {barError && (
         <p id="preview-url-error" role="alert" className="text-xs text-red-600">{barError}</p>
       )}
-      <div ref={areaRef} className="relative min-h-[320px] flex-1 overflow-hidden rounded-lg border border-border-warm bg-background-light">
+      <div ref={areaRef} className="relative min-h-0 flex-1 overflow-hidden rounded-lg border border-border-warm bg-background-light">
         <div
           ref={wrapperRef}
           data-testid="preview-frame-wrapper"

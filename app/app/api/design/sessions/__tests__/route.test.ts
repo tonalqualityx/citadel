@@ -43,6 +43,14 @@ describe('GET /api/design/sessions', () => {
     expect((await GET(getRequest('/api/design/sessions?status=active'))).status).toBe(200);
     expect(findMany.mock.calls[0][0].where).toEqual({ status: 'active' });
   });
+  it('a tech user lists all sessions (where {}), with no assignment lookup, and with a status filter', async () => {
+    signIn(auth, userFind, 'tech');
+    expect((await GET(getRequest('/api/design/sessions'))).status).toBe(200);
+    expect(findMany.mock.calls[0][0].where).toEqual({});
+    expect((await GET(getRequest('/api/design/sessions?status=active'))).status).toBe(200);
+    expect(findMany.mock.calls[1][0].where).toEqual({ status: 'active' });
+    expect(prisma.projectTeamAssignment.findMany).not.toHaveBeenCalled();
+  });
   it('an unknown status is 400, pm is 403, anonymous is 401', async () => {
     signIn(auth, userFind, 'admin');
     expect((await GET(getRequest('/api/design/sessions?status=bogus'))).status).toBe(400);
@@ -61,6 +69,13 @@ describe('POST /api/design/sessions', () => {
     const b = await POST(jsonRequest('/api/design/sessions', 'POST', { task_id: TASK_ID }));
     expect([a.status, b.status]).toEqual([201, 200]);
     expect((await a.json()).session).toMatchObject({ task_id: TASK_ID, status: 'awaiting_input' });
+  });
+  it('a tech user creates a session: the service gets her actor, 201', async () => {
+    signIn(auth, userFind, 'tech');
+    create.mockResolvedValueOnce({ session: sessionRow(), created: true });
+    const res = await POST(jsonRequest('/api/design/sessions', 'POST', { task_id: TASK_ID }));
+    expect(res.status).toBe(201);
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ role: 'tech' }), TASK_ID);
   });
   it('passes service refusals through (404, 409 portal_disabled/site_not_available/session_owned)', async () => {
     signIn(auth, userFind, 'designer');

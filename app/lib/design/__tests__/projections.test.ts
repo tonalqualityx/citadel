@@ -10,6 +10,9 @@ import {
   findForbiddenKeys,
   projectChange,
   projectDrawer,
+  groupEntry,
+  type DrawerTaskView,
+  type SessionChip,
   projectFeed,
   projectPin,
   latestLibIndex,
@@ -104,7 +107,10 @@ describe('drawer projection', () => {
     expect(out.worker).toEqual({ online: true, paused: false });
     expect(out.projects.map((p) => p.name)).toEqual(['Another', 'VCDP rebuild']);
     const vcdp = out.projects[1];
-    expect(sorted(vcdp)).toEqual(['id', 'name', 'phases', 'site']);
+    expect(sorted(vcdp)).toEqual(['entry', 'id', 'name', 'open_tasks', 'phases', 'site', 'track_stage']);
+    expect(vcdp.open_tasks).toBe(3);
+    expect(vcdp.track_stage).toBeNull();
+    expect(sorted(vcdp.entry)).toEqual(['action', 'chip', 'reason', 'session_id', 'task_id']);
     expect(vcdp.site).toEqual({ id: 'site-1', name: 'VCDP', available: true });
     expect(out.projects[0].site.available).toBe(false);
     expect(vcdp.phases.map((p) => p.name)).toEqual(['Design', 'Build', null]);
@@ -126,6 +132,12 @@ describe('drawer projection', () => {
     const out = projectDrawer(data, { userId: 'admin-1', role: 'admin' }, NOW);
     const theirs = out.projects[1].phases.flatMap((p) => p.tasks).find((t) => t.id === 't-b')!.session!;
     expect(theirs.id).toBe('sess-theirs');
+  });
+
+  it('tech sees every session id, as admin and pm do', () => {
+    const out = projectDrawer(data, { userId: 'tech-1', role: 'tech' }, NOW);
+    const theirs = out.projects[1].phases.flatMap((p) => p.tasks).find((t) => t.id === 't-b')!.session!;
+    expect(theirs).toMatchObject({ id: 'sess-theirs', mine: true });
   });
 
   it('v2: a stage task carries its track stage, every other task null; a stage task shows the track session chip', () => {
@@ -294,10 +306,12 @@ describe('publish page projection', () => {
       publish: leaky,
       session: { id: 'sess-1', task: { id: 'task-1', title: 'T', ...LEAK } as never, designer: { name: 'Lisa', email: 'lisa@x.test' } as never },
       changes: [{ ...LEAK, id: 'c', summary: 's', data_libs: [], pages: ['/'], before_asset_ids: [], after_asset_ids: [], decision: 'accepted' } as never],
+      actor: { name: 'Mike', email: 'm@x.test' } as never,
       rollback: { ok: false, code: 'not_latest' },
     });
     expect(findForbiddenKeys(out)).toEqual([]);
-    expect(sorted(out)).toEqual(['can_rollback', 'changes', 'publish', 'rollback_reason', 'session']);
+    expect(sorted(out)).toEqual(['actor', 'can_rollback', 'changes', 'publish', 'rollback_reason', 'session']);
+    expect(out.actor).toEqual({ name: 'Mike' });
     expect(out.publish).not.toHaveProperty('confirmation_token_hash');
     expect(out.publish).not.toHaveProperty('confirmation_expires_at');
     expect(out.publish.confirmation_shown).toEqual({ target_words: 'the client preview at vcdp.pages.dev', main_branch: 'main' });
@@ -309,7 +323,7 @@ describe('publish page projection', () => {
   });
 
   it('can_rollback true carries no reason', () => {
-    const out = projectPublishPage({ publish, session: { id: 's', task: { id: 't', title: 'T' }, designer: { name: 'L' } }, changes: [], rollback: { ok: true } });
+    const out = projectPublishPage({ publish, session: { id: 's', task: { id: 't', title: 'T' }, designer: { name: 'L' } }, actor: { name: '' }, changes: [], rollback: { ok: true } });
     expect(out.can_rollback).toBe(true);
     expect(out).not.toHaveProperty('rollback_reason');
   });
@@ -331,5 +345,106 @@ describe('workerLive (feed worker_online)', () => {
     expect(workerLive({ last_heartbeat_at: new Date('2026-10-28T10:00:20Z'), paused: true }, now)).toBe(false);
     expect(workerLive({ last_heartbeat_at: null, paused: false }, now)).toBe(false);
     expect(workerLive(null, now)).toBe(false);
+  });
+});
+
+
+describe('groupEntry', () => {
+  const sess = (id: string | null, mine: boolean, chip: SessionChip = 'active') =>
+    ({ id, status: 'active', mine, chip, published_at: null });
+  const t = (id: string, session: DrawerTaskView['session'] = null, over: Partial<DrawerTaskView> = {}): DrawerTaskView =>
+    ({ id, title: id, status: 'not_started', phase: null, track_stage: null, session, ...over });
+  const base = { role: 'designer', available: true };
+  const at = (n: number) => new Date(1_700_000_000_000 + n * 1000);
+  const own = (...ids: string[]) => new Set(ids);
+
+  it('resume prefers the tracked own session', () => {
+    const e = groupEntry({
+      ...base,
+      tasks: [t('a', sess('new', true), {}), t('b', sess('tracked', true, 'awaiting_you'), { track_stage: 'refine' })],
+      createdAt: new Map([['new', at(9)], ['tracked', at(1)]]),
+      ownTaskIds: own('a', 'b'),
+    });
+    expect(e).toEqual({ action: 'resume', session_id: 'tracked', task_id: 'b', reason: null, chip: 'awaiting_you' });
+  });
+  it('resume picks the newest own session when none is tracked', () => {
+    const e = groupEntry({ ...base, tasks: [t('a', sess('old', true)), t('b', sess('new', true, 'stopped'))], createdAt: new Map([['old', at(1)], ['new', at(5)]]), ownTaskIds: own('a', 'b') });
+    expect(e).toMatchObject({ action: 'resume', session_id: 'new', task_id: 'b', chip: 'stopped' });
+  });
+  it('de-duplicates a session shown on two tasks', () => {
+    const e = groupEntry({ ...base, tasks: [t('a', sess('s1', true), { track_stage: 'refine' }), t('b', sess('s1', true), { track_stage: 'refine' })], createdAt: new Map([['s1', at(1)]]), ownTaskIds: own('a', 'b') });
+    expect(e).toMatchObject({ action: 'resume', session_id: 's1', task_id: 'a' });
+  });
+  it('ignores a closed own session and a session the caller cannot see', () => {
+    const e = groupEntry({ ...base, tasks: [t('a', sess('c', true, 'closed')), t('b', sess(null, false))], ownTaskIds: own('a') });
+    expect(e).toMatchObject({ action: 'start', task_id: 'a' });
+  });
+  it('admin and tech join another person\'s tracked session', () => {
+    for (const role of ['admin', 'tech']) {
+      const e = groupEntry({ role, available: true, tasks: [t('a'), t('b', sess('theirs', true, 'awaiting_you'), { track_stage: 'refine' })], ownTaskIds: own() });
+      expect(e).toEqual({ action: 'join', session_id: 'theirs', task_id: 'b', reason: null, chip: 'awaiting_you' });
+    }
+  });
+  it('admin or tech with another person\'s session on untracked a1 and a free a2 start on a2', () => {
+    for (const role of ['admin', 'tech']) {
+      const e = groupEntry({ role, available: true, tasks: [t('a1', sess('theirs', true)), t('a2')], ownTaskIds: own() });
+      expect(e).toMatchObject({ action: 'start', task_id: 'a2' });
+    }
+  });
+  it('admin with only another person\'s sessions joins the first', () => {
+    const e = groupEntry({ role: 'admin', available: true, tasks: [t('a1', sess('x', true)), t('a2', sess('y', true))], ownTaskIds: own() });
+    expect(e).toMatchObject({ action: 'join', session_id: 'x', task_id: 'a1' });
+  });
+  it('a designer with the tracked task held by someone else starts on a free untracked task', () => {
+    const e = groupEntry({ ...base, tasks: [t('a'), t('b', sess(null, false, 'awaiting_you'), { track_stage: 'research' })] });
+    expect(e).toEqual({ action: 'start', session_id: null, task_id: 'a', reason: null, chip: null });
+  });
+  it('a designer with everything held gets none and taken', () => {
+    const e = groupEntry({ ...base, tasks: [t('a', sess(null, false, 'publishing')), t('b', sess(null, false))] });
+    expect(e).toEqual({ action: 'none', session_id: null, task_id: null, reason: 'taken', chip: 'publishing' });
+  });
+  it('the tracked blocker chip wins when nothing else can be opened', () => {
+    const e = groupEntry({ ...base, tasks: [t('a', null, { status: 'done' }), t('b', sess(null, false, 'awaiting_you'), { track_stage: 'research' })] });
+    expect(e).toMatchObject({ action: 'none', reason: 'taken', chip: 'awaiting_you' });
+  });
+  it('nothing can be opened and nobody holds anything is not ready', () => {
+    const e = groupEntry({ ...base, tasks: [t('a'), t('b')], unstartable: new Set(['a', 'b']) });
+    expect(e).toEqual({ action: 'none', session_id: null, task_id: null, reason: 'not_ready', chip: null });
+  });
+  it('a pm gets view on a live session, even when the site is not available', () => {
+    expect(groupEntry({ role: 'pm', available: false, tasks: [t('a', sess('s1', true))] })).toEqual({ action: 'view', session_id: 's1', task_id: 'a', reason: null, chip: 'active' });
+  });
+  it('site not available', () => {
+    expect(groupEntry({ ...base, available: false, tasks: [t('a')] })).toEqual({ action: 'none', session_id: null, task_id: null, reason: 'unavailable', chip: null });
+  });
+  it('pm with no live session is read only', () => {
+    expect(groupEntry({ role: 'pm', available: true, tasks: [t('a')] })).toMatchObject({ action: 'none', reason: 'read_only' });
+    expect(groupEntry({ role: 'pm', available: true, tasks: [t('a', sess('c', true, 'closed'))] })).toMatchObject({ action: 'none', reason: 'read_only' });
+  });
+  it('starts on the track task first', () => {
+    const e = groupEntry({ ...base, tasks: [t('a'), t('b', null, { track_stage: 'research' })] });
+    expect(e).toEqual({ action: 'start', session_id: null, task_id: 'b', reason: null, chip: null });
+  });
+  it('an ended track or a stage task with no track is not started', () => {
+    expect(groupEntry({ ...base, tasks: [t('a'), t('b', null, { track_stage: 'done' })] })).toMatchObject({ action: 'start', task_id: 'a' });
+    expect(groupEntry({ ...base, tasks: [t('a'), t('b')], unstartable: new Set(['a']) })).toMatchObject({ action: 'start', task_id: 'b' });
+  });
+  it('an untracked start skips a task someone else holds', () => {
+    const e = groupEntry({ ...base, tasks: [t('a', sess(null, false)), t('b')] });
+    expect(e).toMatchObject({ action: 'start', task_id: 'b' });
+  });
+  it('the projection carries entry, open_tasks and track_stage with no forbidden key', () => {
+    const task = (id: string, o: object = {}) => ({ task: dtask(id, o), site: site(), available: true });
+    const data: DrawerData = {
+      rows: [task('x1', { tags: ['design-stage:refine'] }), task('x2')],
+      sessionsByTask: new Map([['x1', { id: 'sess-x', task_id: 'x1', designer_id: DESIGNER, status: 'active', publish_requested_at: null, last_publish_id: null, created_at: NOW }]]),
+      trackStageByTask: new Map([['x1', 'refine']]),
+      publishedAt: new Map(),
+      worker: { last_heartbeat_at: NOW, paused: false },
+    };
+    const out = projectDrawer(data, { userId: DESIGNER, role: 'designer' }, NOW);
+    expect(out.projects[0]).toMatchObject({ open_tasks: 2, track_stage: 'refine', entry: { action: 'resume', session_id: 'sess-x', task_id: 'x1', chip: 'active' } });
+    expect(JSON.stringify(out.projects[0].entry)).not.toContain('created_at');
+    expect(findForbiddenKeys(out)).toEqual([]);
   });
 });

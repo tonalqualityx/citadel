@@ -12,6 +12,10 @@ describe('timer ownership', () => {
     expect(ownsTimer(session, { userId: 'u-owner', role: 'designer' })).toBe(true);
     expect(ownsTimer(session, { userId: 'u-owner', role: 'admin' })).toBe(true);
   });
+  it('the opening tech user owns the timer; another tech user does not', () => {
+    expect(ownsTimer(session, { userId: 'u-owner', role: 'tech' })).toBe(true);
+    expect(ownsTimer(session, { userId: 'u-tech', role: 'tech' })).toBe(false);
+  });
   it('a viewing pm, another admin, another designer, or nobody gets none', () => {
     expect(ownsTimer(session, { userId: 'u-pm', role: 'pm' })).toBe(false);
     expect(ownsTimer(session, { userId: 'u-admin', role: 'admin' })).toBe(false);

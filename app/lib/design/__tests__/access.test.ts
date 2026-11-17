@@ -6,6 +6,10 @@ import type { UserRole } from '@prisma/client';
 import { designActorFrom, designClaimHolder, type DesignActor } from '../helpers';
 import {
   DRAWER_TASK_SELECT,
+  canReadAdminLists,
+  canReadDrawer,
+  opensSessions,
+  reachesAllSessions,
   drawerDecision,
   drawerTaskWhere,
   effectiveSite,
@@ -149,8 +153,11 @@ describe('drawerDecision: who', () => {
     expect(drawerDecision(task(), ctx({ actor: actor('admin-1', 'admin'), assignedProjectIds: [] })).listed).toBe(true);
     expect(drawerDecision(task(), ctx({ actor: actor('pm-1', 'pm'), assignedProjectIds: [] })).listed).toBe(true);
   });
-  it('tech never reads the drawer', () => {
-    expect(drawerDecision(task(), ctx({ actor: actor('tech-1', 'tech') }))).toEqual({ listed: false, reason: 'role_not_allowed' });
+  it('tech sees every enabled site task without an assignment, as admin and pm do', () => {
+    expect(drawerDecision(task(), ctx({ actor: actor('tech-1', 'tech'), assignedProjectIds: [] })).listed).toBe(true);
+  });
+  it('a role outside designer, admin, pm and tech is role_not_allowed', () => {
+    expect(drawerDecision(task(), ctx({ actor: actor('x-1', 'viewer' as unknown as UserRole) }))).toEqual({ listed: false, reason: 'role_not_allowed' });
   });
 });
 
@@ -284,8 +291,15 @@ describe('loadDrawer', () => {
     expect(data.rows[0].available).toBe(false);
     expect(data.worker).toEqual({ last_heartbeat_at: null, paused: true });
   });
-  it('tech: 403', async () => {
-    await expect(loadDrawer(actor('tech-1', 'tech'), {}, drawerDb({}) as never)).rejects.toMatchObject({ statusCode: 403 });
+  it('tech: no assignment lookup, every enabled site task', async () => {
+    const db = drawerDb({ tasks: [task()], state: { configured_site_ids: [], last_heartbeat_at: null, paused: false } });
+    const data = await loadDrawer(actor('tech-1', 'tech'), { now: NOW }, db as never);
+    expect(db.projectTeamAssignment.findMany).not.toHaveBeenCalled();
+    expect(db.task.findMany).toHaveBeenCalledTimes(1);
+    expect(data.rows).toHaveLength(1);
+  });
+  it('a role outside the four: 403', async () => {
+    await expect(loadDrawer(actor('x-1', 'viewer' as unknown as UserRole), {}, drawerDb({}) as never)).rejects.toMatchObject({ statusCode: 403 });
   });
   it('a malformed project filter returns nothing without querying', async () => {
     const db = drawerDb({ assignments: [PROJECT] });
@@ -304,8 +318,8 @@ describe('sessionAccess: role x owner x mode', () => {
     ['admin', 'admin-1', 'write', 'ok'],
     ['pm', 'pm-1', 'read', 'ok'],
     ['pm', 'pm-1', 'write', 'forbidden'],
-    ['tech', 'tech-1', 'read', 'not_found'],
-    ['tech', 'tech-1', 'write', 'not_found'],
+    ['tech', 'tech-1', 'read', 'ok'],
+    ['tech', 'tech-1', 'write', 'ok'],
   ];
   for (const [role, userId, mode, expected] of rows) {
     it(`${role} ${userId === DESIGNER ? '(owner)' : ''} ${mode} -> ${expected}`, () => {
@@ -356,8 +370,11 @@ describe('loadSessionFor', () => {
   it('admin writes any session', async () => {
     expect(await loadSessionFor(actor('admin-1', 'admin'), SESSION, { mode: 'write' }, db(row) as never)).toBe(row);
   });
-  it('tech: 404', async () => {
-    await expect(loadSessionFor(actor('tech-1', 'tech'), SESSION, {}, db(row) as never)).rejects.toMatchObject({ statusCode: 404 });
+  it('tech reads and writes any session, with no assignment lookup', async () => {
+    const d = db(row);
+    expect(await loadSessionFor(actor('tech-1', 'tech'), SESSION, { mode: 'read' }, d as never)).toBe(row);
+    expect(await loadSessionFor(actor('tech-1', 'tech'), SESSION, { mode: 'write' }, d as never)).toBe(row);
+    expect(d.projectTeamAssignment.findFirst).not.toHaveBeenCalled();
   });
 });
 
@@ -368,14 +385,29 @@ describe('list and publish-page access', () => {
     expect(mySessionsWhere({ userId: DESIGNER, role: 'designer' })).toEqual({ designer_id: DESIGNER, project_id: { in: [] } });
     expect(mySessionsWhere({ userId: 'a', role: 'admin' })).toEqual({});
     expect(mySessionsWhere({ userId: 'p', role: 'pm' })).toBeNull();
-    expect(mySessionsWhere({ userId: 't', role: 'tech' })).toBeNull();
+    expect(mySessionsWhere({ userId: 't', role: 'tech' })).toEqual({});
   });
-  it('publishPageAccess: admin, pm, the session designer; others 404', () => {
+  it('publishPageAccess: admin, pm, tech, the session designer; others 404', () => {
     const s = { designer_id: DESIGNER };
     expect(publishPageAccess({ userId: 'a', role: 'admin' }, s)).toBe('ok');
     expect(publishPageAccess({ userId: 'p', role: 'pm' }, s)).toBe('ok');
     expect(publishPageAccess({ userId: DESIGNER, role: 'designer' }, s)).toBe('ok');
     expect(publishPageAccess({ userId: SECOND_DESIGNER, role: 'designer' }, s)).toBe('not_found');
-    expect(publishPageAccess({ userId: 't', role: 'tech' }, s)).toBe('not_found');
+    expect(publishPageAccess({ userId: 't', role: 'tech' }, s)).toBe('ok');
+  });
+});
+
+describe('role helpers', () => {
+  it('reachesAllSessions: admin and tech only', () => {
+    expect(['admin', 'tech', 'designer', 'pm'].map(reachesAllSessions)).toEqual([true, true, false, false]);
+  });
+  it('opensSessions: designer, admin and tech; not pm', () => {
+    expect(['designer', 'admin', 'tech', 'pm'].map(opensSessions)).toEqual([true, true, true, false]);
+  });
+  it('canReadDrawer admits tech; canReadAdminLists does not', () => {
+    expect(canReadDrawer('tech')).toBe(true);
+    expect(canReadAdminLists('tech')).toBe(false);
+    expect(canReadAdminLists('admin')).toBe(true);
+    expect(canReadAdminLists('pm')).toBe(true);
   });
 });

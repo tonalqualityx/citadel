@@ -96,7 +96,11 @@ describe.skipIf(!SCRATCH)('Dox slice 2a (real database)', () => {
       as(dox());
       expect((await patchTask(call(P, { assignee_id: DOX_USER_ID }, 'PATCH'), idParams(t))).status).toBe(200);
       expect((await prisma.task.findUniqueOrThrow({ where: { id: t } })).assignee_id).toBe(DOX_USER_ID);
-      const other = await json(await patchTask(call(P, { assignee_id: '7e5d9924-6b58-47d6-9865-c6e98027d2cf' }, 'PATCH'), idParams(t)));
+      // The second bot user has to exist for the refusal to be the bot rule (403) and not "no such user" (400): make it here
+      // so this file does not lean on dox-escapes having run first. Two-letter first name: see the note in dox-escapes.
+      const otherBot = '7e5d9924-6b58-47d6-9865-c6e98027d2cf';
+      await prisma.user.upsert({ where: { id: otherBot }, update: { name: 'B2 bot' }, create: { id: otherBot, email: `bot2-${fx.tag}@example.test`, password_hash: 'x', name: 'B2 bot', role: 'pm' } });
+      const other = await json(await patchTask(call(P, { assignee_id: otherBot }, 'PATCH'), idParams(t)));
       expect(other.status).toBe(403);
     });
   });

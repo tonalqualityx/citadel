@@ -2,7 +2,7 @@ import { test, expect, type BrowserContext, type Page } from '@playwright/test';
 import { SHARED_AUTH_STATE_PATH } from './global-setup';
 import { BASE_SHA, NEXT_SHA, newTag, seedWorld, teardownWorld, ADMIN_EMAIL, PASSWORD, type DesignWorld } from './fixtures/design-portal-fixture';
 import { DesignWorker, type ApplyPayload } from './fixtures/design-worker';
-import { BASE_URL, expandChat, frame, loginState, newPage, openTask, pinElement, startPreview, tab, taskRow } from './fixtures/design-helpers';
+import { BASE_URL, expandChat, frame, loginState, newPage, openTask, pinElement, siteRow, drawerTasks, startPreview, tab } from './fixtures/design-helpers';
 
 // Designer Portal W6.8: the whole loop in a real browser against the isolated gate database. The "preview" is the
 // real design-overlay.js served by a tiny static server (frame-ancestors for this Citadel origin), reached through
@@ -46,26 +46,34 @@ test('designer login lands on /design and /dashboard bounces back', async ({ bro
   await page.waitForURL(/\/design$/, { timeout: 20_000 });
   await page.goto('/dashboard');
   await page.waitForURL(/\/design$/, { timeout: 20_000 });
-  await expect(page.getByRole('heading', { name: /Quests|Tasks/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Sites', level: 1 })).toBeVisible();
   await context.close();
 });
 
-test("the drawer shows only the designer's own projects", async ({ browser }) => {
+test("the Sites list shows only the designer's own projects, and the drawer API lists only their tasks", async ({ browser }) => {
   const { context, page } = await newPage(browser, stateA, preview.port);
   await page.goto('/design');
-  await expect(page.getByRole('region', { name: world.projectA.name })).toBeVisible();
-  await expect(page.getByRole('region', { name: world.projectC.name })).toBeVisible();
-  await expect(page.getByText(world.tasks.a1.title)).toBeVisible();
-  await expect(page.getByText(world.tasks.c1.title)).toBeVisible();
-  await expect(page.getByRole('region', { name: world.projectB.name })).toHaveCount(0);
+  await expect(siteRow(page, world.projectA.id)).toBeVisible();
+  await expect(siteRow(page, world.projectC.id)).toBeVisible();
+  await expect(siteRow(page, world.projectA.id).getByRole('heading', { name: world.siteA.name })).toBeVisible();
+  await expect(siteRow(page, world.projectB.id)).toHaveCount(0);
+  await expect(page.getByTestId('site-row')).toHaveCount(2);
+  // No per-task rows or buttons on the home page any more, and never another designer's task.
+  await expect(page.getByText(world.tasks.a1.title)).toHaveCount(0);
   await expect(page.getByText(world.tasks.b1.title)).toHaveCount(0);
+  const titles = (await drawerTasks(page)).map((t) => t.title);
+  expect(titles).toContain(world.tasks.a1.title);
+  expect(titles).toContain(world.tasks.c1.title);
+  expect(titles).not.toContain(world.tasks.b1.title);
   await context.close();
 });
 
-test("an admin's drawer lists every open task on enabled sites, and the admin's own session runs a timer", async ({ browser }) => {
+test("an admin's Sites list shows every project with open tasks, and the admin's own session runs a timer", async ({ browser }) => {
   const { context, page } = await newPage(browser, SHARED_AUTH_STATE_PATH, preview.port);
   await page.goto('/design');
-  for (const t of Object.values(world.tasks)) await expect(page.getByText(t.title)).toBeVisible();
+  for (const p of [world.projectA, world.projectB, world.projectC]) await expect(siteRow(page, p.id)).toBeVisible();
+  const titles = (await drawerTasks(page)).map((t) => t.title);
+  for (const t of Object.values(world.tasks)) expect(titles).toContain(t.title);
 
   const id = await openTask(page, world.tasks.a2.title);
   await worker.claimAndSetUp(id);
@@ -349,4 +357,3 @@ test('a site an admin turned off shows Request publish only', async ({ browser }
 
 // Keep the unused import honest for readers: the admin login is the suite's shared one.
 void ADMIN_EMAIL;
-void taskRow;

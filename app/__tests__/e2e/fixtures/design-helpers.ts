@@ -68,17 +68,34 @@ export async function newPage(browser: Browser, storageState: string, previewPor
   return { context, page: await context.newPage() };
 }
 
-/** The drawer row for a task title. */
-export const taskRow = (page: Page, title: string) => page.locator('li', { hasText: title }).filter({ has: page.getByRole('button') });
+/** The Sites row for a project (the /design home page lists sites, not tasks). */
+export const siteRow = (page: Page, projectId: string) => page.locator(`[data-testid="site-row"][data-project-id="${projectId}"]`);
 
-/** Start/Resume a task from the drawer and return the new session id from the URL. */
+interface DrawerJson { projects: Array<{ id: string; phases: Array<{ tasks: Array<{ id: string; title: string }> }> }> }
+
+/** Every task id and title the caller's drawer lists (GET /api/design/tasks, through the page's own cookies). */
+export async function drawerTasks(page: Page): Promise<Array<{ id: string; title: string; project_id: string }>> {
+  const res = await page.request.get('/api/design/tasks');
+  expect(res.status()).toBe(200);
+  const json = (await res.json()) as DrawerJson;
+  return json.projects.flatMap((p) => p.phases.flatMap((ph) => ph.tasks.map((t) => ({ id: t.id, title: t.title, project_id: p.id }))));
+}
+
+/**
+ * Open (or re-open) the session for ONE specific task and land on its workspace; returns the session id.
+ * The home page lists sites, not tasks, so this finds the task id in GET /api/design/tasks and posts it the way
+ * the browser client does (JSON body, same origin: the page's request context carries the cookies).
+ */
 export async function openTask(page: Page, title: string): Promise<string> {
   await page.goto('/design');
-  const row = taskRow(page, title);
-  await expect(row).toBeVisible();
-  await row.getByRole('button', { name: /Start|Resume/ }).click();
+  const task = (await drawerTasks(page)).find((t) => t.title === title);
+  expect(task, `task "${title}" is in the drawer`).toBeTruthy();
+  const res = await page.request.post('/api/design/sessions', { data: { task_id: task!.id } });
+  expect([200, 201], `open session for "${title}" -> ${res.status()}`).toContain(res.status());
+  const id = ((await res.json()) as { session: { id: string } }).session.id;
+  await page.goto(`/design/s/${id}`);
   await page.waitForURL(/\/design\/s\/[0-9a-f-]{36}/);
-  return new URL(page.url()).pathname.split('/').pop() as string;
+  return id;
 }
 
 export const frame = (page: Page) => page.frameLocator('iframe[title="Site preview"]');

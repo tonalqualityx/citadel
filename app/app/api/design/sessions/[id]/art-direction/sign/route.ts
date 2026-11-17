@@ -12,8 +12,8 @@ const schema = z.object({
   mode: z.enum(['refinements', 'rebuild']).optional(),
 }).strict();
 
-// POST /api/design/sessions/:id/art-direction/sign (SPEC 4.4, 2.5, 4.11 #12): the session's designer only (an admin is 403
-// designer_only). Freezes the draft and queues the build jobs. `base_revision` is the `revision` her screen showed: only
+// POST /api/design/sessions/:id/art-direction/sign (SPEC 4.4, 2.5, 4.11 #12): the session's designer or a tech user (an admin is
+// 403 designer_only). Freezes the draft and queues the build jobs. `base_revision` is the `revision` her screen showed: only
 // that revision is signed (409 version_moved otherwise). `mode` matters only for a later version.
 export async function POST(request: NextRequest, { params }: IdParams) {
   try {
@@ -22,7 +22,7 @@ export async function POST(request: NextRequest, { params }: IdParams) {
     const { actor } = await authActor();
     const { id } = await params;
     const { session, track } = await loadTrackedSession(actor, id, 'write');
-    if (actor.role !== 'designer') throw new ApiError('Only the designer signs the direction', 403, 'designer_only');
+    if (actor.role !== 'designer' && actor.role !== 'tech') throw new ApiError('Only the designer signs the direction', 403, 'designer_only');
     await assertTrackWritable(session, { done: true });
     const input = await body(request, schema);
     return NextResponse.json(await signArtDirection(track.id, actor.userId, input), { status: 200 });

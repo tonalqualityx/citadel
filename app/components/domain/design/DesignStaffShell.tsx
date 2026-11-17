@@ -6,15 +6,17 @@ import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { Header } from '@/components/layout/Header';
 import { AppProviders } from '@/components/layout/app-providers';
+import { cn } from '@/lib/utils/cn';
 import { CommandPalette } from '@/components/layout/CommandPalette';
+import { isWorkspaceRoute, useTopHidden } from './workspace-chrome';
 
-// The normal Citadel chrome, same as app/(app)/layout.tsx, for admin and pm on /design. Kept in its own module so
+// The normal Citadel chrome, same as app/(app)/layout.tsx, for admin, pm and tech on /design. Kept in its own module so
 // the designer path of app/(design)/layout.tsx never reaches AppProviders for a designer session (a designer is
 // 403 on the routes its ThemeProvider, TimerProvider, Header and NotificationBell call).
 
 export const SIDEBAR_KEY = 'citadel-design-workspace-sidebar';
-/** The workspace page (/design/s/:id), where the preview needs the room. Other /design pages keep the sidebar. */
-export const isWorkspaceRoute = (pathname: string | null) => /^\/design\/s\/[^/]+/.test(pathname ?? '');
+// Re-exported so existing imports keep working; the definition lives in workspace-chrome.ts.
+export { isWorkspaceRoute };
 
 function readChoice(): boolean | null {
   try {
@@ -28,12 +30,16 @@ function readChoice(): boolean | null {
 export function DesignStaffShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const workspace = isWorkspaceRoute(pathname);
+  const [topHidden] = useTopHidden();
+  const hideTop = workspace && topHidden;
   // null = no saved choice: collapsed on the workspace page, open everywhere else.
   const [choice, setChoice] = React.useState<boolean | null>(null);
   React.useEffect(() => {
     setChoice(readChoice());
   }, []);
   const open = !workspace || (choice ?? false);
+  // Hiding the top collapses the sidebar for now without touching the saved choice.
+  const sidebarOpen = open && !hideTop;
 
   function toggle() {
     const next = !open;
@@ -47,11 +53,15 @@ export function DesignStaffShell({ children }: { children: React.ReactNode }) {
 
   return (
     <AppProviders>
-      <div className="min-h-screen bg-background-light">
-        <Sidebar collapsed={!open} />
-        <div className={open ? 'lg:pl-60' : undefined}>
-          <Header />
-          <main className="p-6">
+      {/* On the workspace route the page is exactly the viewport tall and never scrolls; the preview scrolls itself. */}
+      <div className={workspace ? 'h-dvh overflow-hidden bg-background-light' : 'min-h-screen bg-background-light'}>
+        <Sidebar collapsed={!sidebarOpen} />
+        <div className={cn(workspace && 'flex h-dvh min-h-0 flex-col', sidebarOpen && 'lg:pl-60')}>
+          {/* Header stays mounted when hidden: it hosts console capture and modals. */}
+          <div className={workspace ? 'shrink-0' : 'contents'} hidden={hideTop} data-testid="staff-header-wrap">
+            <Header />
+          </div>
+          <main className={workspace ? 'flex min-h-0 flex-1 flex-col p-3' : 'p-6'}>
             {workspace && (
               <button
                 type="button"
@@ -60,7 +70,8 @@ export function DesignStaffShell({ children }: { children: React.ReactNode }) {
                 aria-label={open ? 'Hide sidebar' : 'Show sidebar'}
                 title={open ? 'Hide sidebar' : 'Show sidebar'}
                 data-testid="sidebar-toggle"
-                className="mb-2 hidden h-8 w-8 items-center justify-center rounded-md border border-border-warm bg-surface text-text-sub hover:text-text-main lg:inline-flex"
+                hidden={hideTop}
+                className="mb-2 hidden h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border-warm bg-surface text-text-sub hover:text-text-main lg:inline-flex"
               >
                 {open ? <PanelLeftClose className="h-4 w-4" aria-hidden="true" /> : <PanelLeftOpen className="h-4 w-4" aria-hidden="true" />}
               </button>

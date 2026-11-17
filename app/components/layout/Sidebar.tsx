@@ -117,12 +117,9 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean } = {}) {
     defaultOpen: true,
     items: [
       // Only show projects list for PM/Admin
-      ...(isPmOrAdmin
-        ? [
-            { name: t('projects'), href: '/projects', emoji: '🤝' },
-            { name: 'Design', href: '/design', emoji: '🎨' },
-          ]
-        : []),
+      ...(isPmOrAdmin ? [{ name: t('projects'), href: '/projects', emoji: '🤝' }] : []),
+      // Design: pm, admin and tech (Mike, 2026-11-17); projects stay pm/admin only
+      ...(isPmOrAdmin || isTech ? [{ name: 'Design', href: '/design', emoji: '🎨' }] : []),
       { name: t('clients'), href: '/clients', emoji: '🧑‍🚀' },
       { name: t('sites'), href: '/sites', emoji: '🏰' },
       { name: t('domains'), href: '/domains', emoji: '🔗' },

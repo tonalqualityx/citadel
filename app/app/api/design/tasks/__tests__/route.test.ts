@@ -37,6 +37,7 @@ describe('GET /api/design/tasks', () => {
     const json = await res.json();
     expect(json.projects[0]).toMatchObject({ id: 'p1', site: { id: 's1', name: 'VCDP', available: true } });
     expect(json.projects[0].phases[0].tasks[0]).toMatchObject({ id: 't1', title: 'Home', session: null });
+    expect(json.projects[0]).toMatchObject({ open_tasks: 1, track_stage: null, entry: { action: 'start', task_id: 't1', session_id: null, reason: null, chip: null } });
     expect(json.worker).toEqual({ online: true, paused: false });
     expect(json.start_sites).toEqual([{ id: 's1', name: 'VCDP' }]);
     expect(loadStartSites).toHaveBeenCalled();
@@ -51,16 +52,23 @@ describe('GET /api/design/tasks', () => {
   });
   it('pm can read', async () => {
     signIn(auth, userFind, 'pm');
-    expect((await GET(getRequest('/api/design/tasks'))).status).toBe(200);
+    const res = await GET(getRequest('/api/design/tasks'));
+    expect(res.status).toBe(200);
+    expect((await res.json()).projects[0].entry).toMatchObject({ action: 'none', reason: 'read_only' });
   });
   it('anonymous is 401', async () => {
     anonymous(auth);
     expect((await GET(getRequest('/api/design/tasks'))).status).toBe(401);
   });
-  it('a tech user is 403 (the loader refuses)', async () => {
+  it('a tech user reads the drawer and the start sites, with her own role passed through', async () => {
     signIn(auth, userFind, 'tech');
-    const { ApiError } = await import('@/lib/api/errors');
-    drawer.mockRejectedValue(new ApiError('Forbidden', 403, 'forbidden'));
-    expect((await GET(getRequest('/api/design/tasks'))).status).toBe(403);
+    const res = await GET(getRequest('/api/design/tasks'));
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.projects[0]).toMatchObject({ id: 'p1', site: { id: 's1', available: true } });
+    expect(json.projects[0]).toMatchObject({ open_tasks: 1, track_stage: null, entry: { action: 'start', task_id: 't1' } });
+    expect(json.start_sites).toEqual([{ id: 's1', name: 'VCDP' }]);
+    expect(drawer).toHaveBeenCalledWith(expect.objectContaining({ role: 'tech' }), expect.anything());
+    expect(loadStartSites).toHaveBeenCalledWith(expect.objectContaining({ role: 'tech' }));
   });
 });

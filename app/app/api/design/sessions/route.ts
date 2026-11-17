@@ -8,7 +8,7 @@ import { createOrGetSession, SESSION_STATUSES } from '@/lib/design/sessions';
 import { authActor, body, guardMutation } from '@/lib/design/route-kit';
 import { loadSessionTrackView } from '@/lib/design/track-session';
 
-// GET /api/design/sessions (design 7.1): "my sessions". Designer (own), admin (all); pm and tech 403.
+// GET /api/design/sessions (design 7.1): "my sessions". Designer (own), admin and tech (all); pm 403.
 export async function GET(request: NextRequest) {
   try {
     const { actor } = await authActor();

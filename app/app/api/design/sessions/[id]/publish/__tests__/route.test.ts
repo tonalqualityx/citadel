@@ -154,11 +154,34 @@ describe('POST /api/design/sessions/:id/publish (step 1, intent)', () => {
       expect(intents()).toHaveLength(0);
     });
 
-    it('another designer 404; tech 404; an unknown or malformed id 404', async () => {
+    it('another designer 404; an unknown or malformed id 404', async () => {
       expect((await call('other')).status).toBe(404);
-      expect((await call('tech')).status).toBe(404);
       expect((await call('designer', { head_sha: HEAD }, { session: '5e000000-0000-4000-8000-0000000000ff' })).status).toBe(404);
       expect((await call('designer', { head_sha: HEAD }, { session: 'nope' })).status).toBe(404);
+    });
+
+    it("tech publishes another person's session when designer publish is on: stamped designer, actor is the tech user", async () => {
+      const res = await call('tech');
+      expect(res.status).toBe(201);
+      const [row] = intents();
+      expect(row.actor_id).toBe(IDS.tech);
+      expect(row.actor_role).toBe('designer');
+      expect(row.status).toBe('awaiting_confirmation');
+    });
+
+    it('tech with designer publish off 403 designer_publish_off, nothing created', async () => {
+      siteOf(fakeDb).designer_publish = false;
+      const res = await call('tech');
+      expect(res.status).toBe(403);
+      expect((await res.json()).code).toBe('designer_publish_off');
+      expect(intents()).toHaveLength(0);
+    });
+
+    it('tech through an API key 403 session_required', async () => {
+      const res = await call('tech', { head_sha: HEAD }, { via: 'api_key' });
+      expect(res.status).toBe(403);
+      expect((await res.json()).code).toBe('session_required');
+      expect(intents()).toHaveLength(0);
     });
 
     it('a missing or malformed head_sha 400', async () => {

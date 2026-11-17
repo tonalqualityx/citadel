@@ -27,6 +27,8 @@ export interface DesignWorld {
   adminId: string;
   designerA: { id: string; email: string };
   designerB: { id: string; email: string };
+  /** A tech user (Sabeen's role) with no project assignments. */
+  tech: { id: string; email: string };
   workerKey: string;
   clientId: string;
   siteA: { id: string; name: string };
@@ -71,6 +73,7 @@ export async function seedWorld(tag: string): Promise<DesignWorld> {
   const mkDesigner = (n: string) =>
     prisma.user.create({ data: { email: `dpe2e-${tag}-${n}@example.test`, password_hash: hash, name: `Designer ${n.toUpperCase()} ${tag}`, role: 'designer', is_active: true } });
   const [designerA, designerB] = [await mkDesigner('a'), await mkDesigner('b')];
+  const tech = await prisma.user.create({ data: { email: `dpe2e-${tag}-tech@example.test`, password_hash: hash, name: `Tech ${tag}`, role: 'tech', is_active: true } });
 
   // The daemon's service user and an enforced lane key. Reuse the user when it exists; teardown only deletes what it made.
   let worker = await prisma.user.findUnique({ where: { email: WORKER_EMAIL } });
@@ -137,6 +140,7 @@ export async function seedWorld(tag: string): Promise<DesignWorld> {
   return {
     tag, prisma, adminId: admin.id,
     designerA: { id: designerA.id, email: designerA.email }, designerB: { id: designerB.id, email: designerB.email },
+    tech: { id: tech.id, email: tech.email },
     workerKey: rawKey, clientId: client.id,
     siteA: { id: siteA.id, name: siteA.name }, siteB: { id: siteB.id, name: siteB.name }, siteC: { id: siteC.id, name: siteC.name },
     projectA: { id: projectA.id, name: projectA.name }, projectB: { id: projectB.id, name: projectB.name }, projectC: { id: projectC.id, name: projectC.name },
@@ -155,7 +159,7 @@ export async function teardownWorld(w: DesignWorld): Promise<void> {
   const { prisma } = w;
   const siteIds = [w.siteA.id, w.siteB.id, w.siteC.id];
   const projectIds = [w.projectA.id, w.projectB.id, w.projectC.id];
-  const userIds = [w.designerA.id, w.designerB.id];
+  const userIds = [w.designerA.id, w.designerB.id, w.tech.id];
 
   // Follow-up tasks the portal filed in our projects, plus the seeded ones.
   const taskIds = (await prisma.task.findMany({ where: { project_id: { in: projectIds } }, select: { id: true } })).map((x) => x.id);
@@ -189,7 +193,7 @@ export async function teardownWorld(w: DesignWorld): Promise<void> {
   await prisma.designTrack.deleteMany({ where: { id: { in: trackIds } } });
   await prisma.designNote.deleteMany({ where: { OR: [{ site_id: { in: siteIds } }, { client_id: w.clientId }] } });
 
-  await prisma.timeEntry.deleteMany({ where: { task_id: { in: taskIds } } });
+  await prisma.timeEntry.deleteMany({ where: { OR: [{ task_id: { in: taskIds } }, { user_id: { in: userIds } }] } });
   await prisma.comment.deleteMany({ where: { task_id: { in: taskIds } } });
   await prisma.notification.deleteMany({ where: { OR: [{ user_id: { in: [...userIds, w.adminId] }, created_at: { gte: new Date(Date.now() - 6 * 3600_000) }, type: { in: ['design_published', 'design_rolled_back', 'design_publish_requested'] as never } }] } }).catch(() => undefined);
   await deleteTaskDeps(prisma, taskIds);

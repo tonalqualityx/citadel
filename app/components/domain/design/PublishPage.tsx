@@ -62,7 +62,7 @@ export function PublishPage({ publishId }: { publishId: string }) {
     );
   }
 
-  const { publish, session, changes } = data;
+  const { publish, session, actor, changes } = data;
   const shown = publish.confirmation_shown;
   const production = isProductionTone({ main_role: (shown?.main_role ?? publish.main_role) as 'client_preview' | 'production' });
   const st = STATUS[publish.status] ?? { label: publish.status.replace(/_/g, ' '), variant: 'default' as const };
@@ -97,7 +97,7 @@ export function PublishPage({ publishId }: { publishId: string }) {
         <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
           <dt className="text-text-sub">Main branch</dt><dd className="font-mono text-text-main">{shown?.main_branch ?? 'unknown'}</dd>
           <dt className="text-text-sub">Version</dt><dd className="font-mono text-text-main">{(publish.head_sha ?? '').slice(0, 7) || 'unknown'}</dd>
-          <dt className="text-text-sub">By</dt><dd className="text-text-main">{session.designer.name} ({publish.actor_role})</dd>
+          <dt className="text-text-sub">By</dt><dd className="text-text-main">{actor.name || session.designer.name}</dd>
           {publish.confirmed_at && (<><dt className="text-text-sub">Confirmed</dt><dd className="text-text-main">{new Date(publish.confirmed_at).toLocaleString()}</dd></>)}
         </dl>
         {publish.error && <p role="alert" className="mt-2 text-sm text-error">{publish.error}</p>}

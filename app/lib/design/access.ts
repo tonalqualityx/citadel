@@ -2,7 +2,7 @@
  * Designer Portal: who sees which task and which session (design sections 3 step 2, 5 D1, 7.1, 7.2).
  *
  * The drawer (GET /api/design/tasks) lists a task when ALL of these hold:
- *  (a) a designer is on the task's project through a ProjectTeamAssignment (admin and pm skip this test:
+ *  (a) a designer is on the task's project through a ProjectTeamAssignment (admin, pm and tech skip this test:
  *      "Admin/pm see every enabled site's open tasks"); a task with no project is never listed, because the
  *      drawer groups by project;
  *  (b) the task is open: not deleted and status not `done`/`abandoned` (design step 2, the same rule as
@@ -101,9 +101,19 @@ export interface DrawerContext {
   now?: Date;
 }
 
-/** The drawer is readable by designers, admins and pms (7.1). */
+/** Admin and tech: every enabled site, and read + write on any session. */
+export function reachesAllSessions(role: string): boolean {
+  return role === 'admin' || role === 'tech';
+}
+
+/** Roles that may open a session or start new work. */
+export function opensSessions(role: string): boolean {
+  return role === 'designer' || role === 'admin' || role === 'tech';
+}
+
+/** The drawer is readable by designers, admins, pms and techs (7.1). */
 export function canReadDrawer(role: string): boolean {
-  return role === 'designer' || role === 'admin' || role === 'pm';
+  return role === 'designer' || role === 'admin' || role === 'pm' || role === 'tech';
 }
 
 /** `task.site_id ?? project.site_id`: the task's own site wins whenever the task names one. */
@@ -310,15 +320,15 @@ export type SessionAccessMode = 'read' | 'write';
 export type AccessVerdict = 'ok' | 'not_found' | 'forbidden';
 
 /**
- * admin: read and write every session. designer: only her own (designer_id), else 404. pm: read every
- * session, 403 on writes. tech and anyone else: 404.
+ * admin and tech: read and write every session. designer: only her own (designer_id), else 404. pm: read
+ * every session, 403 on writes. anyone else: 404.
  */
 export function sessionAccess(
   actor: Pick<DesignActor, 'userId' | 'role'>,
   session: { designer_id: string },
   mode: SessionAccessMode,
 ): AccessVerdict {
-  if (actor.role === 'admin') return 'ok';
+  if (reachesAllSessions(actor.role)) return 'ok';
   if (actor.role === 'designer') return session.designer_id === actor.userId ? 'ok' : 'not_found';
   if (actor.role === 'pm') return mode === 'read' ? 'ok' : 'forbidden';
   return 'not_found';
@@ -365,7 +375,7 @@ export async function currentSessionAccess(
 
 /**
  * Load a session the caller may see, or throw: 404 for a malformed id, a missing row, or a session that is
- * not the caller's (another designer, tech, or a designer no longer on the session's project); 403 for a pm
+ * not the caller's (another designer, or a designer no longer on the session's project); 403 for a pm
  * asking to write. The row is the full record: project it with projections.ts before it leaves the server.
  */
 export async function loadSessionFor(
@@ -383,15 +393,15 @@ export async function loadSessionFor(
 
 /**
  * The "my sessions" list (GET /api/design/sessions, 7.1 "designer (own), admin"): a designer sees her own on
- * the projects she is on now (`assignedProjectIds`; none given = none listed), an admin sees all. pm and
- * tech get null (the route answers 403; a pm uses the admin list).
+ * the projects she is on now (`assignedProjectIds`; none given = none listed); an admin or tech sees all.
+ * pm gets null (the route answers 403; a pm uses the admin list).
  */
 export function mySessionsWhere(
   actor: Pick<DesignActor, 'userId' | 'role'>,
   assignedProjectIds: readonly string[] = [],
 ): Prisma.DesignSessionWhereInput | null {
   if (actor.role === 'designer') return { designer_id: actor.userId, project_id: { in: [...assignedProjectIds] } };
-  if (actor.role === 'admin') return {};
+  if (reachesAllSessions(actor.role)) return {};
   return null;
 }
 
@@ -401,14 +411,14 @@ export function canReadAdminLists(role: string): boolean {
 }
 
 /**
- * The publish page (GET /api/design/publishes/:id): admin, pm, or the session's designer; else 404. Pure:
+ * The publish page (GET /api/design/publishes/:id): admin, pm, tech, or the session's designer; else 404. Pure:
  * loadPublishPage adds the current-assignment rule for a designer (currentSessionAccess).
  */
 export function publishPageAccess(
   actor: Pick<DesignActor, 'userId' | 'role'>,
   session: { designer_id: string },
 ): AccessVerdict {
-  if (actor.role === 'admin' || actor.role === 'pm') return 'ok';
+  if (reachesAllSessions(actor.role) || actor.role === 'pm') return 'ok';
   if (actor.role === 'designer' && session.designer_id === actor.userId) return 'ok';
   return 'not_found';
 }

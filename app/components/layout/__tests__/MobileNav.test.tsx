@@ -107,11 +107,28 @@ describe('MobileNav', () => {
     expect(document.querySelector('a[href="/design"]')).not.toBeNull();
   });
 
-  it('hides the Design link from tech users', () => {
-    mockUseAuth.mockReturnValue({ isPmOrAdmin: false, isAdmin: false });
+  it('shows the Design link to tech users, without Projects', () => {
+    mockUseAuth.mockReturnValue({ isPmOrAdmin: false, isAdmin: false, isTech: true });
+    render(<MobileNav open onClose={vi.fn()} />);
+
+    expect(document.querySelector('a[href="/design"]')).not.toBeNull();
+    expect(document.querySelector('a[href="/projects"]')).toBeNull();
+  });
+
+  it('hides the Design link from a user with no PM, admin or tech flag', () => {
+    mockUseAuth.mockReturnValue({ isPmOrAdmin: false, isAdmin: false, isTech: false });
     render(<MobileNav open onClose={vi.fn()} />);
 
     expect(document.querySelector('a[href="/design"]')).toBeNull();
+    expect(document.querySelector('a[href="/projects"]')).toBeNull();
+  });
+
+  it('keeps Design after Projects for PM and admin', () => {
+    mockUseAuth.mockReturnValue({ isPmOrAdmin: true, isAdmin: false, isTech: false });
+    render(<MobileNav open onClose={vi.fn()} />);
+
+    const hrefs = Array.from(document.querySelectorAll('a')).map((a) => a.getAttribute('href'));
+    expect(hrefs.indexOf('/design')).toBe(hrefs.indexOf('/projects') + 1);
   });
 
   it('does not render the Parley or Admin sections for non-PM/Admin users', () => {

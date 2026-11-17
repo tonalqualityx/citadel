@@ -82,6 +82,8 @@ export interface PublishRecord {
 export interface PublishPageResponse {
   publish: PublishRecord;
   session: { id: string; task: { id: string; title: string }; designer: { name: string } };
+  /** The user who published; empty when unknown. */
+  actor: { name: string };
   changes: PublishChange[];
   can_rollback: boolean;
   rollback_reason?: string;

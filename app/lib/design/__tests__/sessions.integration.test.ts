@@ -59,6 +59,34 @@ describe.skipIf(!SCRATCH)('session engine (real database)', () => {
     expect(adm.created).toBe(false);
   });
 
+  it('tech: opens a session on a task of a project she is not assigned to, and is the session designer', async () => {
+    const taskId = await seedTask(f);
+    const { session, created } = await createOrGetSession(f.tech, taskId);
+    expect(created).toBe(true);
+    expect(session.designer_id).toBe(f.tech.userId);
+    expect(session.status).toBe('pending');
+    expect((await getClaim(taskId))?.holder).toBe(designClaimHolder(taskId));
+    // Opening it again returns the same session.
+    const again = await createOrGetSession(f.tech, taskId);
+    expect(again.session.id).toBe(session.id);
+    expect(again.created).toBe(false);
+  });
+
+  it("tech enters another user's live session and gets it back: no session_owned, no second session", async () => {
+    const taskId = await seedTask(f);
+    const { session } = await createOrGetSession(f.designer, taskId);
+    const viaTech = await createOrGetSession(f.tech, taskId);
+    expect(viaTech.session.id).toBe(session.id);
+    expect(viaTech.created).toBe(false);
+    expect(viaTech.session.designer_id).toBe(f.designer.userId);
+    expect(await prisma.designSession.count({ where: { task_id: taskId } })).toBe(1);
+  });
+
+  it('a pm still cannot open a session (403)', async () => {
+    const taskId = await seedTask(f);
+    await expect(createOrGetSession({ ...f.admin, role: 'pm' }, taskId)).rejects.toMatchObject({ statusCode: 403 });
+  });
+
   it('W8.2 H2: a designer removed from the project cannot re-open her own live session (404); back on it, she can', async () => {
     const taskId = await seedTask(f);
     const { session } = await createOrGetSession(f.designer, taskId);

@@ -2,7 +2,7 @@ import type { ApiEndpoint, ParamDef } from './index';
 
 /**
  * Designer Portal (design section 7): every route under app/api/design/**. Roles are the DB roles the route
- * enforces (designer = own sessions only; pm = read-only where a route allows it). The design worker is a
+ * enforces (designer = own sessions only; tech = any session, like an admin, but never the admin routes; pm = read-only where a route allows it). The design worker is a
  * service API key on the design-worker lane (requireWorker), not a user role. Every non-worker route needs a
  * signed-in session (API keys get 403 session_required, W8.2 H7), except the routes listed in lib/design/operator.ts,
  * which also accept an admin's design:operator-setup or design:operator-publish key (Mike, 2026-10-29; granted
@@ -11,8 +11,8 @@ import type { ApiEndpoint, ParamDef } from './index';
  * The publish lane is two steps: POST publishes/intent (step 1) then POST publishes/:id/confirm (step 2).
  */
 
-const DESIGNER = ['designer', 'admin'];
-const READERS = ['designer', 'admin', 'pm'];
+const DESIGNER = ['designer', 'admin', 'tech'];
+const READERS = ['designer', 'admin', 'pm', 'tech'];
 const ADMIN = ['admin'];
 const ADMIN_PM = ['admin', 'pm'];
 const WORKER = ['design-worker'];
@@ -267,15 +267,30 @@ export const designEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'GET',
-        summary: 'Designer Portal drawer: tasks the caller may open a design session on. Designers see their own visible tasks; admin and pm see all.',
+        summary: 'Designer Portal drawer: tasks the caller may open a design session on. Designers see their own visible tasks; admin, pm and tech see all.',
         auth: 'required',
-        roles: ['designer', 'admin', 'pm'],
+        roles: ['designer', 'admin', 'pm', 'tech'],
         queryParams: [{ name: 'project_id', type: 'uuid', required: false, description: 'Limit to one project' }],
         responseExample: {
-          tasks: [{ id: 'uuid', title: 'string', project: { id: 'uuid', name: 'string' }, site: { id: 'uuid', name: 'string' }, session: { id: 'uuid', status: 'string' } }],
-          sites: [{ id: 'uuid', name: 'string' }],
+          projects: [{
+            id: 'uuid',
+            name: 'string',
+            site: { id: 'uuid', name: 'string', available: true },
+            open_tasks: 3,
+            track_stage: 'string|null',
+            entry: { action: 'resume|join|view|start|none', session_id: 'uuid|null', task_id: 'uuid|null', reason: 'unavailable|read_only|taken|not_ready|null', chip: 'active|awaiting_you|stopped|publishing|publish_requested|closed|null' },
+            phases: [{
+              name: 'string|null',
+              tasks: [{
+                id: 'uuid', title: 'string', status: 'string', phase: 'string|null', track_stage: 'string|null',
+                session: { id: 'uuid|null', status: 'string', mine: true, chip: 'string', published_at: 'ISO-8601|null' },
+              }],
+            }],
+          }],
+          worker: { online: true, paused: false },
+          start_sites: [{ id: 'uuid', name: 'string' }],
         },
-        responseNotes: 'Only tasks on design-enabled eleventy sites in visible project statuses appear. Done and abandoned tasks are excluded. Bast-run tasks (tag design-runner) never appear. Each task carries track_stage (the design track\'s stage on a design-stage task, null otherwise); a stage task shows the track\'s latest session chip.',
+        responseNotes: 'One group per project and site. Only tasks on design-enabled eleventy sites in visible project statuses appear. Done and abandoned tasks are excluded. Bast-run tasks (tag design-runner) never appear. open_tasks counts the tasks in the group; track_stage is the first design-track stage found on a group task (null when none). entry is what the Sites list button does: resume (the caller\'s own live session; session_id, go to it), join (admin or tech entering another person\'s live session; session_id), view (a read-only role looking at a live session; session_id), start (task_id, POST /api/design/sessions with it), or none with a reason (unavailable: the box does not serve the site; read_only: the role cannot open sessions and nothing is live; taken: someone else has it and the caller cannot enter; not_ready: nothing can be opened yet). chip is the session shown on the row (null otherwise). A task session is null when there is none; another designer\'s session has id null and mine false. A stage task shows the track\'s latest session chip. start_sites lists the sites the caller may start new work on.',
       },
     ],
   },
@@ -285,9 +300,9 @@ export const designEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'GET',
-        summary: 'Open tasks on the session\'s site (the workspace Tasks tab). Signed-in session only (API keys 403). A designer sees tasks on projects she is on; admin and pm see all. Another designer\'s session is 404.',
+        summary: 'Open tasks on the session\'s site (the workspace Tasks tab). Signed-in session only (API keys 403). A designer sees tasks on projects she is on; admin, pm and tech see all. Another designer\'s session is 404.',
         auth: 'required',
-        roles: ['designer', 'admin', 'pm'],
+        roles: ['designer', 'admin', 'pm', 'tech'],
         queryParams: [sessionIdParam, { name: 'mine', type: 'string', required: false, description: '"1" = only tasks assigned to the caller' }],
         responseExample: { tasks: [{ id: 'uuid', title: 'string', status: 'string', due_date: 'iso|null', description: 'string|null (max 1000)', assignee_first_name: 'string|null', mine: true, project: { id: 'uuid', name: 'string' } }], mine: true },
         responseNotes: 'Explicit field allowlist: no billing, time, estimate or client fields. At most 100 tasks.',
@@ -300,7 +315,7 @@ export const designEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'GET',
-        summary: 'List the caller\'s design sessions (designers see their own, admin sees all). Signed-in session only (API keys 403). pm and tech get 403.',
+        summary: 'List the caller\'s design sessions (designers see their own; admin and tech see all). Signed-in session only (API keys 403). pm gets 403.',
         auth: 'required',
         roles: DESIGNER,
         queryParams: [{ name: 'status', type: 'string', required: false, description: 'Filter by DesignSessionStatus' }],
@@ -337,7 +352,7 @@ export const designEndpoints: ApiEndpoint[] = [
         auth: 'required',
         roles: DESIGNER,
         bodySchema: [
-          { name: 'site_id', type: 'uuid', required: true, description: 'A design-enabled eleventy site (a designer must be on a project for it)' },
+          { name: 'site_id', type: 'uuid', required: true, description: 'A design-enabled eleventy site (a designer must be on a project for it; admin and tech need none)' },
           { name: 'title', type: 'string', required: true, description: 'What needs doing, max 120 characters' },
           { name: 'detail', type: 'string', required: false, description: 'More detail, max 2000 characters' },
         ],
@@ -352,7 +367,7 @@ export const designEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'GET',
-        summary: 'Full workspace load for one design session: session, task, site, pins, changes and worker state. Designer (own), admin, pm (read-only). Also accepts an admin\'s design:operator-publish API key, which acts as an admin publisher on the same path (Bast on Mike\'s instruction; lib/design/operator.ts).',
+        summary: 'Full workspace load for one design session: session, task, site, pins, changes and worker state. Designer (own), admin and tech (any session), pm (read-only). Also accepts an admin\'s design:operator-publish API key, which acts as an admin publisher on the same path (Bast on Mike\'s instruction; lib/design/operator.ts).',
         auth: 'required',
         roles: READERS,
         queryParams: [sessionIdParam],
@@ -490,7 +505,7 @@ export const designEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'POST',
-        summary: 'Send an FYI publish request to the owner. Only where an admin override has turned designer publish off for this site.',
+        summary: 'Send an FYI publish request to the owner. Only where an admin override has turned designer publish off for this site. The session\'s designer, a tech user or an admin.',
         auth: 'required',
         roles: DESIGNER,
         queryParams: [sessionIdParam],
@@ -589,13 +604,14 @@ export const designEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'GET',
-        summary: 'Publish page (the FYI notice target): what was confirmed and whether the caller may roll it back. Admin, pm, or the session designer; others 404. Also accepts an admin\'s design:operator-publish API key, which acts as an admin publisher on the same path (Bast on Mike\'s instruction; lib/design/operator.ts).',
+        summary: 'Publish page (the FYI notice target): what was confirmed and whether the caller may roll it back. Admin, pm, tech, or the session designer; others 404. Also accepts an admin\'s design:operator-publish API key, which acts as an admin publisher on the same path (Bast on Mike\'s instruction; lib/design/operator.ts).',
         auth: 'required',
-        roles: ADMIN_PM.concat('designer'),
+        roles: ADMIN_PM.concat('designer', 'tech'),
         queryParams: [{ name: 'id', type: 'uuid', required: true, description: 'Publish id (path)' }],
         responseExample: {
           publish: publishExample,
           session: { id: 'uuid', task: { id: 'uuid', title: 'string' }, designer: { name: 'string' } },
+          actor: { name: 'string (the user who published; empty when unknown)' },
           changes: [{ id: 'uuid', summary: 'string', data_libs: 'string[]', pages: 'string[]', before_asset_ids: 'uuid[]', after_asset_ids: 'uuid[]', decision: 'string' }],
           can_rollback: 'boolean',
           rollback_reason: 'string (only when can_rollback is false)',
@@ -624,12 +640,12 @@ export const designEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'POST',
-        summary: 'Roll back a site publish to the state before it. Admin or the original publish actor only; only the site\'s latest successful publish. Also accepts an admin\'s design:operator-publish API key, which acts as an admin publisher on the same path (Bast on Mike\'s instruction; lib/design/operator.ts).',
+        summary: 'Roll back a site publish to the state before it. Admin, or the original publish actor (a designer or tech user); only the site\'s latest successful publish. Also accepts an admin\'s design:operator-publish API key, which acts as an admin publisher on the same path (Bast on Mike\'s instruction; lib/design/operator.ts).',
         auth: 'required',
         roles: DESIGNER,
         queryParams: [{ name: 'id', type: 'uuid', required: true, description: 'Publish id (path)' }],
         bodySchema: [{ name: 'reason', type: 'string', required: false, description: 'Reason, max 500 chars' }],
-        responseNotes: 'Returns 202. pm gets 403; anyone else 404 (including a publisher no longer a designer or no longer on the project); a designer gets 403 designer_publish_off where designer publish is switched off for the site; 409 not_latest when this is not the latest successful publish.',
+        responseNotes: 'Returns 202. pm gets 403; anyone else 404 (including a publisher no longer a designer or tech user, or a designer no longer on the project); a designer or tech user gets 403 designer_publish_off where designer publish is switched off for the site; 409 not_latest when this is not the latest successful publish.',
       },
     ],
   },
@@ -1455,7 +1471,7 @@ export const designEndpoints: ApiEndpoint[] = [
           { name: 'mode', type: 'string', required: false, description: 'Later versions only: refinements (default) | rebuild' },
         ],
         responseExample: { direction: { id: 'uuid', version: 'number', status: 'signed', body: 'object' }, stage: 'home_build', build_job_id: 'uuid|null', client_email_job_id: 'uuid' },
-        responseNotes: '403 designer_only for an admin; 409 direction_signed, version_moved (the draft moved past base_revision, also when it moves between the check and the freeze; nothing is queued), no_draft, direction_incomplete (nav and container unfilled), client_requests_missing, illegal_transition, track_done.',
+        responseNotes: '403 designer_only for anyone but the designer or a tech user (an admin included); 409 direction_signed, version_moved (the draft moved past base_revision, also when it moves between the check and the freeze; nothing is queued), no_draft, direction_incomplete (nav and container unfilled), client_requests_missing, illegal_transition, track_done.',
       },
     ],
   },

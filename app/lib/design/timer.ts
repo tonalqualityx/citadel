@@ -6,6 +6,7 @@
 import type { PrismaClient } from '@prisma/client';
 import { prisma as defaultDb } from '@/lib/db/prisma';
 import { isTerminalStatus } from './sessions';
+import { opensSessions } from './access';
 import { startRunningEntry, stopRunningEntry } from '@/lib/services/time-entries';
 
 export const AUTO_TIMER_DESCRIPTION = 'Design portal (auto)';
@@ -58,9 +59,9 @@ export async function autoTimerBillable(taskId: string, db: Pick<PrismaClient, '
   return !(client?.retainer_hours != null && Number(client.retainer_hours) > 0);
 }
 
-/** Only the session's opener (a designer, or an admin in a session the admin opened) owns a timer. */
+/** Only the session's opener (a designer, or an admin or tech in a session they opened) owns a timer. */
 export function ownsTimer(session: Pick<TimerSession, 'designer_id'>, actor: TimerActor | undefined): boolean {
-  return !!actor && actor.userId === session.designer_id && (actor.role === 'designer' || actor.role === 'admin');
+  return !!actor && actor.userId === session.designer_id && opensSessions(actor.role);
 }
 
 /** Seconds this user has on the task: finished entries' minutes plus the running entry's wall time. */

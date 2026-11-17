@@ -59,9 +59,26 @@ describe('GET /api/design/publishes/:id', () => {
     expect(body.rollback_reason).toBe('not_latest');
   });
 
-  it('another designer 404, tech 404, unknown and malformed ids 404, anonymous 401', async () => {
+  it('tech 200 on another person\'s publish, but may not roll it back (not hers)', async () => {
+    const res = await get('tech');
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.publish.id).toBe(PUB);
+    expect(body.can_rollback).toBe(false);
+    expect(findForbiddenKeys(body)).toEqual([]);
+  });
+
+  it('tech 200 on her own publish: may roll it back; with designer publish off she may not (designer_publish_off)', async () => {
+    fakeDb.store.designPublish.find((p) => p.id === PUB)!.actor_id = IDS.tech;
+    expect((await (await get('tech')).json()).can_rollback).toBe(true);
+    fakeDb.store.site.find((s) => s.id === IDS.site)!.designer_publish = false;
+    const off = await (await get('tech')).json();
+    expect(off.can_rollback).toBe(false);
+    expect(off.rollback_reason).toBe('designer_publish_off');
+  });
+
+  it('another designer 404, unknown and malformed ids 404, anonymous 401', async () => {
     expect((await get('other')).status).toBe(404);
-    expect((await get('tech')).status).toBe(404);
     expect((await get('admin', '9a000000-0000-4000-8000-0000000000ff')).status).toBe(404);
     expect((await get('admin', 'nope')).status).toBe(404);
     expect((await get(null)).status).toBe(401);

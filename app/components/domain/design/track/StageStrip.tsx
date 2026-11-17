@@ -27,6 +27,14 @@ export function stageProgress(stage: string): { current: number | null; allDone:
   return v === 'all' ? { current: null, allDone: true } : { current: v, allDone: false };
 }
 
+/** The step label for a server stage ("Refine", "Done"); null for an unknown stage. */
+export function stageStepLabel(stage: string): string | null {
+  const progress = stageProgress(stage);
+  if (!progress) return null;
+  if (progress.allDone) return 'Done';
+  return progress.current === null ? null : STAGE_STEPS[progress.current];
+}
+
 /** The stage strip of a tracked session's workspace header. Renders nothing for an untracked session. */
 export function StageStrip({ track }: { track: DesignSessionTrack | null | undefined }) {
   if (!track) return null;

@@ -16,10 +16,10 @@ export default function DesignSessionPage({ params }: { params: Promise<{ id: st
   const feed = history.data?.latest;
   const events = history.data?.state.events;
 
-  if (session.isLoading) return <Spinner />;
+  if (session.isLoading) return <div className="flex min-h-0 flex-1 items-center justify-center"><Spinner /></div>;
   if (session.error || !session.data) {
     return (
-      <div className="mx-auto max-w-4xl space-y-3">
+      <div className="mx-auto w-full max-w-4xl space-y-3">
         <p className="text-sm text-text-sub">This session could not be found.</p>
         <Link href="/design" className="text-sm text-primary underline">Back to your quests</Link>
       </div>

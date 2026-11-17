@@ -167,7 +167,7 @@ export function ChatDock({ children, events, busy = false, selectionCount = 0, s
         className={cn(
           place,
           'z-30 flex-col overflow-hidden border border-border-warm bg-surface shadow-2xl',
-          'max-h-[70vh] min-[1100px]:max-h-[70%] min-[1100px]:h-[70%] min-[1100px]:min-h-[420px]',
+          'max-h-[70vh] min-[1100px]:max-h-[calc(100%-2rem)] min-[1100px]:h-[70%] min-[1100px]:min-h-[min(420px,calc(100%-2rem))]',
           'rounded-t-xl min-[1100px]:rounded-xl',
           wide ? 'min-[1100px]:w-[640px]' : 'min-[1100px]:w-[460px]',
           'min-[1100px]:max-w-[calc(100%-2rem)]',

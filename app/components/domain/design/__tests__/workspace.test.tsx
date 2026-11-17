@@ -19,6 +19,7 @@ import { PreviewPane, PREVIEW_SANDBOX } from '../PreviewPane';
 import { TimerPill, formatElapsed } from '../TimerPill';
 import { Workspace, previewState, WORKSPACE_TABS, TRACKED_WORKSPACE_TABS, workspaceTabsFor } from '../Workspace';
 import { resolvePreviewUrl } from '@/lib/design/preview-path';
+import { TOP_KEY, resetTopHiddenForTests } from '../workspace-chrome';
 import type { DesignFeedResponse, DesignSessionResponse } from '@/lib/hooks/use-design';
 
 const PREVIEW = 'https://vcdp-abc.pages.dev';
@@ -35,7 +36,20 @@ const submitPath = (text: string) => {
   fireEvent.click(screen.getByRole('button', { name: 'Go' }));
 };
 
-beforeEach(() => setSelectMode.mockClear());
+// A small in-memory Storage, so the hide-top choice cannot leak between tests.
+let store = new Map<string, string>();
+function stubStorage() {
+  store = new Map();
+  vi.stubGlobal('localStorage', { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, String(v)), removeItem: (k: string) => void store.delete(k), clear: () => store.clear() });
+  resetTopHiddenForTests();
+}
+beforeEach(() => {
+  setSelectMode.mockClear();
+  stubStorage();
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe('preview iframe', () => {
   it('has exactly the D7 sandbox and starts on the preview host', () => {
@@ -64,6 +78,24 @@ describe('preview iframe', () => {
     submitPath(`${PREVIEW}/contact`);
     expect(iframe().src).toBe(`${PREVIEW}/contact`);
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('renders the toolbarEnd slot last in the toolbar, and in the setting-up state', () => {
+    const { unmount } = pane({ toolbarEnd: <button data-testid="end-slot">end</button> });
+    const slot = screen.getByTestId('end-slot');
+    expect(slot.parentElement!.lastElementChild).toBe(slot);
+    expect(slot.parentElement!.contains(screen.getByRole('button', { name: 'Go' }))).toBe(true);
+    unmount();
+    pane({ status: 'pending', toolbarEnd: <button data-testid="end-slot">end</button> });
+    expect(screen.getByTestId('end-slot')).toBeTruthy();
+    expect(screen.getByText('Setting up your preview')).toBeTruthy();
+  });
+
+  it('the frame area has no pixel floor, so the page cannot be forced to scroll', () => {
+    pane();
+    const area = screen.getByTestId('preview-frame-wrapper').parentElement!;
+    expect(area.className).toContain('min-h-0');
+    expect(area.className).not.toContain('min-h-[320px]');
   });
 
   it('sets the wrapper width for each viewport', () => {
@@ -201,6 +233,51 @@ describe('Workspace header', () => {
     expect(dock.className).toContain('min-[1100px]:absolute');
     expect(dock.className).toContain('min-[1100px]:w-[460px]');
     expect(dock.className).toContain('min-[1100px]:right-4');
+  });
+
+  it('the stage takes the leftover height: no fixed viewport height or floor', () => {
+    render(<Workspace data={base()} feed={undefined} />);
+    const cls = screen.getByTestId('workspace-stage').className;
+    expect(cls).toContain('flex-1');
+    expect(cls).toContain('min-h-0');
+    expect(cls).not.toMatch(/100dvh|min-h-\[560px\]/);
+  });
+
+  it('the top toggle sits in the preview toolbar, hides the workspace header and remembers', () => {
+    const { unmount } = render(<Workspace data={base()} feed={undefined} />);
+    const toggle = screen.getByTestId('top-toggle');
+    expect(screen.getByRole('region', { name: 'Preview' }).contains(toggle)).toBe(true);
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
+    expect(toggle.getAttribute('aria-label')).toBe('Hide top bar');
+    expect(screen.getByRole('banner').hidden).toBe(false);
+    fireEvent.click(toggle);
+    expect(document.querySelector('header')!.hidden).toBe(true);
+    expect(screen.getByTestId('top-toggle').getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByTestId('top-toggle').getAttribute('aria-label')).toBe('Show top bar');
+    expect(store.get(TOP_KEY)).toBe('hidden');
+    // The preview toolbar and the chat dock stay.
+    expect(screen.getByLabelText('Preview path')).toBeTruthy();
+    expect(screen.getByTestId('chat-dock')).toBeTruthy();
+    unmount();
+    render(<Workspace data={base()} feed={undefined} />);
+    expect(document.querySelector('header')!.hidden).toBe(true);
+    fireEvent.click(screen.getByTestId('top-toggle'));
+    expect(document.querySelector('header')!.hidden).toBe(false);
+    expect(store.get(TOP_KEY)).toBe('shown');
+  });
+
+  it('a stored hidden choice starts hidden', () => {
+    store.set(TOP_KEY, 'hidden');
+    render(<Workspace data={base()} feed={undefined} />);
+    expect(document.querySelector('header')!.hidden).toBe(true);
+    expect(screen.getByTestId('top-toggle').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('the top toggle is still there while the preview is being set up', () => {
+    render(<Workspace data={base({ status: 'pending', preview_url: null, preview_sha: null, head_sha: null })} feed={undefined} />);
+    fireEvent.click(screen.getByTestId('top-toggle'));
+    expect(document.querySelector('header')!.hidden).toBe(true);
+    expect(screen.getByTestId('top-toggle').getAttribute('aria-label')).toBe('Show top bar');
   });
 
   it('the preview pane reports the page path and width, and the slots receive them', () => {

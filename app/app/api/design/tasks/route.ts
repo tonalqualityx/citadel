@@ -7,7 +7,7 @@ import { loadStartSites } from '@/lib/design/work';
 import { isUuid } from '@/lib/design/helpers';
 import { ApiError } from '@/lib/api/errors';
 
-// GET /api/design/tasks (design 7.1): the drawer. Designer, admin, pm.
+// GET /api/design/tasks (design 7.1): the drawer. Designer, admin, pm, tech.
 export async function GET(request: NextRequest) {
   try {
     const { actor } = await authActor();

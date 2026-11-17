@@ -58,7 +58,7 @@ describe('POST /api/design/publishes/:id/rollback', () => {
     expect(rollbacks()[0].actor_role).toBe('admin');
   });
 
-  it('a non-participant 404; pm 403; tech 404', async () => {
+  it('a non-participant 404; pm 403; a tech user who did not make the publish 404', async () => {
     await expectCode(await rollback('other'), 404);
     await expectCode(await rollback('pm'), 403, 'forbidden');
     await expectCode(await rollback('tech'), 404);
@@ -110,9 +110,27 @@ describe('W8.2 fixes on rollback', () => {
     await expectCode(await rollback('designer'), 404, 'not_found');
     expect(rollbacks()).toHaveLength(0);
   });
-  it('H4: her publish after she was demoted to tech: 404, nothing queued', async () => {
-    fakeDb.store.user.find((u) => u.id === IDS.designer)!.role = 'tech';
-    await expectCode(await rollback('designer'), 404, 'not_found');
+  it('H4: her publish after she was demoted to pm: 403, nothing queued', async () => {
+    fakeDb.store.user.find((u) => u.id === IDS.designer)!.role = 'pm';
+    await expectCode(await rollback('designer'), 403, 'forbidden');
+    expect(rollbacks()).toHaveLength(0);
+  });
+  it('tech: her own publish rolls back (202), stamped designer, actor is the tech user', async () => {
+    fakeDb.store.designPublish.find((p) => p.id === PUB)!.actor_id = IDS.tech;
+    const res = await rollback('tech', { reason: 'wrong page' });
+    expect(res.status).toBe(202);
+    expect(rollbacks()[0]).toMatchObject({ kind: 'rollback', rolls_back_id: PUB, actor_id: IDS.tech, actor_role: 'designer', status: 'queued' });
+    expect(fakeDb.store.designCommand[0].verb).toBe('rollback');
+  });
+  it('tech: her own publish with designer publish off is 403 designer_publish_off, nothing queued', async () => {
+    fakeDb.store.designPublish.find((p) => p.id === PUB)!.actor_id = IDS.tech;
+    siteOf(fakeDb).designer_publish = false;
+    await expectCode(await rollback('tech'), 403, 'designer_publish_off');
+    expect(rollbacks()).toHaveLength(0);
+  });
+  it('tech through an API key: 403 session_required', async () => {
+    fakeDb.store.designPublish.find((p) => p.id === PUB)!.actor_id = IDS.tech;
+    await expectCode(await rollback('tech', {}, { via: 'api_key' }), 403, 'session_required');
     expect(rollbacks()).toHaveLength(0);
   });
   it('N4: designer publish switched off for the site: the designer cannot roll back (403), the admin can', async () => {

@@ -84,7 +84,7 @@ describe('edit scope', () => {
   });
   it('the session change projection and the publish page projection carry edit_scope', () => {
     const base = { id: 'c', summary: 's', data_libs: [], pages: [], before_asset_ids: [], after_asset_ids: [], decision: 'pending' };
-    const page = projectPublishPage({ publish: {} as never, session: { id: 's', task: { id: 't', title: 'T' }, designer: { name: 'D' } }, changes: [{ ...base, edit_scope: 'component', render_count: 19 }], rollback: { ok: true } } as never) as never as { changes: Array<Record<string, unknown>> };
+    const page = projectPublishPage({ publish: {} as never, session: { id: 's', task: { id: 't', title: 'T' }, designer: { name: 'D' } }, actor: { name: 'D' }, changes: [{ ...base, edit_scope: 'component', render_count: 19 }], rollback: { ok: true } } as never) as never as { changes: Array<Record<string, unknown>> };
     expect(page.changes[0]).toMatchObject({ edit_scope: 'component', render_count: 19 });
     const c = projectChange({ ...base, apply_event_seq: null, commit_sha: 'abc', parent_sha: null, files: [], render_count: 2, edit_scope: 'instance', pin_ids: [], gates: null, is_restore: false, restored_from: null, designer_note: null, decided_at: null, created_at: new Date() });
     expect(c.edit_scope).toBe('instance');

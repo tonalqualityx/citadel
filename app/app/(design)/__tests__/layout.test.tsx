@@ -9,12 +9,12 @@ let verify: () => Promise<{ role: string }> = async () => ({ role: 'designer' })
 vi.mock('next/navigation', () => ({ redirect: (u: string) => redirect(u) }));
 vi.mock('next/headers', () => ({ cookies: async () => ({ get: () => (cookieValue ? { value: cookieValue } : undefined) }) }));
 vi.mock('@/lib/auth/jwt', () => ({ verifyAccessToken: () => verify() }));
-vi.mock('@/components/domain/design/DesignChrome', () => ({ DesignChrome: ({ role }: { role: string | null }) => `chrome:${role}` }));
+vi.mock('@/components/domain/design/DesignerShell', () => ({ DesignerShell: ({ children }: { children: unknown }) => children }));
 
 vi.mock('@/components/domain/design/DesignStaffShell', () => ({ DesignStaffShell: ({ children }: { children: unknown }) => children }));
 
 import DesignLayout from '../layout';
-import { DesignChrome } from '@/components/domain/design/DesignChrome';
+import { DesignerShell } from '@/components/domain/design/DesignerShell';
 import { DesignStaffShell } from '@/components/domain/design/DesignStaffShell';
 
 /** Every component type in a rendered element tree (the layouts return plain element trees, nothing is mounted). */
@@ -31,7 +31,7 @@ beforeEach(() => { redirect.mockClear(); cookieValue = 'tok'; verify = async () 
 
 describe('(design) layout', () => {
   it('imports no staff provider or chrome that hits designer-forbidden routes', () => {
-    const files = ['layout.tsx', '../../components/domain/design/DesignChrome.tsx', 'design/page.tsx'];
+    const files = ['layout.tsx', '../../components/domain/design/DesignChrome.tsx', '../../components/domain/design/DesignerShell.tsx', 'design/page.tsx'];
     for (const f of files) {
       const src = readFileSync(path.join(__dirname, '..', f), 'utf8')
         .split('\n').filter((l) => /^\s*(import|.*require\()/.test(l) || /<[A-Z]\w+/.test(l) || /use[A-Z]\w+\(/.test(l)).join('\n');
@@ -41,22 +41,22 @@ describe('(design) layout', () => {
     }
   });
 
-  it.each(['designer', 'admin', 'pm'])('renders for %s', async (role) => {
+  it.each(['designer', 'admin', 'pm', 'tech'])('renders for %s', async (role) => {
     verify = async () => ({ role });
     await expect(DesignLayout({ children: null })).resolves.toBeTruthy();
     expect(redirect).not.toHaveBeenCalled();
   });
 
-  it.each(['admin', 'pm'])('renders the Citadel staff shell for %s, not the minimal chrome', async (role) => {
+  it.each(['admin', 'pm', 'tech'])('renders the Citadel staff shell for %s, not the minimal chrome', async (role) => {
     verify = async () => ({ role });
     const tree = types(await DesignLayout({ children: null }));
     expect(tree).toContain(DesignStaffShell);
-    expect(tree).not.toContain(DesignChrome);
+    expect(tree).not.toContain(DesignerShell);
   });
 
-  it('renders the minimal shell for a designer and never the staff shell', async () => {
+  it('renders the designer shell for a designer and never the staff shell', async () => {
     const tree = types(await DesignLayout({ children: null }));
-    expect(tree).toContain(DesignChrome);
+    expect(tree).toContain(DesignerShell);
     expect(tree).not.toContain(DesignStaffShell);
   });
 
@@ -65,8 +65,8 @@ describe('(design) layout', () => {
     for (const part of ['AppProviders', 'Sidebar', 'Header', 'CommandPalette']) expect(shell).toContain(part);
   });
 
-  it('redirects tech to /dashboard', async () => {
-    verify = async () => ({ role: 'tech' });
+  it('still redirects an unknown role to /dashboard', async () => {
+    verify = async () => ({ role: 'client' });
     await expect(DesignLayout({ children: null })).rejects.toThrow('REDIRECT:/dashboard');
   });
 

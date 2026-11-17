@@ -203,7 +203,7 @@ async function sitePublishRunning(db: Db | Tx, siteId: string, exceptId?: string
 
 /**
  * The policy view of a session: the row plus whether its designer is on its project right now (W8.2 H2).
- * Only a designer actor's rights read the flag, so other actors skip the query.
+ * Only a designer actor's rights read the flag, so other actors (tech included: no on-project test) skip the query.
  */
 async function withStanding<S extends { designer_id: string; project_id: string | null }>(
   actor: Pick<DesignActor, 'role'>,
@@ -214,13 +214,17 @@ async function withStanding<S extends { designer_id: string; project_id: string 
   return { ...session, designer_on_project: onProject };
 }
 
-/** A designer's standing for the "her publish" rollback path (W8.2 H2, H4, N4); undefined for other roles. */
+/** A designer's or tech's standing for the "her publish" rollback path (W8.2 H2, H4, N4); undefined for other roles. */
 async function rollbackStanding(
   actor: DesignActor,
   session: { designer_id: string; project_id: string | null } | null,
   ctx: PublishContext,
   db: Db | Tx,
 ): Promise<DesignerRollbackStanding | undefined> {
+  if (actor.role === 'tech') {
+    // A tech reaches every session (sessionAccess), so access holds whenever the session loaded.
+    return { has_session_access: !!session, may_publish: designerMayPublish(ctx.site, policySettings(ctx), ctx.mainRole) };
+  }
   if (actor.role !== 'designer') return undefined;
   return {
     has_session_access: !!session && (await currentSessionAccess(actor, session, 'write', db)) === 'ok',
@@ -531,6 +535,7 @@ export async function createRollback(
           kind: 'rollback',
           rolls_back_id: target.id,
           actor_id: actor.userId,
+          // 'designer' for tech too: the daemon accepts only admin or designer and re-checks the same switch.
           actor_role: actor.role === 'admin' ? 'admin' : 'designer',
           actor_via: actorViaOf(actor),
           actor_api_key_id: actorViaOf(actor) === 'operator_key' ? (actor.apiKeyId ?? null) : null,
@@ -577,7 +582,7 @@ export async function createRollback(
 // The publish page (GET /api/design/publishes/:id)
 // ---------------------------------------------------------------------------------------------------------
 
-/** admin, pm, or the session's designer; anyone else (and a malformed id) 404. */
+/** admin, pm, tech, or the session's designer; anyone else (and a malformed id) 404. */
 export async function loadPublishPage(actor: DesignActor, publishId: string, db: Db = defaultDb) {
   if (!isUuid(publishId)) throw new ApiError('Publish not found', 404, 'not_found');
   const publish = await db.designPublish.findUnique({ where: { id: publishId } });
@@ -589,9 +594,10 @@ export async function loadPublishPage(actor: DesignActor, publishId: string, db:
     throw new ApiError('Publish not found', 404, 'not_found');
   }
 
-  const [task, designer, changes, latest, running, ctx] = await Promise.all([
+  const [task, designer, publisher, changes, latest, running, ctx] = await Promise.all([
     db.task.findUnique({ where: { id: session.task_id }, select: { id: true, title: true } }),
     db.user.findUnique({ where: { id: session.designer_id }, select: { name: true } }),
+    db.user.findUnique({ where: { id: publish.actor_id }, select: { name: true } }),
     db.designChange.findMany({
       where: publish.change_ids.length > 0
         ? { session_id: session.id, id: { in: publish.change_ids } }
@@ -607,6 +613,7 @@ export async function loadPublishPage(actor: DesignActor, publishId: string, db:
   return projectPublishPage({
     publish,
     session: { id: session.id, task: { id: session.task_id, title: task?.title ?? '' }, designer: { name: designer?.name ?? '' } },
+    actor: { name: publisher?.name ?? '' },
     changes,
     rollback: rollback.ok ? { ok: true } : { ok: false, code: rollback.code },
   });
