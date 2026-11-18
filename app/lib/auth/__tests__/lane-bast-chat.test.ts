@@ -51,6 +51,8 @@ const EXPECTED = [
   'POST /api/bast-chat/worker/home-keeper/summaries',
   'GET /api/bast-chat/worker/home-keeper/learn',
   'POST /api/bast-chat/worker/home-keeper/learn',
+  'GET /api/bast-chat/worker/home-keeper/approve-sweep',
+  'POST /api/bast-chat/worker/home-keeper/approve-sweep',
   'GET /api/bast-chat/worker/owed',
   'POST /api/bast-chat/worker/owed',
   'GET /api/bast-chat/worker/owed/bookings',

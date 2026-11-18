@@ -372,6 +372,9 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     // Slice 7a: the weekly measures and the approval-speed guard (GET is the dry run, POST the real run; a report: home_measures, the learn run row and keeper lines only)
     r('GET', '/api/bast-chat/worker/home-keeper/learn'),
     r('POST', '/api/bast-chat/worker/home-keeper/learn'),
+    // Approval sweep (owner rule 2026-11-18): GET is the dry run, POST the real run; approves finished internal bot tasks nobody touched for 3 days
+    r('GET', '/api/bast-chat/worker/home-keeper/approve-sweep'),
+    r('POST', '/api/bast-chat/worker/home-keeper/approve-sweep'),
     // Slice 4a: owed replies (GET is the drafting queue and the dry run, POST saves the machine's results; home tables only, nothing is sent)
     r('GET', '/api/bast-chat/worker/owed'),
     r('POST', '/api/bast-chat/worker/owed'),

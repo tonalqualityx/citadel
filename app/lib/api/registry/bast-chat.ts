@@ -436,6 +436,42 @@ export const bastChatEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/bast-chat/worker/home-keeper/approve-sweep',
+    group: 'bast-chat',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Chat lane: the approval sweep as a dry run (finished internal bot tasks waiting 3+ days with no human comment)',
+        auth: 'required',
+        roles: WORKER,
+        responseExample: {
+          dry_run: 'true',
+          approved: [{ task_id: 'string (uuid)', title: 'string', project: 'string|null', finished_at: 'ISO-8601' }],
+          raced: 'number (always 0 here)',
+          skipped: { security: 'number', too_recent: 'number', not_bot_assignee: 'number', human_comment: 'number', client_facing: 'number', client_name: 'number' },
+          names_compared: 'number (client and project names the title check used)',
+          line: 'string|null (the weekly digest line)',
+        },
+        responseNotes: 'Writes nothing. Lists every task it would approve. Same base rule as the home screen review folds; narrowed to bot assignees, no non-bot comment, no client facing tag.',
+      },
+      {
+        method: 'POST',
+        summary: 'Chat lane: the approval sweep, the real run',
+        auth: 'required',
+        roles: WORKER,
+        responseExample: {
+          dry_run: 'false',
+          approved: [{ task_id: 'string (uuid)', title: 'string', project: 'string|null', finished_at: 'ISO-8601' }],
+          raced: 'number (qualified but changed by someone else before the write)',
+          skipped: { security: 'number', too_recent: 'number', not_bot_assignee: 'number', human_comment: 'number', client_facing: 'number', client_name: 'number' },
+          names_compared: 'number (client and project names the title check used)',
+          line: 'string|null',
+        },
+        responseNotes: 'Strict empty body {}. Sets approved, approved_at and approved_by_id (Bast) on each qualifying task and logs one activity row each with approval_source auto-approve-sweep. Writes nothing else.',
+      },
+    ],
+  },
+  {
     path: '/api/bast-chat/worker/home-keeper/summaries',
     group: 'bast-chat',
     methods: [
