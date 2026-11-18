@@ -417,6 +417,11 @@ export const clarityEndpoints: ApiEndpoint[] = [
           { name: 'calendar_requested', type: 'string', required: false, description: 'Clarity Phase 6 — only "true" is accepted; the machine-side calendar executor\'s read for pending Add-to-calendar requests' },
           { name: 'decided_by', type: 'string', required: false, description: 'Work stage B — only "mike" is accepted: the asks he put back with Undo (the classifier\'s calibration examples; subject and disposition_reason only are used)' },
           { name: 'limit', type: 'number', required: false, description: 'Work stage B — at most this many asks (1-200), newest first' },
+          { name: 'offset', type: 'number', required: false, description: 'Skip this many of the newest matching asks first (0-100000). With limit or offset, meta.total is every matching ask and ties on received_at break by id' },
+          { name: 'from', type: 'string', required: false, description: 'Sender name or address contains this text, any case (max 200)' },
+          { name: 'subject', type: 'string', required: false, description: 'Every word (up to 8) appears in the subject, any case (max 200)' },
+          { name: 'received_after', type: 'ISO-8601', required: false, description: 'received_at on or after this time; a bare date is midnight UTC' },
+          { name: 'received_before', type: 'ISO-8601', required: false, description: 'received_at strictly before this time; a bare date is midnight UTC' },
         ],
         responseExample: {
           asks: [
@@ -444,7 +449,7 @@ export const clarityEndpoints: ApiEndpoint[] = [
               received_at: 'ISO-8601',
             },
           ],
-          meta: { total: 'number' },
+          meta: { total: 'number', offset: 'number', returned: 'number', remaining: 'number' },
         },
       },
     ],

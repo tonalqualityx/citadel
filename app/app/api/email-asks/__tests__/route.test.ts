@@ -14,6 +14,7 @@ vi.mock('@/lib/db/prisma', () => ({
   prisma: {
     emailAsk: {
       findMany: vi.fn(),
+      count: vi.fn(),
     },
   },
 }));
@@ -23,6 +24,7 @@ import { prisma } from '@/lib/db/prisma';
 
 const mockRequireAuth = vi.mocked(requireAuth);
 const mockFindMany = prisma.emailAsk.findMany as Mock;
+const mockCount = prisma.emailAsk.count as Mock;
 
 function ask(overrides: Record<string, unknown> = {}) {
   return {
@@ -57,6 +59,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockRequireAuth.mockResolvedValue({ userId: 'user-123', role: 'admin', email: 'admin@example.com' });
   mockFindMany.mockResolvedValue([]);
+  mockCount.mockResolvedValue(0);
 });
 
 describe('GET /api/email-asks', () => {
@@ -175,6 +178,64 @@ describe('GET /api/email-asks', () => {
         calendar_requested: true,
         calendar_event_id: 'gcal-1',
       });
+    });
+  });
+  describe('paging and search (the chat owed-email list)', () => {
+    it('does not count or reorder when no limit or offset is given', async () => {
+      mockFindMany.mockResolvedValue([ask({ id: 'a1' })]);
+      const body = await (await GET(getRequest({ state: 'open' }))).json();
+      expect(mockCount).not.toHaveBeenCalled();
+      expect(body.meta).toEqual({ total: 1, offset: 0, returned: 1, remaining: 0 });
+    });
+
+    it('pages with limit and offset, a stable order, and the full matching total', async () => {
+      mockFindMany.mockResolvedValue([ask({ id: 'a21' }), ask({ id: 'a22' })]);
+      mockCount.mockResolvedValue(284);
+      const res = await GET(getRequest({ state: 'open', limit: '20', offset: '20' }));
+      const body = await res.json();
+      expect(res.status).toBe(200);
+      expect(mockFindMany).toHaveBeenCalledWith({
+        where: { state: 'open' },
+        orderBy: [{ received_at: 'desc' }, { id: 'desc' }],
+        take: 20,
+        skip: 20,
+      });
+      expect(mockCount).toHaveBeenCalledWith({ where: { state: 'open' } });
+      expect(body.meta).toEqual({ total: 284, offset: 20, returned: 2, remaining: 262 });
+    });
+
+    it('filters by sender name or address, subject words and a received range', async () => {
+      await GET(
+        getRequest({
+          state: 'open',
+          limit: '10',
+          from: 'Wargo',
+          subject: 'newsletter  email',
+          received_after: '2026-11-10',
+          received_before: '2026-11-11',
+        })
+      );
+      expect(mockFindMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            state: 'open',
+            received_at: { gte: new Date('2026-11-10T00:00:00.000Z'), lt: new Date('2026-11-11T00:00:00.000Z') },
+            OR: [
+              { from_name: { contains: 'Wargo', mode: 'insensitive' } },
+              { from_email: { contains: 'Wargo', mode: 'insensitive' } },
+            ],
+            AND: [
+              { subject: { contains: 'newsletter', mode: 'insensitive' } },
+              { subject: { contains: 'email', mode: 'insensitive' } },
+            ],
+          },
+        })
+      );
+    });
+
+    it('rejects a bad offset or date', async () => {
+      expect((await GET(getRequest({ offset: '-1' }))).status).toBe(400);
+      expect((await GET(getRequest({ received_after: 'not a date' }))).status).toBe(400);
     });
   });
 });
