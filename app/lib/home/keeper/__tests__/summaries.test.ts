@@ -113,10 +113,10 @@ describe('prepareItem', () => {
   it('refuses the card when the summary is empty', () => {
     expect(prepareItem('  ', ['One', 'Two'])).toMatchObject({ summary: null, refusal: 'empty' });
   });
-  it('keeps the first 8 lines and counts the rest as dropped', () => {
+  it('keeps the first 6 lines and counts the rest as dropped', () => {
     const p = prepareItem('Fine.', Array.from({ length: 10 }, (_, i) => `Step ${i}`));
-    expect(p.checklist).toHaveLength(8);
-    expect(p.dropped_lines).toBe(2);
+    expect(p.checklist).toHaveLength(6);
+    expect(p.dropped_lines).toBe(4);
   });
   it('leaves a clean card untouched', () => {
     const p = prepareItem('Move the site. Check sign-in.', ['Check the sign-in page', 'Send the report']);

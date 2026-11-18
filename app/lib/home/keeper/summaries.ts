@@ -64,9 +64,14 @@ export interface SummarySaveResult {
   line: string | null;
 }
 
-/** Longest done_when: lines and words per line. */
-export const DONE_WHEN_MAX_LINES = 8;
-export const DONE_WHEN_MAX_WORDS = 25;
+/**
+ * Longest done_when: lines and words per line. NOT a source of truth. The limits and the repair rules are defined in
+ * ~/.claude/tools/home-keeper/summarize.py (SUMMARY_MAX_WORDS, DONE_WHEN_MAX_LINES, DONE_WHEN_MAX_WORDS), which repairs
+ * text before it is posted. These values only mirror that file so this last-resort repair never saves anything it
+ * would not. Do not define or change limits here: change summarize.py and mirror the numbers.
+ */
+export const DONE_WHEN_MAX_LINES = 6;
+export const DONE_WHEN_MAX_WORDS = 14;
 
 const DASH_CHARS = [0x2012, 0x2013, 0x2014, 0x2015, 0x2212].map((c) => String.fromCharCode(c)).join('');
 // A dash is a figure/en/em/horizontal-bar/minus character, a hyphen run with space on both sides (or at an end of the
