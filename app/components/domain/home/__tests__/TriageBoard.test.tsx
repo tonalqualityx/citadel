@@ -237,3 +237,27 @@ describe('TriageBoard', () => {
     expect(container.textContent).not.toMatch(/[–—]/);
   });
 });
+
+
+describe('Client proposals on the Triage tab', () => {
+  const noop = vi.fn();
+  const base = { count: 2, open_questions: 0, groups: [], cards: [card(1)] } as unknown as HomeTriage;
+  it('marks a proposal as a client proposal with the client name and no Release', () => {
+    const triage = { ...base, client_proposals: [{ task_id: 'p1', title: 'Feature the pre-order menu', href: '/tasks/p1', client_name: 'Alder Vermont', site_name: 'aldervt.com', created_at: '2026-11-15T00:00:00Z', age_days: 3 }] } as HomeTriage;
+    render(<TriageBoard triage={triage} onAct={noop} onTalk={noop} />);
+    const c = screen.getByTestId('client-proposal-card');
+    expect(within(c).getByTestId('client-proposal-badge').textContent).toBe('Client proposal');
+    expect(within(c).getByTestId('client-proposal-client').textContent).toBe('Alder Vermont');
+    expect(within(c).queryByRole('button')).toBeNull();
+    expect(screen.getAllByTestId('triage-card-item')).toHaveLength(1); // the hand-filed idea carries no proposal badge
+    expect(within(screen.getAllByTestId('triage-card-item')[0]).queryByTestId('client-proposal-badge')).toBeNull();
+  });
+  it('shows no proposals section when there are none, and no empty message when only proposals exist', () => {
+    const { rerender } = render(<TriageBoard triage={base} onAct={noop} onTalk={noop} />);
+    expect(screen.queryByTestId('client-proposals')).toBeNull();
+    const only = { ...base, cards: [], client_proposals: [{ task_id: 'p1', title: 'T', href: '/tasks/p1', client_name: null, site_name: null, created_at: '2026-11-15T00:00:00Z', age_days: 0 }] } as unknown as HomeTriage;
+    rerender(<TriageBoard triage={only} onAct={noop} onTalk={noop} />);
+    expect(screen.getByTestId('client-proposal-client').textContent).toBe('Client not set');
+    expect(screen.queryByText(/Nothing in Triage/)).toBeNull();
+  });
+});

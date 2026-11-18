@@ -858,9 +858,23 @@ export interface HomeAskedAfterRelease {
   released_at: string;
 }
 
+/** Triage tab: a plan Bast proposed for a client's ask, waiting for the owner's yes (tag client-proposal + plan-approval). Not a status-triage card, so it has no Release. */
+export interface HomeClientProposal {
+  task_id: string;
+  title: string;
+  href: string;
+  /** The client the ask came from; null when the task has neither a client nor a site with one. */
+  client_name: string | null;
+  site_name: string | null;
+  created_at: string;
+  age_days: number;
+}
+
 export interface HomeTriage {
-  /** Every card in Triage, marked ones included. */
+  /** Every card in Triage, marked ones included, plus the client proposals waiting for his yes. */
   count: number;
+  /** Client proposals awaiting his yes, oldest first. Absent in older payloads. */
+  client_proposals?: HomeClientProposal[];
   /** The Triage tab's cards: looks done first, then oldest first. Absent in older payloads. */
   cards?: HomeTriageCard[];
   /** Released cards with open questions. Absent in older payloads. */

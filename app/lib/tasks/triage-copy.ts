@@ -41,6 +41,12 @@ export function kindLabel(kind: string | null | undefined): string {
   return (kind && TRIAGE_KIND_LABELS[kind]) || NOT_SORTED_LABEL;
 }
 
+export const CLIENT_PROPOSALS_HEADING = 'Proposed from a client request';
+export const CLIENT_PROPOSALS_HINT = 'Bast read a client ask, wrote a plan and emailed it to you. Reply yes to that email and the work starts. These have no Release.';
+export const CLIENT_PROPOSAL_BADGE = 'Client proposal';
+export const CLIENT_PROPOSAL_OPEN = 'Open the plan';
+export const NO_CLIENT_NAME = 'Client not set';
+
 export const ASKED_AFTER_RELEASE_HEADING = 'Asked after release';
 export const ASKED_AFTER_RELEASE_HINT = 'Released cards that now have a question for you.';
 export const LOOKS_DONE_BADGE = 'Looks done';
