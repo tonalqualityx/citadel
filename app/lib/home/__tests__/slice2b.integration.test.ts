@@ -24,7 +24,6 @@ const SCRATCH = /localhost:55433/.test(process.env.DATABASE_URL ?? '');
 const TZ = 'America/New_York';
 const NOW = new Date('2026-11-11T07:35:00Z');
 const sha = (s: string) => createHash('sha256').update(s, 'utf8').digest('hex');
-const EM = '—';
 
 const longText = (seed: string, n = 140) => Array.from({ length: n }, (_, i) => `${seed}${i}`).join(' ');
 const doc = (text: string) => JSON.stringify([{ type: 'paragraph', content: [{ type: 'text', text }] }]);
@@ -136,13 +135,13 @@ describe.skipIf(!SCRATCH)('Slice 2b: card summaries (real database)', () => {
 
   let actionId = '';
 
-  it('POST saves valid summaries and refuses one over 60 words, one with a dash and one with a banned word; a stale hash is skipped', async () => {
+  it('POST saves valid summaries and refuses one over 60 words with no place to cut, one empty and one that is only a banned word; a stale hash is skipped', async () => {
     const before = await counts();
     const r = await saveSummaries(prisma, ownerId, NOW, [
       { item_key: key('Alpha long'), hash: hash('Alpha long'), summary: 'Short version of the long note.', done_when: ['Send the draft', 'Get the sign off', 'Publish the page'] },
       { item_key: key('Bravo toolong'), hash: hash('Bravo toolong'), summary: words(61) },
-      { item_key: key('Charlie dash'), hash: hash('Charlie dash'), summary: `Two parts ${EM} one answer.` },
-      { item_key: key('Delta banned'), hash: hash('Delta banned'), summary: 'This is the top Priority this week.' },
+      { item_key: key('Charlie dash'), hash: hash('Charlie dash'), summary: '   ' },
+      { item_key: key('Delta banned'), hash: hash('Delta banned'), summary: 'Priority.' },
       { item_key: key('Echo stale'), hash: sha('some older description'), summary: 'Fine summary.' },
       { item_key: key('Foxtrot own list'), hash: hash('Foxtrot own list'), summary: 'Has its own list.', done_when: ['One thing', 'Another thing'] },
       { item_key: key('Golf held'), hash: hash('Golf held'), summary: 'Held one.' },
@@ -151,7 +150,7 @@ describe.skipIf(!SCRATCH)('Slice 2b: card summaries (real database)', () => {
     expect(r.saved).toBe(2);
     expect(r.refused).toEqual([
       { item_key: key('Bravo toolong'), reason: 'too_long' },
-      { item_key: key('Charlie dash'), reason: 'dash' },
+      { item_key: key('Charlie dash'), reason: 'empty' },
       { item_key: key('Delta banned'), reason: 'banned_word' },
     ]);
     expect(r.skipped).toEqual([

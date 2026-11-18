@@ -42,8 +42,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
 /**
  * POST /api/bast-chat/worker/home-keeper/summaries: strict body `{items: [{item_key, hash, summary, done_when?}]}`, at
- * most 40. 200 `{dry_run: false, saved, refused: [{item_key, reason}], skipped: [{item_key, reason}], action_id, line}`;
- * refused reasons are empty, too_long, dash, banned_word, bad_done_when; skipped reasons are duplicate, not_found,
+ * most 40. 200 `{dry_run: false, saved, refused: [{item_key, reason}], repaired, dropped_lines, repairs: [{item_key, fixed, dropped_lines}], skipped: [{item_key, reason}], action_id, line}`;
+ * text that breaks a writing rule is repaired and kept; refused reasons are empty, too_long, banned_word (summary not repairable); skipped reasons are duplicate, not_found,
  * not_long, stale_hash, held, unchanged, changed. Valid items are saved even when others are refused.
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
