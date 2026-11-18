@@ -28,7 +28,7 @@ import { GET, POST } from '../route';
 const PATH = '/api/bast-chat/worker/home-keeper/summaries';
 const HASH = 'a'.repeat(64);
 const item = (n = 1) => ({ item_key: `task:${n}`, hash: HASH, summary: 'Short.' });
-const saved = { dry_run: false as const, saved: 1, refused: [], skipped: [], action_id: 'a1', line: 'Wrote a short version of 1 long card. The full notes stay one click away.' };
+const saved = { dry_run: false as const, saved: 1, refused: [], repaired: 0, dropped_lines: 0, repairs: [], skipped: [], action_id: 'a1', line: 'Wrote a short version of 1 long card. The full notes stay one click away.' };
 
 beforeEach(() => {
   vi.clearAllMocks();
