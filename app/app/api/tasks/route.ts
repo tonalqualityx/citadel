@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import { assertNoReviewStampOnCard, isReviewCard } from '@/lib/tasks/review-card';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
@@ -291,6 +292,8 @@ export async function POST(request: NextRequest) {
     const body = await guardDoxTaskCreate(auth, request.headers, await guardChatTaskBody(auth, 'POST', await request.json()));
     const chatConversation = await chatConversationFor(auth, request.headers, 'POST');
     const data = createTaskSchema.parse(body);
+    // A review is a card, not a flag: asking for the stamp on a review card is refused with a clear error (Mike, 2026-11-18).
+    assertNoReviewStampOnCard(data.needs_review === true, data.tags);
     // Chat lane only: a create the reach check would tap (a task assigned to Bast) writes nothing.
     if (auth.lane === CHAT_LANE) {
       refuseChatCreateThatReaches({
@@ -565,7 +568,8 @@ export async function POST(request: NextRequest) {
         review_requirements: sopDefaults.review_requirements || undefined,
         // Oracle Projects Phase 1 (Mike's ruling, 2026-09-04) — explicit param beats SOP
         // default beats the (now false) schema default.
-        needs_review: data.needs_review ?? sopDefaults.needs_review ?? false,
+        // A review card never carries the stamp: an explicit request is refused above, an SOP default is dropped here.
+        needs_review: isReviewCard(data.tags) ? false : (data.needs_review ?? sopDefaults.needs_review ?? false),
         reviewer_id: defaultReviewerId,
         energy_estimate: energyEstimate,
         mystery_factor: mysteryFactor as MysteryFactor,

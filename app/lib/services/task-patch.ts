@@ -21,6 +21,7 @@ import { onTaskProgress } from '@/lib/portal/waits';
 import { clearPreviewClaims } from '@/lib/sends/claims';
 import { assertClaimHeld, CLEAR_CLAIM_DATA } from '@/lib/tasks/claims';
 import { MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
+import { assertNoReviewStampOnCard } from '@/lib/tasks/review-card';
 import { MysteryFactor, BatteryImpact, TaskStatus } from '@prisma/client';
 import { closeAsksForTask } from '@/lib/work/ask-closure'; // Work stage A: the one closure of a finished task's emails
 import { voidApprovalIfRestaged, stampApproval, getApprovalBindingMode } from '@/lib/portal/receipts'; // Fleet item 5
@@ -582,6 +583,11 @@ export async function patchTask(input: PatchTaskInput) {
   }
 
   const data = updateTaskSchema.parse(body);
+  // A review is a card, not a flag: a review card never carries needs_review (Mike, 2026-11-18). Only a request that touches the stamp or
+  // the tags is checked, so an untouched legacy card can still be edited, and sending needs_review: false always works.
+  if (data.needs_review !== undefined || data.tags !== undefined) {
+    assertNoReviewStampOnCard(data.needs_review ?? existingTask.needs_review ?? false, data.tags ?? existingTask.tags);
+  }
   if (data.status !== undefined) {
     assertStatusTransition(existingTask.status, data.status);
     assertTriageExit(auth, existingTask.status, data.status);
