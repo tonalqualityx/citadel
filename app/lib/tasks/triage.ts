@@ -34,6 +34,7 @@ import { askedAfterRelease, clientTextTaskIds, evidenceFor, loadCards, openQuest
 import { CARD_CHANGED_MESSAGE, releaseVersion } from './triage-version';
 import { recentChanges, whatChanged } from './triage-rev';
 import { LOOKS_DONE_TAG } from './looks-done';
+import { PROPOSAL_SELECT, clientProposalWhere, toClientProposal } from './client-proposals';
 import { markHomeActionUndone } from '@/lib/home/state';
 import { readWorkCloseRecord, undoWorkClose, type WorkCloseRecord } from '@/lib/work/ask-closure';
 import { stageALines } from '@/lib/work/finished-store';
@@ -121,8 +122,11 @@ export async function loadTriage(db: HomeDb, userId: string): Promise<HomeTriage
   if (!isTriageOwner(userId)) return null;
   const rows = await openTriageRows(db);
   const asked = await askedAfterRelease(db);
+  // Client proposals waiting for his emailed yes: not status triage (the spawn gate and the yes-flip key on their tags), shown here by tag.
+  const proposalRows = await db.task.findMany({ where: clientProposalWhere(), select: PROPOSAL_SELECT, orderBy: [{ created_at: 'asc' }, { id: 'asc' }] });
+  const client_proposals = proposalRows.map((r) => toClientProposal(r));
   // Mike with nothing waiting still gets the (empty) section, so the Triage tab shows at zero; everyone else gets null above.
-  if (rows.length === 0) return { count: 0, open_questions: 0, groups: [], cards: [], asked_after_release: asked };
+  if (rows.length === 0) return { count: client_proposals.length, open_questions: 0, groups: [], cards: [], asked_after_release: asked, client_proposals };
   const marked = rows.filter((r) => r.tags.includes(LOOKS_DONE_TAG));
   const groups = new Map<string, { kind: HomeTriageGroup['kind']; label: string; project_id: string | null; rows: Row[] }>();
   for (const r of rows) {
@@ -178,7 +182,8 @@ export async function loadTriage(db: HomeDb, userId: string): Promise<HomeTriage
   });
   out.sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
   return {
-    count: rows.length,
+    count: rows.length + client_proposals.length,
+    client_proposals,
     looks_done: looksDone,
     cards,
     asked_after_release: asked,

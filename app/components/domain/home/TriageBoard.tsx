@@ -3,11 +3,16 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import type { HomeActRequest, HomeAskedAfterRelease, HomeTriage, HomeTriageCard } from '@/lib/home/types';
+import type { HomeActRequest, HomeAskedAfterRelease, HomeClientProposal, HomeTriage, HomeTriageCard } from '@/lib/home/types';
 import type { OpenCardInput } from '@/components/domain/bast-chat/card-context';
 import { TaskQuestions } from '@/components/domain/tasks/questions/TaskQuestions';
 import {
   ASKED_AFTER_RELEASE_HEADING,
+  CLIENT_PROPOSALS_HEADING,
+  CLIENT_PROPOSALS_HINT,
+  CLIENT_PROPOSAL_BADGE,
+  CLIENT_PROPOSAL_OPEN,
+  NO_CLIENT_NAME,
   ASKED_AFTER_RELEASE_HINT,
   DETAILS_LABEL,
   LOOKS_DONE_BADGE,
@@ -172,6 +177,38 @@ function TriageCardItem({ card, onAct, onTalk, busy }: { card: HomeTriageCard } 
   );
 }
 
+/** Plans proposed from a client ask, waiting for his emailed yes. Marked as a client proposal, the client's name on each. No Release: the yes is the release. */
+export function ClientProposals({ rows }: { rows: HomeClientProposal[] }) {
+  if (rows.length === 0) return null;
+  return (
+    <section className="home-tproposals" data-testid="client-proposals" aria-label={CLIENT_PROPOSALS_HEADING}>
+      <h2>{CLIENT_PROPOSALS_HEADING}</h2>
+      <p className="home-small home-muted">{CLIENT_PROPOSALS_HINT}</p>
+      <div className="home-tgrid">
+        {rows.map((p) => {
+          const age = ageFromDays(p.age_days);
+          return (
+            <article key={p.task_id} className="home-tcard" data-testid="client-proposal-card" data-task-id={p.task_id} data-origin="client-proposal">
+              <div className="home-tcard-top">
+                <span className="home-pill" data-testid="client-proposal-badge">{CLIENT_PROPOSAL_BADGE}</span>
+                <span className="home-tkind" data-testid="client-proposal-client">{p.client_name ?? NO_CLIENT_NAME}</span>
+                {age ? <span className="home-tage">{age}</span> : null}
+              </div>
+              <h3 className="home-tcard-title">
+                <Link href={p.href}>{plain(p.title)}</Link>
+              </h3>
+              {p.site_name ? <p className="home-small home-muted">{plain(p.site_name)}</p> : null}
+              <p className="home-small">
+                <Link href={p.href}>{CLIENT_PROPOSAL_OPEN}</Link>
+              </p>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function AskedAfterRelease({ rows }: { rows: HomeAskedAfterRelease[] }) {
   if (rows.length === 0) return null;
   return (
@@ -197,9 +234,11 @@ function AskedAfterRelease({ rows }: { rows: HomeAskedAfterRelease[] }) {
 export function TriageBoard({ triage, onAct, onTalk, busy = false }: TriageBoardProps) {
   const cards = triage.cards ?? [];
   const asked = triage.asked_after_release ?? [];
+  const proposals = triage.client_proposals ?? [];
   return (
     <section className="home-tboard" data-testid="triage-board" aria-label={TRIAGE_HEADING}>
-      {cards.length === 0 ? (
+      <ClientProposals rows={proposals} />
+      {cards.length === 0 && proposals.length > 0 ? null : cards.length === 0 ? (
         <div className="home-card home-pane">
           <p className="home-muted">{TRIAGE_EMPTY}</p>
         </div>
