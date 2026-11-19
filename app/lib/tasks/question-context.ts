@@ -117,10 +117,42 @@ export const questionPatchSchema = z
     if_nobody_action: z.enum(['go_with_recommendation', 'wait']).optional(),
     withdraw: z.boolean().optional(),
     reason: z.string().trim().max(500).optional(),
+    /** A short nudge to the client was drafted (never sent) for this question: stamps nudge_drafted_at. */
+    nudge_drafted: z.literal(true).optional(),
   })
   .strict()
   .refine((b) => Object.keys(b).length > 0, { message: 'Say what to change.' });
 export type QuestionPatch = z.infer<typeof questionPatchSchema>;
+
+/** Most cards one question may block. */
+export const QUESTION_BLOCKS_MAX = 20;
+
+/**
+ * A question we sent a client (Mike, 2026-11-19: "I'm unlikely to log questions myself, so can we automate that and attach the questions to
+ * the appropriate project or task as needed?"): who it was for, the email that carried it, the cards waiting on the answer, and for a
+ * go-ahead question the date the recommendation goes ahead. Every part is optional; a question for Mike sends none of them.
+ */
+export const clientQuestionSchema = z
+  .object({
+    asked_of_contact_id: z.string().uuid().optional().nullable(),
+    sent: z
+      .object({
+        account: z.string().trim().min(3).max(120),
+        message_id: z.string().trim().min(1).max(200),
+        thread_id: z.string().trim().min(1).max(200).optional().nullable(),
+        at: z.string().datetime({ offset: true }),
+      })
+      .strict()
+      .optional()
+      .nullable(),
+    default_at: z.string().datetime({ offset: true }).optional().nullable(),
+    blocks: z.array(z.string().uuid()).max(QUESTION_BLOCKS_MAX).optional(),
+  })
+  .strict();
+export type ClientQuestionInput = z.infer<typeof clientQuestionSchema>;
+
+/** POST/DELETE /api/tasks/:id/questions/:qid/blocks */
+export const questionBlocksSchema = z.object({ task_ids: z.array(z.string().uuid()).min(1).max(QUESTION_BLOCKS_MAX) }).strict();
 
 /** Where an answer recorded by Dox came from: the person, their exact words, the date, and a link when there is one. */
 export const answerSourceSchema = z
@@ -215,4 +247,8 @@ export interface QuestionView {
   released_without_answer: boolean;
   /** Send back with the answer. */
   version: string;
+  /** A question we sent a client: who it was for (absent or null on a question for Mike). */
+  asked_of_contact?: { id: string; name: string | null; email: string } | null;
+  /** The cards waiting on the answer. */
+  blocks?: Array<{ id: string; title: string; status: string }>;
 }

@@ -18,6 +18,9 @@ import {
   healBlockedTasks,
   areBlockersSatisfied,
   wouldCreateCycle,
+  isDependentReleasable,
+  releaseQuestionDependents,
+  releaseTasksIfReleasable,
 } from '../dependencies';
 import type { Mock } from 'vitest';
 
@@ -73,6 +76,7 @@ describe('healBlockedTasks (self-healing sweep)', () => {
             project: { select: { dependencies_ordering_only: true } },
           },
         },
+        blocked_by_questions: { where: { state: 'open' }, select: { id: true } },
       },
     });
   });
@@ -174,6 +178,7 @@ describe('unblockEligibleDependents (scoped reactive trigger)', () => {
             project: { select: { dependencies_ordering_only: true } },
           },
         },
+        blocked_by_questions: { where: { state: 'open' }, select: { id: true } },
       },
     });
   });
@@ -299,5 +304,45 @@ describe('wouldCreateCycle', () => {
 
     const result = await wouldCreateCycle('task-1', ['task-2']);
     expect(result).toBe(false);
+  });
+});
+
+describe('open questions block like unfinished blocker tasks (Mike, 2026-11-19)', () => {
+  it('a dependent with an open question is not releasable, even with every blocker task satisfied', () => {
+    expect(isDependentReleasable({ blocked_by: [blocker('b', 'done', true, false)], blocked_by_questions: [{ id: 'q1' }] })).toBe(false);
+    expect(isDependentReleasable({ blocked_by: [], blocked_by_questions: [{ id: 'q1' }] })).toBe(false);
+  });
+  it('no open question and satisfied blockers: releasable (questions absent reads as none)', () => {
+    expect(isDependentReleasable({ blocked_by: [blocker('b', 'done', true, false)], blocked_by_questions: [] })).toBe(true);
+    expect(isDependentReleasable({ blocked_by: [] })).toBe(true);
+  });
+  it('an open question never releases a card whose blocker task is unfinished', () => {
+    expect(isDependentReleasable({ blocked_by: [blocker('b', 'in_progress', false, true)], blocked_by_questions: [] })).toBe(false);
+  });
+
+  it('healBlockedTasks leaves a card an open question holds, releases the rest', async () => {
+    mockFindMany.mockResolvedValueOnce([
+      { id: 'held', blocked_by: [], blocked_by_questions: [{ id: 'q1' }] },
+      { id: 'free', blocked_by: [], blocked_by_questions: [] },
+    ]);
+    mockUpdateMany.mockResolvedValue({ count: 1 });
+    const ids = await healBlockedTasks();
+    expect(ids).toEqual(['free']);
+    expect(mockUpdateMany).toHaveBeenCalledWith({ where: { id: { in: ['free'] }, status: 'blocked' }, data: { status: 'not_started' } });
+  });
+
+  it('releaseQuestionDependents reads only the blocked cards of that question', async () => {
+    mockFindMany.mockResolvedValueOnce([{ id: 'dep', blocked_by: [], blocked_by_questions: [] }]);
+    mockUpdateMany.mockResolvedValue({ count: 1 });
+    const ids = await releaseQuestionDependents('q1');
+    expect(ids).toEqual(['dep']);
+    expect(mockFindMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { blocked_by_questions: { some: { id: 'q1' } }, status: 'blocked', is_deleted: false },
+    }));
+  });
+
+  it('releaseTasksIfReleasable with no ids touches nothing', async () => {
+    expect(await releaseTasksIfReleasable([])).toEqual([]);
+    expect(mockFindMany).not.toHaveBeenCalled();
   });
 });

@@ -93,7 +93,8 @@ export async function DELETE(
       },
     });
 
-    // Check if task still has blockers
+    // If no unfinished blocker task and no open question holds it any more, a blocked task goes back to not_started
+    // (the same predicate as the unblock sweep: lib/services/dependencies.ts).
     const task = await prisma.task.findUnique({
       where: { id },
       include: {
@@ -101,11 +102,11 @@ export async function DELETE(
           where: { status: { not: 'done' } },
           select: { id: true },
         },
+        blocked_by_questions: { where: { state: 'open' }, select: { id: true } },
       },
     });
 
-    // If no more active blockers and task is blocked, reset to not_started
-    if (task && task.status === 'blocked' && task.blocked_by.length === 0) {
+    if (task && task.status === 'blocked' && task.blocked_by.length === 0 && task.blocked_by_questions.length === 0) {
       await prisma.task.update({
         where: { id },
         data: { status: 'not_started' },

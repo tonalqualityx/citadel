@@ -736,6 +736,9 @@ model ClientContact {
   // Wait record phase 1 (back-relations)
   waits_owned Wait[] @relation("WaitOwnerContact")
 
+  // Questions we sent this contact by email, logged on the card they serve
+  questions_asked TaskQuestion[] @relation("QuestionAskedOf")
+
   @@unique([client_id, email])
   @@index([email])
   @@index([client_id])
@@ -1365,6 +1368,8 @@ model Task {
   // Self-referential dependencies
   blocked_by Task[] @relation("TaskDependencies")
   blocking   Task[] @relation("TaskDependencies")
+  // Open questions this card waits on, exactly as it waits on a blocker task (Mike, 2026-11-19: "I mean that in the way that dependencies block tasks")
+  blocked_by_questions TaskQuestion[] @relation("QuestionBlocks")
 
   // Relations
   time_entries         TimeEntry[]
@@ -5982,12 +5987,27 @@ model TaskQuestion {
   defaulted_at          DateTime?
   withdrawn_reason      String?            @db.Text
   withdrawn_at          DateTime?
+  // A question we sent a client contact by email (null: a question for Mike). Who it was for, and the email that carried it.
+  asked_of_contact_id   String?            @db.Uuid
+  asked_of_contact      ClientContact?     @relation("QuestionAskedOf", fields: [asked_of_contact_id], references: [id], onDelete: SetNull)
+  sent_account          String?            @db.VarChar(120)
+  sent_message_id       String?            @db.VarChar(200)
+  sent_thread_id        String?            @db.VarChar(200)
+  sent_at               DateTime?
+  // go_with_recommendation only: when this passes with no answer, the recommendation goes ahead and the cards it blocks are released
+  default_at            DateTime?
+  // When a short nudge to the client was drafted (never sent) for this question
+  nudge_drafted_at      DateTime?
+  // The cards waiting on the answer: an open question holds them in `blocked` exactly as an unfinished blocker task does
+  blocks                Task[]             @relation("QuestionBlocks")
   created_at            DateTime           @default(now())
   updated_at            DateTime           @updatedAt
 
   // Uniqueness of (task_id, question) among non-withdrawn rows is enforced in code inside the task-locked transaction (Prisma cannot express a partial unique index without drift).
   @@index([task_id, state])
   @@index([cause_key, state])
+  @@index([state, default_at])
+  @@index([asked_of_contact_id])
   @@map("task_questions")
 }
 

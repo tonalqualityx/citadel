@@ -200,8 +200,17 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('GET', '/api/tasks/:id'),
     r('PATCH', '/api/tasks/:id'),
     r('GET', '/api/tasks/:id/comments'),
-    // Card questions: read only, so a session knows whether Mike answered (never a triage card; never ask or answer)
+    // Card questions: read, so a session knows whether Mike answered (never a triage card). Never answer.
     r('GET', '/api/tasks/:id/questions'),
+    // Questions we sent a client (Mike, 2026-11-19, the email loop): inbound/sent_questions.py logs each one on the card it serves with the
+    // cards waiting on it, marks a drafted nudge, and lists the open ones. Asking is open; answering stays Mike's, the chat's and Dox's.
+    r('POST', '/api/tasks/:id/questions'),
+    r('PATCH', '/api/tasks/:id/questions/:qid'),
+    r('POST', '/api/tasks/:id/questions/:qid/blocks'),
+    r('DELETE', '/api/tasks/:id/questions/:qid/blocks'),
+    r('GET', '/api/questions'),
+    r('GET', '/api/contacts/resolve'),
+    r('GET', '/api/projects'),
     // The plan of a card: read only (after release; a Triage card's plan is the owner's, the chat's and Dox's)
     r('GET', '/api/tasks/:id/plan'),
     r('POST', '/api/tasks/:id/comments'),

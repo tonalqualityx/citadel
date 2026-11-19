@@ -1032,6 +1032,18 @@ export function formatTaskResponse(task: any) {
       assignee: t.assignee ? { id: t.assignee.id, name: t.assignee.name } : null,
       project: t.project ? { id: t.project.id, name: t.project.name, status: t.project.status } : null,
     })),
+    // Questions the card waits on (GET /api/tasks/:id loads them); absent on every other read
+    ...(task.blocked_by_questions
+      ? {
+          blocked_by_questions: task.blocked_by_questions.map((q: { id: string; task_id: string; question: string; state: string; asked_of_contact?: { id: string; name: string | null } | null }) => ({
+            id: q.id,
+            task_id: q.task_id,
+            question: q.question,
+            state: q.state,
+            asked_of_contact: q.asked_of_contact ? { id: q.asked_of_contact.id, name: q.asked_of_contact.name } : null,
+          })),
+        }
+      : {}),
     blocking: task.blocking?.map((t: any) => ({
       id: t.id,
       title: t.title,

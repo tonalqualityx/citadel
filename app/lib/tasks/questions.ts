@@ -15,6 +15,11 @@
  *           is Dox's record, never Mike's word: no citation, and it never lifts a `needs-mike` hold. Nobody else answers.
  *           A `defaulted` question is never his words and never has a citation.
  *
+ * A question we sent a client (Mike, 2026-11-19) carries who it was for (asked_of_contact) and the email that carried it (sent). Any question can
+ * block cards (blocks), exactly as a blocker task does (Mike, 2026-11-19: "I mean that in the way that dependencies block tasks"): asking holds
+ * each active card in `blocked`; an answer, a withdrawal, or a go-ahead question's default_at passing releases the cards whose other blockers are
+ * satisfied too (lib/services/dependencies.ts). The unblock sweep never releases a card an open question still holds.
+ *
  * The client portal never reads this table.
  */
 import { Prisma } from '@prisma/client';
@@ -22,7 +27,8 @@ import { prisma } from '@/lib/db/prisma';
 import { ApiError } from '@/lib/api/errors';
 import type { AuthPayload } from '@/lib/auth/middleware';
 import { actorOf, recordTriageChange } from './triage-rev';
-import { MIKE_USER_ID, BOT_USER_IDS } from '@/lib/oracle/projects/gate-constants';
+import { MIKE_USER_ID, BOT_USER_IDS, BAST_USER_ID } from '@/lib/oracle/projects/gate-constants';
+import { releaseQuestionDependents, releaseTasksIfReleasable } from '@/lib/services/dependencies';
 import { mayLeaveTriage } from '@/lib/services/task-patch';
 import { CHAT_LANE } from '@/lib/bast-chat/task-filter';
 import { createNotification } from '@/lib/services/notifications';
@@ -37,6 +43,8 @@ import {
   optionOf,
   questionContextSchema,
   sourcedAnswerComment,
+  QUESTION_TZ,
+  type ClientQuestionInput,
   type QuestionAnswerBody,
   type QuestionContext,
   type QuestionPatch,
@@ -77,6 +85,16 @@ export function mayAnswerQuestions(auth: Auth): boolean {
 type TaskHead = { id: string; status: string; tags: string[] };
 type QuestionRow = Prisma.TaskQuestionGetPayload<object>;
 
+/** Who a client question was for, and the cards it blocks: loaded with every question this module returns. */
+export const QUESTION_INCLUDE = {
+  asked_of_contact: { select: { id: true, name: true, email: true } },
+  blocks: { where: { is_deleted: false }, select: { id: true, title: true, status: true }, orderBy: { created_at: 'asc' } },
+} satisfies Prisma.TaskQuestionInclude;
+type QuestionRowFull = QuestionRow & {
+  asked_of_contact?: { id: string; name: string | null; email: string } | null;
+  blocks?: Array<{ id: string; title: string; status: string }>;
+};
+
 /**
  * Who may read (and ask on) this card's questions. `checkTaskAccess` has already run, so a contractor who cannot see the task
  * is gone; this adds the question-specific rule. Throws a 404 (never a 403: a card in triage does not admit it exists).
@@ -94,6 +112,8 @@ export async function assertCanRead(task: TaskHead, auth: Auth): Promise<void> {
 /** Asking is open to any staff who can see the card (a pm or admin filing on a triage card becomes its asker, and reads it back). */
 export function assertCanAsk(task: TaskHead, auth: Auth): void {
   if (auth.role === 'designer' || (auth.role === 'tech' && task.status === 'triage')) throw new ApiError('Task not found', 404);
+  // The worker lane logs client questions on released cards only; a Triage card is Mike's and the chat's.
+  if (auth.lane === 'bast' && task.status === 'triage') throw new ApiError('Task not found', 404);
 }
 
 function isOwnerish(auth: Auth, row: Pick<QuestionRow, 'asked_by_user_id'>): boolean {
@@ -135,9 +155,18 @@ export interface QuestionOut {
   created_at: string;
   /** The row's updated_at as the client saw it. Send it back with an answer; a changed row answers 409. */
   version: string;
+  /** A question we sent a client contact: who it was for. Null on a question for Mike. */
+  asked_of_contact: { id: string; name: string | null; email: string } | null;
+  /** The email that carried it. */
+  sent: { account: string; message_id: string; thread_id: string | null; at: string | null } | null;
+  /** Go-ahead questions only: when the recommendation goes ahead if nobody answers. */
+  default_at: string | null;
+  nudge_drafted_at: string | null;
+  /** The cards waiting on the answer. */
+  blocks: Array<{ id: string; title: string; status: string }>;
 }
 
-export function formatQuestion(q: QuestionRow): QuestionOut {
+export function formatQuestion(q: QuestionRowFull): QuestionOut {
   return {
     id: q.id,
     task_id: q.task_id,
@@ -167,12 +196,19 @@ export function formatQuestion(q: QuestionRow): QuestionOut {
     withdrawn_reason: q.withdrawn_reason,
     created_at: q.created_at.toISOString(),
     version: q.updated_at.toISOString(),
+    asked_of_contact: q.asked_of_contact ? { id: q.asked_of_contact.id, name: q.asked_of_contact.name, email: q.asked_of_contact.email } : null,
+    sent: q.sent_account && q.sent_message_id
+      ? { account: q.sent_account, message_id: q.sent_message_id, thread_id: q.sent_thread_id, at: q.sent_at ? q.sent_at.toISOString() : null }
+      : null,
+    default_at: q.default_at ? q.default_at.toISOString() : null,
+    nudge_drafted_at: q.nudge_drafted_at ? q.nudge_drafted_at.toISOString() : null,
+    blocks: (q.blocks ?? []).map((t) => ({ id: t.id, title: t.title, status: t.status })),
   };
 }
 
 export async function listQuestions(task: TaskHead, auth: Auth): Promise<{ questions: QuestionOut[]; open_count: number }> {
   await assertCanRead(task, auth);
-  const rows = await prisma.taskQuestion.findMany({ where: { task_id: task.id }, orderBy: [{ position: 'asc' }, { created_at: 'asc' }] });
+  const rows = await prisma.taskQuestion.findMany({ where: { task_id: task.id }, orderBy: [{ position: 'asc' }, { created_at: 'asc' }], include: QUESTION_INCLUDE });
   return { questions: rows.map(formatQuestion), open_count: rows.filter((r) => r.state === 'open').length };
 }
 
@@ -186,19 +222,67 @@ export interface QuestionCause {
   scope?: CauseScope;
 }
 
-export async function addQuestion(task: TaskHead, auth: Auth, body: QuestionContext, chatConversationId?: string | null, cause?: QuestionCause | null): Promise<QuestionOut> {
+export const BLOCK_MESSAGES = {
+  notFound: 'One or more cards to block were not found.',
+  outside: 'A question blocks cards in its own project only, or its own card.',
+  contact: 'That contact was not found.',
+  defaultNeedsGo: 'A go-ahead date belongs to a question that goes with the recommendation when nobody answers.',
+} as const;
+
+/** The cards a question may block: each exists, and is the question's own card or a card in the same project. Returns them de-duplicated. */
+async function validateBlocks(tx: Prisma.TransactionClient, homeId: string, projectId: string | null, ids: string[]): Promise<string[]> {
+  const unique = Array.from(new Set(ids));
+  if (unique.length === 0) return [];
+  const rows = await tx.task.findMany({ where: { id: { in: unique }, is_deleted: false }, select: { id: true, project_id: true } });
+  if (rows.length !== unique.length) throw new ApiError(BLOCK_MESSAGES.notFound, 404, 'block_not_found');
+  for (const r of rows) {
+    if (r.id !== homeId && (!projectId || r.project_id !== projectId)) throw new ApiError(BLOCK_MESSAGES.outside, 422, 'block_outside_project');
+  }
+  return unique;
+}
+
+/**
+ * An open question holds its cards: each card not yet started moves to `blocked`. A card already in progress or staged for the client keeps its
+ * status (blocking it would park a live session's work, and the release would bring a staged card back as not_started); Triage, done and abandoned
+ * cards are never touched. The link stays, so the card's Blocked by list still shows the question.
+ */
+async function holdForQuestion(tx: Prisma.TransactionClient, ids: string[]): Promise<string[]> {
+  if (ids.length === 0) return [];
+  const waiting = await tx.task.findMany({ where: { id: { in: ids }, status: 'not_started' }, select: { id: true } });
+  if (waiting.length === 0) return [];
+  await tx.task.updateMany({ where: { id: { in: waiting.map((t) => t.id) }, status: 'not_started' }, data: { status: 'blocked' } });
+  return waiting.map((t) => t.id);
+}
+
+/** Blocking cards is a staff decision: Mike, the chat lane, bot keys, or a pm or admin, and never from a question on a Triage card. */
+function assertMayBlock(task: TaskHead, auth: Auth & { role?: string }): void {
+  const staff = auth.userId === MIKE_USER_ID || isChatLane(auth) || BOT_USER_IDS.includes(auth.userId) || auth.role === 'pm' || auth.role === 'admin';
+  if (!staff) throw new ApiError('Only staff block cards with a question.', 403, 'block_not_allowed');
+  if (task.status === 'triage') throw new ApiError('A question on a Triage card does not block other cards.', 422, 'block_from_triage');
+}
+
+export async function addQuestion(
+  task: TaskHead,
+  auth: Auth,
+  body: QuestionContext,
+  chatConversationId?: string | null,
+  cause?: QuestionCause | null,
+  client?: ClientQuestionInput | null,
+): Promise<QuestionOut> {
   assertCanAsk(task, auth);
+  if (client?.default_at && body.if_nobody_action !== 'go_with_recommendation') throw new ApiError(BLOCK_MESSAGES.defaultNeedsGo, 400, 'default_at_needs_go');
+  if ((client?.blocks ?? []).length > 0) assertMayBlock(task, auth as Auth & { role?: string });
   return prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM tasks WHERE id = ${task.id}::uuid FOR UPDATE`;
+    const home = await tx.task.findUnique({ where: { id: task.id }, select: { project_id: true } });
     if (cause) {
       // A project-level cause is one item for the whole project, so two cards cannot both raise it: a transaction-wide lock on the key serialises them.
       if (cause.scope === 'project') await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"dox-cause:" + cause.key}))`;
-      const home = await tx.task.findUnique({ where: { id: task.id }, select: { project_id: true } });
       const where: Prisma.TaskQuestionWhereInput =
         cause.scope === 'project' && home?.project_id
           ? { cause_key: cause.key, state: { not: 'withdrawn' }, task: { project_id: home.project_id, is_deleted: false } }
           : { cause_key: cause.key, state: { not: 'withdrawn' }, task_id: task.id };
-      const existing = await tx.taskQuestion.findFirst({ where, orderBy: { created_at: 'asc' } });
+      const existing = await tx.taskQuestion.findFirst({ where, orderBy: { created_at: 'asc' }, include: QUESTION_INCLUDE });
       if (existing) return { ...formatQuestion(existing), deduped: true };
     }
     const open = await tx.taskQuestion.count({ where: { task_id: task.id, state: 'open' } });
@@ -206,6 +290,11 @@ export async function addQuestion(task: TaskHead, auth: Auth, body: QuestionCont
     // Unique among non-withdrawn rows only (the task row lock above makes this check safe); a withdrawn question can be asked again.
     const same = await tx.taskQuestion.findFirst({ where: { task_id: task.id, question: body.question, state: { not: 'withdrawn' } }, select: { id: true } });
     if (same) throw new ApiError(QUESTION_MESSAGES.duplicate, 409, 'duplicate_question');
+    const blockIds = await validateBlocks(tx, task.id, home?.project_id ?? null, client?.blocks ?? []);
+    if (client?.asked_of_contact_id) {
+      const contact = await tx.clientContact.findFirst({ where: { id: client.asked_of_contact_id, is_deleted: false }, select: { id: true } });
+      if (!contact) throw new ApiError(BLOCK_MESSAGES.contact, 404, 'contact_not_found');
+    }
     const last = await tx.taskQuestion.aggregate({ where: { task_id: task.id }, _max: { position: true } });
     const row = await tx.taskQuestion.create({
       data: {
@@ -225,11 +314,22 @@ export async function addQuestion(task: TaskHead, auth: Auth, body: QuestionCont
         asked_by_lane: auth.lane ? auth.lane.slice(0, 40) : null,
         chat_conversation_id: chatConversationId ?? null,
         cause_key: cause?.key ?? null,
+        asked_of_contact_id: client?.asked_of_contact_id ?? null,
+        sent_account: client?.sent?.account ?? null,
+        sent_message_id: client?.sent?.message_id ?? null,
+        sent_thread_id: client?.sent?.thread_id ?? null,
+        sent_at: client?.sent?.at ? new Date(client.sent.at) : null,
+        default_at: client?.default_at ? new Date(client.default_at) : null,
+        ...(blockIds.length > 0 ? { blocks: { connect: blockIds.map((id) => ({ id })) } } : {}),
       },
+      include: QUESTION_INCLUDE,
     });
+    await holdForQuestion(tx, blockIds);
     const actor = await actorOf(auth, tx as never);
     await recordTriageChange(tx, task.id, 'question', `Question added by ${actor.by}`, actor);
-    return formatQuestion(row);
+    // The cards just moved to blocked: read them again so the answer shows their state now.
+    const fresh = blockIds.length > 0 ? await tx.taskQuestion.findUnique({ where: { id: row.id }, include: QUESTION_INCLUDE }) : null;
+    return formatQuestion(fresh ?? row);
   });
 }
 
@@ -253,19 +353,26 @@ function mergeContext(row: QuestionRow, patch: QuestionPatch): unknown {
 export async function patchQuestion(task: TaskHead, qid: string, auth: Auth, patch: QuestionPatch): Promise<QuestionOut> {
   await assertCanRead(task, auth);
   if (!UUID_RE.test(qid)) throw new ApiError(QUESTION_MESSAGES.notFound, 404);
-  return prisma.$transaction(async (tx) => {
+  const { nudge_drafted: nudged, ...contextPatch } = patch;
+  const onlyNudge = nudged === true && Object.keys(contextPatch).length === 0;
+  const out = await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM tasks WHERE id = ${task.id}::uuid FOR UPDATE`;
     const row = await tx.taskQuestion.findFirst({ where: { id: qid, task_id: task.id } });
     if (!row) throw new ApiError(QUESTION_MESSAGES.notFound, 404);
     if (!isOwnerish(auth, row)) throw new ApiError(QUESTION_MESSAGES.notFound, 404);
+    // The worker lane changes or withdraws only the questions it logged itself; on anyone else's it may only stamp a drafted nudge.
+    if (auth.lane === 'bast' && row.asked_by_lane !== 'bast' && !onlyNudge) throw new ApiError(QUESTION_MESSAGES.notFound, 404);
     if (row.state === 'withdrawn') throw new ApiError(QUESTION_MESSAGES.closed, 409, 'withdrawn');
     if (row.state !== 'open') throw new ApiError(QUESTION_MESSAGES.notOpen, 409, 'not_open');
-    let updated: QuestionRow;
+    let updated: QuestionRowFull;
+    const nudgeStamp = nudged ? { nudge_drafted_at: new Date() } : {};
     if (patch.withdraw) {
-      updated = await tx.taskQuestion.update({ where: { id: row.id }, data: { state: 'withdrawn', withdrawn_at: new Date(), withdrawn_reason: (patch.reason ?? '').trim() || 'Withdrawn by the asker.' } });
+      updated = await tx.taskQuestion.update({ where: { id: row.id }, data: { state: 'withdrawn', withdrawn_at: new Date(), withdrawn_reason: (patch.reason ?? '').trim() || 'Withdrawn by the asker.', ...nudgeStamp }, include: QUESTION_INCLUDE });
       await releaseHoldIfLast(tx, task.id);
+    } else if (onlyNudge) {
+      updated = await tx.taskQuestion.update({ where: { id: row.id }, data: nudgeStamp, include: QUESTION_INCLUDE });
     } else {
-      const merged = questionContextSchema.parse(mergeContext(row, patch));
+      const merged = questionContextSchema.parse(mergeContext(row, contextPatch));
       const hasOptions = !!merged.options && merged.options.length > 0;
       if (merged.question !== row.question) {
         const same = await tx.taskQuestion.findFirst({ where: { task_id: task.id, question: merged.question, state: { not: 'withdrawn' }, id: { not: row.id } }, select: { id: true } });
@@ -284,13 +391,24 @@ export async function patchQuestion(task: TaskHead, qid: string, auth: Auth, pat
           recommend_why: merged.recommend_why?.trim() || null,
           if_nobody: merged.if_nobody,
           if_nobody_action: merged.if_nobody_action,
+          // A go-ahead date means nothing on a question that waits: it goes when the question stops going ahead on its own.
+          ...(merged.if_nobody_action === 'wait' ? { default_at: null } : {}),
+          ...nudgeStamp,
         },
+        include: QUESTION_INCLUDE,
       });
     }
     const actor = await actorOf(auth, tx as never);
-    await recordTriageChange(tx, task.id, 'question', patch.withdraw ? `Question withdrawn by ${actor.by}` : `Question changed by ${actor.by}`, actor);
-    return formatQuestion(updated);
+    const what = patch.withdraw ? 'withdrawn' : onlyNudge ? 'nudge drafted' : 'changed';
+    await recordTriageChange(tx, task.id, 'question', `Question ${what} by ${actor.by}`, actor);
+    return updated;
   });
+  // A withdrawn question holds nothing: release the cards it blocked whose other blockers are satisfied.
+  if (patch.withdraw) {
+    await releaseQuestionDependents(out.id);
+    return formatQuestion((await prisma.taskQuestion.findUnique({ where: { id: out.id }, include: QUESTION_INCLUDE })) ?? out);
+  }
+  return formatQuestion(out);
 }
 
 /**
@@ -311,6 +429,8 @@ export interface AnswerResult {
   question: QuestionOut;
   comment_id: string;
   hold_released: boolean;
+  /** Cards this question blocked that the answer released (every other blocker satisfied too). */
+  released_task_ids: string[];
 }
 
 /** Mike's answer. Answering again replaces the answer (the newer one wins); every answer stays as its own comment. */
@@ -384,6 +504,7 @@ export async function answerQuestion(task: TaskHead, qid: string, auth: Auth, bo
         answer_comment_id: comment.id,
         defaulted_at: null,
       },
+      include: QUESTION_INCLUDE,
     });
     // A hold that carries needs-mike waits for Mike: an answer Dox recorded never lifts it.
     const holdsForMike = viaDox && ((await tx.task.findUnique({ where: { id: task.id }, select: { tags: true } }))?.tags ?? []).includes(NEEDS_MIKE_TAG);
@@ -409,7 +530,10 @@ export async function answerQuestion(task: TaskHead, qid: string, auth: Auth, bo
       // the answer is saved; a missed notice is not a failed answer
     }
   }
-  return { question: formatQuestion(out.updated), comment_id: out.commentId, hold_released: out.released };
+  // An answer releases the cards the question blocked (Mike, 2026-11-19): each whose other blockers are satisfied moves back to not_started.
+  const releasedTasks = await releaseQuestionDependents(out.updated.id);
+  const fresh = releasedTasks.length > 0 ? await prisma.taskQuestion.findUnique({ where: { id: out.updated.id }, include: QUESTION_INCLUDE }) : null;
+  return { question: formatQuestion(fresh ?? out.updated), comment_id: out.commentId, hold_released: out.released, released_task_ids: releasedTasks };
 }
 
 /** Open questions waiting on Mike, per task, for the home screen and the tab count. */
@@ -419,4 +543,131 @@ export async function openQuestionCounts(db: Pick<typeof prisma, 'taskQuestion'>
   const rows = await db.taskQuestion.groupBy({ by: ['task_id'], where: { task_id: { in: taskIds }, state: 'open' }, _count: { _all: true } });
   for (const r of rows) out.set(r.task_id, r._count._all);
   return out;
+}
+
+/** Who may change which cards a question blocks: its asker, Mike, the chat lane, bot keys, or a pm or admin. */
+function mayEditBlocks(auth: Auth & { role?: string }, row: Pick<QuestionRow, 'asked_by_user_id'>): boolean {
+  return isOwnerish(auth, row) || auth.role === 'pm' || auth.role === 'admin';
+}
+
+/** POST /api/tasks/:id/questions/:qid/blocks: the question now also blocks these cards. An open question holds each active one at once. */
+export async function addQuestionBlocks(task: TaskHead, qid: string, auth: Auth, taskIds: string[]): Promise<QuestionOut> {
+  await assertCanRead(task, auth);
+  if (!UUID_RE.test(qid)) throw new ApiError(QUESTION_MESSAGES.notFound, 404);
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM tasks WHERE id = ${task.id}::uuid FOR UPDATE`;
+    const row = await tx.taskQuestion.findFirst({ where: { id: qid, task_id: task.id } });
+    if (!row || !mayEditBlocks(auth, row)) throw new ApiError(QUESTION_MESSAGES.notFound, 404);
+    if (auth.lane === 'bast' && row.asked_by_lane !== 'bast') throw new ApiError(QUESTION_MESSAGES.notFound, 404);
+    if (row.state === 'withdrawn') throw new ApiError(QUESTION_MESSAGES.closed, 409, 'withdrawn');
+    assertMayBlock(task, auth as Auth & { role?: string });
+    const home = await tx.task.findUnique({ where: { id: task.id }, select: { project_id: true } });
+    const ids = await validateBlocks(tx, task.id, home?.project_id ?? null, taskIds);
+    await tx.taskQuestion.update({ where: { id: row.id }, data: { blocks: { connect: ids.map((id) => ({ id })) } } });
+    if (row.state === 'open') await holdForQuestion(tx, ids);
+    const actor = await actorOf(auth, tx as never);
+    await recordTriageChange(tx, task.id, 'question', `Question now blocks ${ids.length} card${ids.length === 1 ? '' : 's'} (${actor.by})`, actor);
+    return formatQuestion((await tx.taskQuestion.findUnique({ where: { id: row.id }, include: QUESTION_INCLUDE }))!);
+  });
+}
+
+/** DELETE /api/tasks/:id/questions/:qid/blocks: the question no longer blocks these cards; each is released if nothing else holds it. */
+export async function removeQuestionBlocks(task: TaskHead, qid: string, auth: Auth, taskIds: string[]): Promise<QuestionOut> {
+  await assertCanRead(task, auth);
+  if (!UUID_RE.test(qid)) throw new ApiError(QUESTION_MESSAGES.notFound, 404);
+  const ids = Array.from(new Set(taskIds));
+  const out = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM tasks WHERE id = ${task.id}::uuid FOR UPDATE`;
+    const row = await tx.taskQuestion.findFirst({ where: { id: qid, task_id: task.id } });
+    if (!row || !mayEditBlocks(auth, row)) throw new ApiError(QUESTION_MESSAGES.notFound, 404);
+    if (auth.lane === 'bast' && row.asked_by_lane !== 'bast') throw new ApiError(QUESTION_MESSAGES.notFound, 404);
+    await tx.taskQuestion.update({ where: { id: row.id }, data: { blocks: { disconnect: ids.map((id) => ({ id })) } } });
+    const actor = await actorOf(auth, tx as never);
+    await recordTriageChange(tx, task.id, 'question', `Question no longer blocks ${ids.length} card${ids.length === 1 ? '' : 's'} (${actor.by})`, actor);
+    return row.id;
+  });
+  await releaseTasksIfReleasable(ids);
+  return formatQuestion((await prisma.taskQuestion.findUnique({ where: { id: out }, include: QUESTION_INCLUDE }))!);
+}
+
+export const QUESTION_FOR = ['client', 'mike', 'all'] as const;
+export const QUESTION_STATES = ['open', 'answered', 'defaulted', 'withdrawn', 'all'] as const;
+
+export interface QuestionListOut extends QuestionOut {
+  task: { id: string; title: string; status: string; project_id: string | null; project: { id: string; name: string } | null };
+}
+
+/**
+ * GET /api/questions: questions across cards, oldest first, each with its card and project. Never a question on a Triage card (those are Mike's
+ * and the chat's, read on the card). `for`: client (we sent it to a client contact), mike (no contact), all.
+ */
+export async function listAllQuestions(
+  auth: Auth & { role?: string },
+  q: { state: (typeof QUESTION_STATES)[number]; for: (typeof QUESTION_FOR)[number]; project_id?: string; limit: number },
+): Promise<{ questions: QuestionListOut[]; total: number }> {
+  if (auth.role !== 'pm' && auth.role !== 'admin') throw new ApiError('Insufficient permissions', 403);
+  const where: Prisma.TaskQuestionWhereInput = {
+    ...(q.state === 'all' ? {} : { state: q.state }),
+    ...(q.for === 'client' ? { asked_of_contact_id: { not: null } } : q.for === 'mike' ? { asked_of_contact_id: null } : {}),
+    task: { is_deleted: false, status: { not: 'triage' }, ...(q.project_id ? { project_id: q.project_id } : {}) },
+  };
+  const [rows, total] = await Promise.all([
+    prisma.taskQuestion.findMany({
+      where,
+      orderBy: [{ created_at: 'asc' }],
+      take: q.limit,
+      include: { ...QUESTION_INCLUDE, task: { select: { id: true, title: true, status: true, project_id: true, project: { select: { id: true, name: true } } } } },
+    }),
+    prisma.taskQuestion.count({ where }),
+  ]);
+  return {
+    questions: rows.map((r) => ({ ...formatQuestion(r), task: { id: r.task.id, title: r.task.title, status: r.task.status, project_id: r.task.project_id, project: r.task.project } })),
+    total,
+  };
+}
+
+function dayIn(tz: string, d: Date): string {
+  return new Intl.DateTimeFormat('en-US', { timeZone: tz, month: 'long', day: 'numeric', year: 'numeric' }).format(d);
+}
+
+/** The reason a released card carries when a go-ahead question's date passed with no answer. */
+export function defaultReleaseComment(question: string, defaultAt: Date, recommended: string | null, ifNobody: string): string {
+  const goes = recommended ? `so the recommendation goes ahead: ${recommended}.` : 'so the recommendation goes ahead.';
+  return `Went ahead: nobody answered "${question}" by ${dayIn(QUESTION_TZ, defaultAt)}, ${goes} ${ifNobody}`.trim();
+}
+
+/**
+ * The go-ahead sweep (run by POST /api/tasks/unblock-sweep before it heals): every open question that goes with the recommendation when nobody
+ * answers, whose default_at has passed, becomes `defaulted` (never Mike's word), each card it blocks gets the reason as an internal comment, and
+ * the cards are released when nothing else holds them (Mike, 2026-11-19, item 4 of the email loop task).
+ */
+export async function defaultDueQuestions(now: Date = new Date()): Promise<{ defaulted: string[]; released: string[] }> {
+  const due = await prisma.taskQuestion.findMany({
+    where: { state: 'open', if_nobody_action: 'go_with_recommendation', default_at: { lte: now }, task: { is_deleted: false, status: { not: 'triage' } } },
+    include: { blocks: { where: { is_deleted: false }, select: { id: true } } },
+    orderBy: { default_at: 'asc' },
+    take: 200,
+  });
+  const defaulted: string[] = [];
+  const released: string[] = [];
+  for (const q of due) {
+    const flipped = await prisma.$transaction(async (tx) => {
+      const n = await tx.taskQuestion.updateMany({ where: { id: q.id, state: 'open' }, data: { state: 'defaulted', defaulted_at: now } });
+      if (n.count !== 1) return false;
+      const rec = q.recommended_option_id ? optionOf(q.options, q.recommended_option_id) : null;
+      const content = defaultReleaseComment(q.question, q.default_at ?? now, rec ? rec.label : null, q.if_nobody);
+      const cards = Array.from(new Set([q.task_id, ...q.blocks.map((b) => b.id)]));
+      for (const taskId of cards) {
+        await tx.comment.create({
+          data: { task_id: taskId, user_id: BAST_USER_ID, content, mentioned_user_ids: [], is_internal: true, client_visible: false, client_question: false, chat_meta: { question: { id: q.id } } },
+        });
+      }
+      await releaseHoldIfLast(tx, q.task_id);
+      return true;
+    });
+    if (!flipped) continue;
+    defaulted.push(q.id);
+    released.push(...(await releaseQuestionDependents(q.id)));
+  }
+  return { defaulted, released };
 }

@@ -94,6 +94,8 @@ export interface Task {
   created_by_id: string | null;
   created_by: { id: string; name: string } | null;
   blocked_by?: { id: string; title: string; status: string }[];
+  /** Questions this card waits on (single-task read only): an open one holds the card in blocked like an unfinished blocker task. */
+  blocked_by_questions?: { id: string; task_id: string; question: string; state: string; asked_of_contact: { id: string; name: string | null } | null }[];
   blocking?: { id: string; title: string; status: string }[];
   time_entries?: {
     id: string;
