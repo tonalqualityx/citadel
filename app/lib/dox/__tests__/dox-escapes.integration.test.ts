@@ -103,12 +103,12 @@ describe.skipIf(!SCRATCH)('Dox escape attempts (real database)', () => {
       expect((await taskRow(plainTask)).assignee_id).toBeNull();
     });
 
-    it('a task of a project with no pass is refused even with the right header', async () => {
+    it('an EDIT of a task of a project with no pass is refused even with the right header; a create there needs no pass', async () => {
       const t = await fx.mkTask('No pass task', { project_id: NOPASS, status: 'not_started' });
       as(dox());
       const res = await json(await patchTask(call(NOPASS, { assignee_id: staff }, 'PATCH'), idParams(t)));
       expect([res.status, res.body.code]).toEqual([403, 'dox_no_pass']);
-      expect((await json(await createTask(call(NOPASS, { title: `${fx.tag} n`, project_id: NOPASS })))).body.code).toBe('dox_no_pass');
+      expect((await json(await createTask(call(NOPASS, { title: `${fx.tag} n`, project_id: NOPASS })))).status).toBe(201);
     });
 
     it.each([

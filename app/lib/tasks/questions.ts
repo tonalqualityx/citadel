@@ -11,7 +11,9 @@
  *   read    while the card is in triage: Mike, the chat lane, bot keys, and a question's asker; everyone else gets a 404.
  *           After release: anyone who can see the task (contractors and designers still cannot see triage cards).
  *   answer  Mike's own signed-in session, or the enforced bast-chat lane relaying his words ("From Mike, through the chat: ").
- *           Nobody else. A `defaulted` question is never his words and never has a citation.
+ *           Dox records an answer someone else gave (a client email, most often) with its source: who, their words, when. That answer
+ *           is Dox's record, never Mike's word: no citation, and it never lifts a `needs-mike` hold. Nobody else answers.
+ *           A `defaulted` question is never his words and never has a citation.
  *
  * The client portal never reads this table.
  */
@@ -25,6 +27,7 @@ import { mayLeaveTriage } from '@/lib/services/task-patch';
 import { CHAT_LANE } from '@/lib/bast-chat/task-filter';
 import { createNotification } from '@/lib/services/notifications';
 import { CHAT_ANSWER_PREFIX } from './checklist-answers';
+import { isDoxLaneValue } from '@/lib/dox/identity';
 import {
   OPEN_QUESTIONS_MAX,
   QUESTION_CHANGED_MESSAGE,
@@ -33,6 +36,7 @@ import {
   citationLine,
   optionOf,
   questionContextSchema,
+  sourcedAnswerComment,
   type QuestionAnswerBody,
   type QuestionContext,
   type QuestionPatch,
@@ -310,9 +314,24 @@ export interface AnswerResult {
 }
 
 /** Mike's answer. Answering again replaces the answer (the newer one wins); every answer stays as its own comment. */
+/** The Dox lane's own enforced key (lib/dox/guard.ts narrows where it may answer). */
+function isDoxAnswer(auth: Auth): boolean {
+  return auth.via === 'api_key' && auth.laneEnforced === true && isDoxLaneValue(auth.lane);
+}
+
+/** Any way of naming Mike in an answer's source: Dox never records his word (it comes from his session or the chat). */
+const MIKE_NAMES_RE = /\b(mike|michael|dion|reshi)\b/i;
+
+export const ANSWER_SOURCE_MESSAGE = 'Dox records an answer with its source: who gave it, their words and the date (source: { who, said, at, url? }).';
+
 export async function answerQuestion(task: TaskHead, qid: string, auth: Auth, body: QuestionAnswerBody, now: Date = new Date()): Promise<AnswerResult> {
   await assertCanRead(task, auth);
-  if (!mayAnswerQuestions(auth)) throw new ApiError(QUESTION_MESSAGES.notYours, 403, 'not_mike');
+  const viaDox = isDoxAnswer(auth);
+  if (!mayAnswerQuestions(auth) && !viaDox) throw new ApiError(QUESTION_MESSAGES.notYours, 403, 'not_mike');
+  if (viaDox) {
+    if (!body.source) throw new ApiError(ANSWER_SOURCE_MESSAGE, 422, 'answer_source_required');
+    if (MIKE_NAMES_RE.test(body.source.who)) throw new ApiError('Dox does not record Mike\'s word: Mike answers on the card or through the chat.', 422, 'answer_source_mike');
+  }
   if (!UUID_RE.test(qid)) throw new ApiError(QUESTION_MESSAGES.notFound, 404);
   const machine = isChatLane(auth);
   const text = (body.text ?? '').trim();
@@ -321,6 +340,8 @@ export async function answerQuestion(task: TaskHead, qid: string, auth: Auth, bo
     const row = await tx.taskQuestion.findFirst({ where: { id: qid, task_id: task.id } });
     if (!row) throw new ApiError(QUESTION_MESSAGES.notFound, 404);
     if (row.state === 'withdrawn') throw new ApiError(QUESTION_MESSAGES.closed, 409, 'withdrawn');
+    // Dox closes an open (or defaulted) question; an answer already given, Mike's above all, is never overwritten by his record.
+    if (viaDox && row.state === 'answered') throw new ApiError('That question is already answered.', 409, 'already_answered');
     // He answers the wording he saw: if the row changed since he read it, nothing is stored.
     if (row.updated_at.toISOString() !== body.version) throw new ApiError(QUESTION_MESSAGES.changed, 409, 'question_changed');
     let opt = null;
@@ -333,12 +354,16 @@ export async function answerQuestion(task: TaskHead, qid: string, auth: Auth, bo
     // While another `wait` question is still open the card must not wake. The gate treats a last comment by a bot user as not human,
     // so this answer is kept as a Bast-authored note that says it is Mike's; the last answer writes the real, waking comment.
     const othersWaiting = await tx.taskQuestion.count({ where: { task_id: task.id, state: 'open', if_nobody_action: 'wait', id: { not: row.id } } });
-    const quiet = othersWaiting > 0 && !machine;
+    // Dox's own user is a bot user already (the gate never reads it as a human reply), so his answer is never re-written as Bast's.
+    const quiet = othersWaiting > 0 && !machine && !viaDox;
+    const content = viaDox && body.source
+      ? sourcedAnswerComment(row.question, words, body.source)
+      : machine ? `${CHAT_ANSWER_PREFIX}${base}` : quiet ? `${HELD_ANSWER_PREFIX}${base}` : base;
     const comment = await tx.comment.create({
       data: {
         task_id: task.id,
         user_id: quiet ? BOT_USER_IDS[0] : auth.userId,
-        content: machine ? `${CHAT_ANSWER_PREFIX}${base}` : quiet ? `${HELD_ANSWER_PREFIX}${base}` : base,
+        content,
         mentioned_user_ids: [],
         is_internal: true,
         client_visible: false,
@@ -355,12 +380,14 @@ export async function answerQuestion(task: TaskHead, qid: string, auth: Auth, bo
         answer_option_id: opt ? opt.id : null,
         answer_text: words,
         answered_at: now,
-        answered_by_id: MIKE_USER_ID,
+        answered_by_id: viaDox ? auth.userId : MIKE_USER_ID,
         answer_comment_id: comment.id,
         defaulted_at: null,
       },
     });
-    const released = await releaseHoldIfLast(tx, task.id);
+    // A hold that carries needs-mike waits for Mike: an answer Dox recorded never lifts it.
+    const holdsForMike = viaDox && ((await tx.task.findUnique({ where: { id: task.id }, select: { tags: true } }))?.tags ?? []).includes(NEEDS_MIKE_TAG);
+    const released = holdsForMike ? false : await releaseHoldIfLast(tx, task.id);
     const actor = await actorOf(auth, tx as never);
     await recordTriageChange(tx, task.id, 'question', `Question answered by ${actor.by}`, actor);
     return { updated, commentId: comment.id, released, askerId: row.asked_by_user_id };
@@ -372,7 +399,7 @@ export async function answerQuestion(task: TaskHead, qid: string, auth: Auth, bo
       await createNotification({
         userId: asker,
         type: 'comment_added',
-        title: 'Mike answered your question',
+        title: viaDox ? 'An answer was recorded on your question' : 'Mike answered your question',
         message: out.updated.question,
         entityType: 'task',
         entityId: task.id,

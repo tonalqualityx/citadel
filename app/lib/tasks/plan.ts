@@ -7,7 +7,7 @@
  * except a designer, and a contractor (tech) sees the plan without its billing section. Never the client portal (it has no staff session).
  * Everyone who may not read gets the same 404 as a card that does not exist.
  * WRITE: Mike's own session and the enforced chat lane (the same check as leaving Triage), and the Dox lane under its project binding
- * (lib/dox/guard.ts guardDoxTaskWrite: a Triage card or a card with no project is open; a released project card needs the x-dox-project header and an open pass).
+ * (lib/dox/guard.ts guardDoxPlanWrite: a Triage card or a card with no project is open; a released project card needs the x-dox-project header and an open pass).
  * "Mark wrong" is Mike's (session or chat relaying his words).
  */
 import { projectHasPlanLinks, requirementProgress, type LinkedTask } from './requirement-progress';
@@ -16,7 +16,7 @@ import { prisma } from '@/lib/db/prisma';
 import { ApiError } from '@/lib/api/errors';
 import type { AuthPayload } from '@/lib/auth/middleware';
 import { MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
-import { guardDoxTaskWrite, isDoxLane } from '@/lib/dox/guard';
+import { guardDoxPlanWrite, isDoxLane } from '@/lib/dox/guard';
 import { isMikeOwnKey, mayLeaveTriage } from '@/lib/services/task-patch';
 import { contractorItem, isPlanOwner, planReaderOf, viewOf, type PlanReader } from './plan-policy';
 import { isChatLane } from './questions';
@@ -67,7 +67,7 @@ export const MARK_WRONG_FORBIDDEN = 'Only Mike can mark a plan line wrong.';
 export async function assertCanWritePlan(task: PlanTaskHead, auth: Auth, headers: Hdrs): Promise<void> {
   if (mayLeaveTriage(auth) || isMikeOwnKey(auth)) return;
   if (isDoxLane(auth)) {
-    await guardDoxTaskWrite(auth, headers, { status: task.status, project_id: task.project_id });
+    await guardDoxPlanWrite(auth, headers, { status: task.status, project_id: task.project_id });
     return;
   }
   throw new ApiError(PLAN_FORBIDDEN, 403, 'plan_forbidden');

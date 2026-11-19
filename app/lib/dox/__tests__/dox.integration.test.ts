@@ -86,7 +86,7 @@ describe.skipIf(!SCRATCH)('Dox slice 1 (real database)', () => {
   });
 
   describe('writes on a project it is setting up', () => {
-    it('creates a task as not_started with assignee, due date and phase; refuses Triage, the wrong project and closed fields', async () => {
+    it('creates a task as not_started with assignee, due date and phase; refuses another status and closed fields', async () => {
       const phase = await prisma.projectPhase.create({ data: { project_id: P, name: 'Content', sort_order: 1 } });
       as(dox());
       const ok = await json(await createTask(call(P, { title: `${fx.tag} write copy`, project_id: P, assignee_id: staff, due_date: '2026-11-20T12:00:00.000Z', phase_id: phase.id, status: 'not_started' })));
@@ -99,15 +99,22 @@ describe.skipIf(!SCRATCH)('Dox slice 1 (real database)', () => {
       expect(row.project_id).toBe(P);
 
       for (const [body, status] of [
-        [{ title: `${fx.tag} x`, project_id: P, status: 'triage' }, 403],
-        [{ title: `${fx.tag} x`, project_id: OTHER }, 403],
+        [{ title: `${fx.tag} x`, project_id: P, status: 'in_progress' }, 403],
+        [{ title: `${fx.tag} x`, project_id: P, status: 'done' }, 403],
         [{ title: `${fx.tag} x`, project_id: P, is_billable: true }, 403],
+        [{ title: `${fx.tag} x`, project_id: P, billing_amount: 100 }, 403],
+        [{ title: `${fx.tag} x`, project_id: P, client_visible: true }, 403],
+        [{ title: `${fx.tag} x`, project_id: P, requested_by_contact_id: '00000000-0000-4000-8000-000000000001' }, 403],
+        [{ title: `${fx.tag} x`, project_id: P, source: 'portal' }, 403],
       ] as const) {
         const res = await createTask(call(P, body));
         expect(res.status, JSON.stringify(body)).toBe(status);
       }
-      expect((await createTask(call(undefined, { title: `${fx.tag} x`, project_id: P }))).status).toBe(403);
       expect(await prisma.task.count({ where: { title: { startsWith: `${fx.tag} x` } } })).toBe(0);
+      // Any live project, with no header and no pass of its own (the client email loop, 2026-11-19).
+      const anywhere = await json(await createTask(call(undefined, { title: `${fx.tag} anywhere`, project_id: OTHER })));
+      expect(anywhere.status, JSON.stringify(anywhere.body)).toBe(201);
+      expect((await prisma.task.findUniqueOrThrow({ where: { id: anywhere.body.id } })).project_id).toBe(OTHER);
     });
 
     it('sets assignee, due date and blockers on its own project and releases the holds; refuses a task of another project', async () => {
@@ -198,24 +205,34 @@ describe.skipIf(!SCRATCH)('Dox slice 1 (real database)', () => {
       expect((await addComment(call(P, { content: 'Question?', client_visible: true, client_question: true }), idParams(t))).status).toBe(403);
     });
 
-    it('a comment is a task write: refused on a task outside the project in play, allowed with that project\'s own header', async () => {
+    it('a comment reaches a task of any live project, whatever the header says', async () => {
       const t = await fx.mkTask('Other comment', { project_id: OTHER, status: 'not_started' });
       as(dox());
-      expect((await addComment(call(P, { content: 'A note. ~ Dox' }), idParams(t))).status).toBe(403);
-      expect((await addComment(call(undefined, { content: 'A note. ~ Dox' }), idParams(t))).status).toBe(403);
+      expect((await addComment(call(P, { content: 'A note. ~ Dox' }), idParams(t))).status).toBe(201);
+      expect((await addComment(call(undefined, { content: 'A note. ~ Dox' }), idParams(t))).status).toBe(201);
       expect((await addComment(call(OTHER, { content: 'A note. ~ Dox' }), idParams(t))).status).toBe(201);
     });
 
-    it('stamps asked_by_lane dox on a question, and Dox cannot answer it', async () => {
+    it('stamps asked_by_lane dox on a question, and Dox answers it only with a source, never as Mike', async () => {
       const t = await fx.mkTask('Asked', { project_id: P, status: 'not_started' });
       as(dox());
       const made = await json(await addQ(call(P, q('Who reviews the content?')), idParams(t)));
       expect(made.status, JSON.stringify(made.body)).toBe(201);
       expect(made.body.asked_by_lane).toBe('dox');
       const version = made.body.version as string;
-      const answer = await answerQ(call(P, { version, option_id: 'sabeen' }), { params: Promise.resolve({ id: t, qid: made.body.id }) });
-      expect(answer.status).toBe(403);
+      const qp = { params: Promise.resolve({ id: t, qid: made.body.id }) };
+      expect((await answerQ(call(P, { version, option_id: 'sabeen' }), qp)).status).toBe(422);
+      expect((await answerQ(call(P, { version, option_id: 'sabeen', source: { who: 'Mike', said: 'Sabeen reviews it.', at: '2026-11-19' } }), qp)).status).toBe(422);
       expect((await prisma.taskQuestion.findUniqueOrThrow({ where: { id: made.body.id } })).state).toBe('open');
+      const ok = await json(await answerQ(call(undefined, { version, option_id: 'sabeen', source: { who: 'Kue Chang (Nerd Herd)', said: 'Sabeen can review it.', at: '2026-11-19' } }), qp));
+      expect(ok.status, JSON.stringify(ok.body)).toBe(200);
+      expect(ok.body.question.state).toBe('answered');
+      expect(ok.body.question.citation).toBeNull();
+      const row = await prisma.taskQuestion.findUniqueOrThrow({ where: { id: made.body.id } });
+      expect(row.answered_by_id).not.toBe(MIKE_USER_ID);
+      const c = await prisma.comment.findUniqueOrThrow({ where: { id: ok.body.comment_id } });
+      expect(c.content).toContain('From Kue Chang (Nerd Herd), 2026-11-19: "Sabeen can review it."');
+      expect(c.content).not.toMatch(/From Mike/);
     });
   });
 

@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { formatSiteResponse } from '@/lib/api/formatters';
+import { redactForDox } from '@/lib/dox/guard';
 
 const createSiteSchema = z.object({
   name: z.string().min(1).max(255),
@@ -31,7 +32,7 @@ const createSiteSchema = z.object({
 
 export async function GET(request: NextRequest) {
   try {
-    await requireAuth();
+    const auth = await requireAuth();
     const { searchParams } = new URL(request.url);
 
     const page = parseInt(searchParams.get('page') || '1');
@@ -81,13 +82,13 @@ export async function GET(request: NextRequest) {
       prisma.site.count({ where }),
     ]);
 
-    return NextResponse.json({
+    return NextResponse.json(redactForDox(auth, {
       sites: sites.map(formatSiteResponse),
       total,
       page,
       limit,
       totalPages: Math.ceil(total / limit),
-    });
+    }));
   } catch (error) {
     return handleApiError(error);
   }

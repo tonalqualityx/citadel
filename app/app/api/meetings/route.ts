@@ -5,6 +5,7 @@ import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { formatMeetingResponse } from '@/lib/api/formatters';
 import { logCreate } from '@/lib/services/activity';
+import { redactForDox } from '@/lib/dox/guard';
 
 const meetingInclude = {
   client: { select: { id: true, name: true, status: true } },
@@ -44,7 +45,7 @@ const createMeetingSchema = z.object({
 
 export async function GET(request: NextRequest) {
   try {
-    await requireAuth();
+    const auth = await requireAuth();
     const { searchParams } = new URL(request.url);
 
     const page = parseInt(searchParams.get('page') || '1');
@@ -86,13 +87,13 @@ export async function GET(request: NextRequest) {
       prisma.meeting.count({ where }),
     ]);
 
-    return NextResponse.json({
+    return NextResponse.json(redactForDox(auth, {
       meetings: meetings.map(formatMeetingResponse),
       total,
       page,
       limit,
       totalPages: Math.ceil(total / limit),
-    });
+    }));
   } catch (error) {
     return handleApiError(error);
   }

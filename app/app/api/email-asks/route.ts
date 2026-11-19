@@ -5,6 +5,7 @@ import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError } from '@/lib/api/errors';
 import { formatEmailAskResponse } from '@/lib/api/formatters';
 import { EmailAskState, Prisma } from '@prisma/client';
+import { redactForDox } from '@/lib/dox/guard';
 
 // Clarity Phase 4b — machine-side read for the (staged, not-cron-wired) classifier: fetch
 // pending archive intents (state=archive_requested) so it can execute the actual Gmail
@@ -40,7 +41,7 @@ function subjectWords(q: string): string[] {
 
 export async function GET(request: NextRequest) {
   try {
-    await requireAuth();
+    const auth = await requireAuth();
 
     const { searchParams } = new URL(request.url);
     const parsed = queryParamsSchema.parse({
@@ -88,10 +89,10 @@ export async function GET(request: NextRequest) {
     const total = paged ? await prisma.emailAsk.count({ where }) : asks.length;
     const offset = parsed.offset ?? 0;
 
-    return NextResponse.json({
+    return NextResponse.json(redactForDox(auth, {
       asks: asks.map(formatEmailAskResponse),
       meta: { total, offset, returned: asks.length, remaining: Math.max(0, total - offset - asks.length) },
-    });
+    }));
   } catch (error) {
     return handleApiError(error);
   }

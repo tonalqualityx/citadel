@@ -448,11 +448,12 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('GET', '/api/sops/:id'),
     r('GET', '/api/users'),
   ],
-  // Dox, the office manager (PLAN-dox-office-manager, Addenda 1 to 3). Bast user, always enforced. Reads projects, tasks, waits, questions, briefs and the
-  // project snapshot; sets up the project it holds a brief or a setup card for. Task and project writes are body-filtered and project-scoped by
-  // lib/dox/guard.ts (the x-dox-project header names the one project in play). It can NOT: move anything out of Triage, answer a question, delete,
-  // make a comment or a question visible to a client, open an approval, send mail, or touch a task outside its project (a question or a comment is the only write
-  // that reaches any task, and a looks-done tag on a Triage card).
+  // Dox, the office manager (PLAN-dox-office-manager, Addenda 1 to 3). His own user, always enforced. Reads projects, tasks, waits, questions, briefs, the
+  // project snapshot, and (for the email loop) clients, contacts, sites, meetings and email asks; sets up the project it holds a brief or a setup card for.
+  // Task and project writes are body-filtered by lib/dox/guard.ts: edits of tasks, projects, waits and the sitemap stay bound to the project in play (the
+  // x-dox-project header and an open live pass); creates, comments, questions and answers reach any live project (2026-11-19). It can NOT: move anything out
+  // of Triage, answer a question on a Triage card or as Mike, delete, make a comment, a question or a task visible to a client, open an approval, send mail,
+  // touch a price or billing field, or read a credential.
   dox: [
     r('GET', '/api/auth/me'),
     r('GET', '/api/users'),
@@ -475,7 +476,7 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('POST', '/api/tasks/:id/questions'),
     // Read only: a Triage card with its project block and dates (sorting it stays with Mike and the chat)
     r('GET', '/api/tasks/:id/triage'),
-    // The card's plan: read it and write it (a Triage card, or a released card inside the project in play: lib/tasks/plan.ts via guardDoxTaskWrite)
+    // The card's plan: read it and write it (a Triage card, or a released card inside the project in play: lib/tasks/plan.ts via guardDoxPlanWrite)
     r('GET', '/api/tasks/:id/plan'),
     r('PUT', '/api/tasks/:id/plan/:section'),
     r('PATCH', '/api/tasks/:id/plan/:section'),
@@ -498,6 +499,26 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     // The projects that have a next-step refresh queued (an @Dox mention stamps one), and the next-step line for the project in play (lib/dox/guard.ts requireProjectInPlay, checked in the route)
     r('GET', '/api/oracle/projects/refresh-requests'),
     r('PUT', '/api/oracle/projects/:id/next-step/write'),
+    // The client email loop (Mike, 2026-11-19: "let's give Dox the power he needs to make this happen"). On ANY live project or a client's standalone task,
+    // body-checked in lib/dox/guard.ts: record an answer someone else gave (with its source; never on a Triage card, never Mike's word), or change or
+    // withdraw a question; set the kind of a Triage card he filed (POST /api/tasks with status triage files it; guardDoxTriagePatch narrows this);
+    // link a meeting to a project it covered. Task creates and comments above reach any live project and standalone client tasks (guardDoxTaskCreate,
+    // guardDoxTaskWrite), which is also the hand-off to the change-request lane: a standalone task on the client's site, assigned to Bast.
+    r('POST', '/api/tasks/:id/questions/:qid/answer'),
+    r('PATCH', '/api/tasks/:id/questions/:qid'),
+    r('PATCH', '/api/tasks/:id/triage'),
+    r('POST', '/api/meetings/:id/projects'),
+    // Reads for routing an email to its project: contacts, clients, sites, meetings and email asks. Every secret key is removed from these answers
+    // for the Dox lane (lib/dox/guard.ts redactForDox: the staging password, portal tokens), so no credential reaches him through a read.
+    r('GET', '/api/contacts/resolve'),
+    r('GET', '/api/clients'),
+    r('GET', '/api/clients/:id'),
+    r('GET', '/api/clients/:id/contacts'),
+    r('GET', '/api/sites'),
+    r('GET', '/api/sites/:id'),
+    r('GET', '/api/meetings'),
+    r('GET', '/api/meetings/:id'),
+    r('GET', '/api/email-asks'),
   ],
   // Triage desk (PLAN-triage-investigations decision 5). Bast user, always enforced. A session reads a task, its comments and questions, the /triage card and the card's
   // conversation; edits a Triage card (kind, project link, dates, shape); asks, edits (its own) and withdraws questions; adds internal comments; marks looks-done.
