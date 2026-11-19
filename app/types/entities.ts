@@ -1063,6 +1063,8 @@ export interface ClientContact {
   name: string | null;
   email: string;
   role: string | null;
+  pronouns: string | null;
+  pronouns_source: 'stated' | 'signature' | 'assumed' | null;
   portal_role: PortalRole;
   can_initiate_work: boolean;
   is_primary: boolean;
@@ -1083,6 +1085,8 @@ export interface CreateClientContactInput {
   can_initiate_work?: boolean;
   is_primary?: boolean;
   notes?: string | null;
+  pronouns?: string | null;
+  pronouns_source?: 'stated' | 'signature' | 'assumed' | null;
 }
 
 export interface UpdateClientContactInput {
@@ -1093,6 +1097,8 @@ export interface UpdateClientContactInput {
   can_initiate_work?: boolean;
   is_primary?: boolean;
   notes?: string | null;
+  pronouns?: string | null;
+  pronouns_source?: 'stated' | 'signature' | 'assumed' | null;
 }
 
 // ============================================

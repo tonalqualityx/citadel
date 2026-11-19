@@ -50,6 +50,8 @@ export async function GET(request: NextRequest) {
       contact_id: contact.id,
       name: contact.name,
       role: contact.role,
+      pronouns: contact.pronouns ?? null,
+      pronouns_source: contact.pronouns_source ?? null,
       can_initiate_work: contact.can_initiate_work,
       is_primary: contact.is_primary,
       client: {

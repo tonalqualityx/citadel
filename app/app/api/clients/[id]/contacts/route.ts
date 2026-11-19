@@ -6,6 +6,7 @@ import { handleApiError, ApiError } from '@/lib/api/errors';
 import { formatClientContactResponse } from '@/lib/api/formatters';
 import { logCreate } from '@/lib/services/activity';
 import { deriveContactPortalFields } from '@/lib/portal/access';
+import { pronounsFields, pronounsWrite } from '@/lib/contacts/pronouns';
 
 const createContactSchema = z.object({
   name: z.string().max(255).optional().nullable(),
@@ -15,6 +16,7 @@ const createContactSchema = z.object({
   portal_role: z.enum(['owner', 'member', 'viewer', 'none']).optional(),
   is_primary: z.boolean().optional(),
   notes: z.string().optional().nullable(),
+  ...pronounsFields,
 });
 
 // GET /api/clients/[id]/contacts — list a client's contacts
@@ -68,6 +70,8 @@ export async function POST(
     const email = data.email.trim();
     // Portal role is the source of truth; can_initiate_work is derived from it on every write.
     const portal = deriveContactPortalFields(data, 'viewer');
+    // Pronouns left blank stay null; the local pronouns sweep then checks the email signature.
+    const pronouns = pronounsWrite(data);
 
     // Enforce one row per (client, email), accounting for soft-deleted rows
     const existing = await prisma.clientContact.findUnique({
@@ -91,6 +95,8 @@ export async function POST(
             can_initiate_work: portal.can_initiate_work ?? false,
             is_primary: data.is_primary ?? false,
             notes: data.notes ?? null,
+            pronouns: pronouns.pronouns ?? null,
+            pronouns_source: pronouns.pronouns_source ?? null,
             is_deleted: false,
           },
           });
@@ -105,6 +111,8 @@ export async function POST(
             can_initiate_work: portal.can_initiate_work ?? false,
             is_primary: data.is_primary ?? false,
             notes: data.notes ?? null,
+            pronouns: pronouns.pronouns ?? null,
+            pronouns_source: pronouns.pronouns_source ?? null,
           },
         });
 

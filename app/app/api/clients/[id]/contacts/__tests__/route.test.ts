@@ -116,6 +116,23 @@ describe('POST /api/clients/[id]/contacts', () => {
     );
   });
 
+  it('stores typed pronouns as stated, and leaves blank pronouns null for the signature sweep', async () => {
+    await POST(postReq({ email: 'a@example.com', pronouns: 'he/him' }), { params });
+    expect(mockContactCreate.mock.calls[0][0].data).toEqual(
+      expect.objectContaining({ pronouns: 'he/him', pronouns_source: 'stated' })
+    );
+    mockContactCreate.mockClear();
+    await POST(postReq({ email: 'b@example.com' }), { params });
+    expect(mockContactCreate.mock.calls[0][0].data).toEqual(
+      expect.objectContaining({ pronouns: null, pronouns_source: null })
+    );
+  });
+
+  it('rejects an unknown pronouns source', async () => {
+    const response = await POST(postReq({ email: 'a@example.com', pronouns: 'he/him', pronouns_source: 'guess' }), { params });
+    expect(response.status).toBe(400);
+  });
+
   it('rejects an invalid email', async () => {
     const response = await POST(postReq({ email: 'not-an-email' }), { params });
     const body = await response.json();

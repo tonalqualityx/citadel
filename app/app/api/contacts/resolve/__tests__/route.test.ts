@@ -105,6 +105,9 @@ describe('GET /api/contacts/resolve', () => {
     const match = body.matches[0];
     expect(match.contact_id).toBe('contact-1');
     expect(match.can_initiate_work).toBe(true);
+    // Unfilled pronouns come back as explicit nulls, never missing.
+    expect(match.pronouns).toBeNull();
+    expect(match.pronouns_source).toBeNull();
     expect(match.client).toEqual({
       id: 'client-1',
       name: 'Vermont Standard',
@@ -120,5 +123,23 @@ describe('GET /api/contacts/resolve', () => {
       domains: ['wheelstolearningvt.org'],
       notes: 'Education nonprofit project.',
     });
+  });
+
+  it('returns the contact pronouns and their source', async () => {
+    mockFindMany.mockResolvedValue([
+      {
+        id: 'contact-2',
+        name: 'Kue',
+        role: null,
+        pronouns: 'he/him',
+        pronouns_source: 'stated',
+        can_initiate_work: true,
+        is_primary: false,
+        client: { id: 'client-2', name: 'Agency', type: 'agency_partner', status: 'active', sites: [] },
+      },
+    ]);
+    const body = await (await GET(req('?email=kue@example.com'))).json();
+    expect(body.matches[0].pronouns).toBe('he/him');
+    expect(body.matches[0].pronouns_source).toBe('stated');
   });
 });
