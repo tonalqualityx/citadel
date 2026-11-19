@@ -54,6 +54,13 @@ export async function GET(
         blocking: {
           select: { id: true, title: true, status: true, assignee_id: true, assignee: { select: { id: true, name: true } }, project: { select: { id: true, name: true, status: true } } },
         },
+        // Questions this card waits on, shown in its Blocked by list beside the blocker tasks (a withdrawn one holds nothing and is not shown)
+        // Designers never read card questions, and a tech never reads one on a Triage card (the same rule as GET /api/tasks/:id/questions).
+        blocked_by_questions: {
+          where: auth.role === 'designer' ? { id: { in: [] } } : { state: { not: 'withdrawn' }, ...(auth.role === 'tech' ? { task: { status: { not: 'triage' } } } : {}) },
+          select: { id: true, task_id: true, question: true, state: true, asked_of_contact: { select: { id: true, name: true } } },
+          orderBy: { created_at: 'asc' },
+        },
         time_entries: {
           where: { is_deleted: false },
           select: {

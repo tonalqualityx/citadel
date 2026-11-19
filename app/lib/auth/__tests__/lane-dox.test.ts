@@ -190,7 +190,9 @@ describe('lane dox', () => {
     for (const lane of LANES.filter((l) => l !== 'bast-chat' && l !== 'dox' && l !== 'triage-desk')) {
       expect(laneAllows(lane, 'GET', '/api/tasks/7f1c/triage'), lane).toBe(false);
     }
-    for (const lane of LANES.filter((l) => l !== 'bast-chat' && l !== 'dox' && l !== 'triage-desk')) {
+    // The worker lane logs the questions we send a client (Mike, 2026-11-19); it never answers.
+    expect(laneAllows('bast', 'POST', '/api/tasks/7f1c/questions')).toBe(true);
+    for (const lane of LANES.filter((l) => l !== 'bast-chat' && l !== 'dox' && l !== 'triage-desk' && l !== 'bast')) {
       expect(laneAllows(lane, 'POST', '/api/tasks/7f1c/questions'), lane).toBe(false);
     }
   });

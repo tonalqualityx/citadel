@@ -140,10 +140,13 @@ describe('matching', () => {
     expect(laneAllows('courier', 'GET', '/api/sites')).toBe(false);
   });
 
-  it('bast reads card questions but never asks, edits or answers', () => {
+  it('bast reads card questions, logs the questions we send a client (ask, edit, blocks, list), and never answers', () => {
     expect(laneAllows('bast', 'GET', '/api/tasks/7f1c/questions')).toBe(true);
-    expect(laneAllows('bast', 'POST', '/api/tasks/7f1c/questions')).toBe(false);
-    expect(laneAllows('bast', 'PATCH', '/api/tasks/7f1c/questions/9a')).toBe(false);
+    expect(laneAllows('bast', 'POST', '/api/tasks/7f1c/questions')).toBe(true);
+    expect(laneAllows('bast', 'PATCH', '/api/tasks/7f1c/questions/9a')).toBe(true);
+    expect(laneAllows('bast', 'POST', '/api/tasks/7f1c/questions/9a/blocks')).toBe(true);
+    expect(laneAllows('bast', 'DELETE', '/api/tasks/7f1c/questions/9a/blocks')).toBe(true);
+    expect(laneAllows('bast', 'GET', '/api/questions')).toBe(true);
     expect(laneAllows('bast', 'POST', '/api/tasks/7f1c/questions/9a/answer')).toBe(false);
   });
 

@@ -20,12 +20,31 @@ interface BlockerTask {
   status: string;
 }
 
+export interface BlockerQuestion {
+  id: string;
+  /** The card the question lives on (its Questions tab answers it). */
+  task_id: string;
+  question: string;
+  state: string;
+  asked_of_contact: { id: string; name: string | null } | null;
+}
+
 interface TaskDependenciesProps {
   taskId: string;
   taskTitle: string;
   projectId: string | null;
   blockedBy: BlockerTask[];
   blocking: BlockerTask[];
+  /** Questions the card waits on, listed with the blocker tasks (an open one holds the card like an unfinished task). */
+  blockedByQuestions?: BlockerQuestion[];
+}
+
+/** How a question blocker reads in the list: open holds the card; answered or went ahead (nobody answered by its date) no longer does. */
+export function questionBlockerLabel(state: string): { label: string; variant: 'warning' | 'success' | 'default' } {
+  if (state === 'open') return { label: 'Open question', variant: 'warning' };
+  if (state === 'answered') return { label: 'Answered', variant: 'success' };
+  if (state === 'defaulted') return { label: 'Went ahead', variant: 'success' };
+  return { label: 'Withdrawn', variant: 'default' };
 }
 
 export function TaskDependencies({
@@ -34,6 +53,7 @@ export function TaskDependencies({
   projectId,
   blockedBy,
   blocking,
+  blockedByQuestions = [],
 }: TaskDependenciesProps) {
   const { isPmOrAdmin } = useAuth();
   const [isAddModalOpen, setIsAddModalOpen] = React.useState(false);
@@ -50,7 +70,7 @@ export function TaskDependencies({
     limit: 10,
   });
 
-  const hasBlockers = blockedBy.length > 0;
+  const hasBlockers = blockedBy.length > 0 || blockedByQuestions.length > 0;
   const isBlocking = blocking.length > 0;
 
   // Filter out current task and already-blocking tasks from search results
@@ -149,6 +169,23 @@ export function TaskDependencies({
                     )}
                   </div>
                 ))}
+                {blockedByQuestions.map((q) => {
+                  const shown = questionBlockerLabel(q.state);
+                  return (
+                    <Link
+                      key={`q-${q.id}`}
+                      href={`/tasks/${q.task_id}?tab=questions`}
+                      className="block p-2 rounded border border-border hover:bg-surface-2"
+                      data-testid="blocker-question"
+                    >
+                      <div className="text-sm font-medium text-text-main truncate">{q.question}</div>
+                      <div className="mt-1 flex items-center gap-2">
+                        <Badge variant={shown.variant}>{shown.label}</Badge>
+                        {q.asked_of_contact?.name && <span className="text-xs text-text-sub truncate">For {q.asked_of_contact.name}</span>}
+                      </div>
+                    </Link>
+                  );
+                })}
               </div>
             </div>
           )}

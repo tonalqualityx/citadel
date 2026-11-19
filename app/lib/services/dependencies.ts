@@ -9,6 +9,10 @@ import { prisma } from '@/lib/db/prisma';
  * - approval-gated (default): satisfied only once `done` AND `approved` — so we never
  *   build on unreviewed work. A blocker with no project falls back to approval-gated.
  *
+ * An open card question can block a task too (`blocked_by_questions`; Mike, 2026-11-19: "I mean that in the way that
+ * dependencies block tasks"). A task is released only when every blocker task is satisfied AND no question it waits on
+ * is still open: answered, defaulted (the go-ahead date passed) and withdrawn questions no longer hold it.
+ *
  * The reactive triggers (`unblockEligibleDependents`, `reblockDependents`) fire from a
  * specific blocker's status/approval change. `healBlockedTasks` is the global backstop:
  * it re-evaluates EVERY `blocked` task, so a missed propagation from any path
@@ -41,6 +45,43 @@ const BLOCKER_SATISFACTION_SELECT = {
   },
 } as const;
 
+/** The questions a dependent still waits on: only open ones hold it. Shared by every query that feeds isDependentReleasable. */
+const OPEN_QUESTION_BLOCKERS = {
+  where: { state: 'open' },
+  select: { id: true },
+} as const;
+
+/** What a dependent needs loaded to decide whether it may be released. */
+const DEPENDENT_INCLUDE = {
+  blocked_by: BLOCKER_SATISFACTION_SELECT,
+  blocked_by_questions: OPEN_QUESTION_BLOCKERS,
+} as const;
+
+export type DependentShape = {
+  blocked_by: BlockerSatisfactionShape[];
+  /** Open questions only (OPEN_QUESTION_BLOCKERS); absent is read as none. */
+  blocked_by_questions?: { id: string }[];
+};
+
+/** A blocked task may be released when every blocker task is satisfied and no question it waits on is still open. */
+export function isDependentReleasable(task: DependentShape): boolean {
+  return task.blocked_by.every(isBlockerSatisfied) && (task.blocked_by_questions?.length ?? 0) === 0;
+}
+
+/** Release (blocked -> not_started) the given dependents that are releasable. Returns the ids released. */
+async function releaseReleasable(dependents: Array<DependentShape & { id: string }>): Promise<string[]> {
+  const toUnblock = dependents.filter(isDependentReleasable);
+  if (toUnblock.length === 0) return [];
+  const ids = toUnblock.map(t => t.id);
+  await prisma.task.updateMany({
+    // Re-check the status in the write itself: only a task still `blocked` is ever released here,
+    // so a task that was filed into triage in the meantime stays there.
+    where: { id: { in: ids }, status: 'blocked' },
+    data: { status: 'not_started' },
+  });
+  return ids;
+}
+
 /**
  * Re-evaluate every task currently `blocked` by `taskId` and unblock those whose blockers
  * are ALL satisfied (per each blocker's project gating mode). Shared by the done-trigger and
@@ -53,23 +94,36 @@ export async function unblockEligibleDependents(taskId: string): Promise<string[
       status: 'blocked',
       is_deleted: false,
     },
-    include: {
-      blocked_by: BLOCKER_SATISFACTION_SELECT,
-    },
+    include: DEPENDENT_INCLUDE,
   });
 
-  const toUnblock = dependentTasks.filter(t => t.blocked_by.every(isBlockerSatisfied));
-  if (toUnblock.length > 0) {
-    const ids = toUnblock.map(t => t.id);
-    await prisma.task.updateMany({
-      // Re-check the status in the write itself: only a task still `blocked` is ever released here,
-      // so a task that was filed into triage in the meantime stays there.
-      where: { id: { in: ids }, status: 'blocked' },
-      data: { status: 'not_started' },
-    });
-    return ids;
-  }
-  return [];
+  return releaseReleasable(dependentTasks);
+}
+
+/**
+ * A question stopped being open (answered, withdrawn, or defaulted when its go-ahead date passed): release the cards it
+ * blocked whose every other blocker, task or question, is satisfied too.
+ */
+export async function releaseQuestionDependents(questionId: string): Promise<string[]> {
+  const dependentTasks = await prisma.task.findMany({
+    where: {
+      blocked_by_questions: { some: { id: questionId } },
+      status: 'blocked',
+      is_deleted: false,
+    },
+    include: DEPENDENT_INCLUDE,
+  });
+  return releaseReleasable(dependentTasks);
+}
+
+/** Release any of these tasks that sits in `blocked` with every blocker satisfied and no open question (after a blocker edge was removed). */
+export async function releaseTasksIfReleasable(taskIds: string[]): Promise<string[]> {
+  if (taskIds.length === 0) return [];
+  const tasks = await prisma.task.findMany({
+    where: { id: { in: taskIds }, status: 'blocked', is_deleted: false },
+    include: DEPENDENT_INCLUDE,
+  });
+  return releaseReleasable(tasks);
 }
 
 /**
@@ -163,7 +217,7 @@ export async function wouldCreateCycle(
 
 /**
  * Self-healing backstop: sweep EVERY `blocked` task and unblock any whose blockers are all
- * satisfied. Robust to a missed propagation from any cause (a project toggled to
+ * satisfied and that waits on no open question. Robust to a missed propagation from any cause (a project toggled to
  * ordering-only, a blocker completed via a path that didn't run the reactive trigger, etc.).
  * Idempotent — running it when nothing is eligible is a no-op.
  *
@@ -175,22 +229,9 @@ export async function healBlockedTasks(): Promise<string[]> {
       status: 'blocked',
       is_deleted: false,
     },
-    include: {
-      blocked_by: BLOCKER_SATISFACTION_SELECT,
-    },
+    include: DEPENDENT_INCLUDE,
   });
 
-  // A blocked task with NO remaining blockers is also eligible (.every on [] is true).
-  const toUnblock = blockedTasks.filter(t => t.blocked_by.every(isBlockerSatisfied));
-  if (toUnblock.length > 0) {
-    const ids = toUnblock.map(t => t.id);
-    await prisma.task.updateMany({
-      // Re-check the status in the write itself: only a task still `blocked` is ever released here,
-      // so a task that was filed into triage in the meantime stays there.
-      where: { id: { in: ids }, status: 'blocked' },
-      data: { status: 'not_started' },
-    });
-    return ids;
-  }
-  return [];
+  // A blocked task with NO remaining blockers is also eligible (.every on [] is true), unless an open question holds it.
+  return releaseReleasable(blockedTasks);
 }

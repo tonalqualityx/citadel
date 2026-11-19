@@ -469,7 +469,7 @@ describe.skipIf(!SCRATCH)('card questions (real database)', () => {
       expect((await task(t)).tags).toEqual([]);
     });
 
-    it('the worker lane (bast) reads questions on a card it can see, never on a triage card, and cannot ask or answer', async () => {
+    it('the worker lane (bast) reads questions on a card it can see, never on a triage card; it logs client questions but never answers', async () => {
       const bast = (): AuthPayload => ({ userId: botId, role: 'pm', email: 'bot@test', via: 'api_key', apiKeyId: 'k9', lane: 'bast' });
       const t = await mkTask('worker read', { status: 'not_started' });
       await ask(t, freeText('Which week does the client want it live?', 'wait'));
@@ -483,8 +483,9 @@ describe.skipIf(!SCRATCH)('card questions (real database)', () => {
       expect((await listQ(req(), taskParams(tri))).status).toBe(404);
       const { laneAllows } = await import('@/lib/auth/lane-scopes');
       expect(laneAllows('bast', 'GET', '/api/tasks/:id/questions')).toBe(true);
-      expect(laneAllows('bast', 'POST', '/api/tasks/:id/questions')).toBe(false);
-      expect(laneAllows('bast', 'PATCH', '/api/tasks/:id/questions/:qid')).toBe(false);
+      // The questions we send a client are logged by the worker lane (Mike, 2026-11-19); answering stays closed.
+      expect(laneAllows('bast', 'POST', '/api/tasks/:id/questions')).toBe(true);
+      expect(laneAllows('bast', 'PATCH', '/api/tasks/:id/questions/:qid')).toBe(true);
       expect(laneAllows('bast', 'POST', '/api/tasks/:id/questions/:qid/answer')).toBe(false);
     });
 

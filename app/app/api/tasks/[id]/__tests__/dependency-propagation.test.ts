@@ -130,6 +130,8 @@ const UNBLOCK_QUERY = {
         project: { select: { dependencies_ordering_only: true } },
       },
     },
+    // Open questions hold a dependent too (Mike, 2026-11-19)
+    blocked_by_questions: { where: { state: 'open' }, select: { id: true } },
   },
 };
 

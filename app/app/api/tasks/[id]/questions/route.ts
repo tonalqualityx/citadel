@@ -6,7 +6,7 @@ import { guardDoxTaskWrite } from '@/lib/dox/guard';
 import { guardDeskQuestionAsk, isTriageDeskLane } from '@/lib/triage-desk/guard';
 import { checkTaskAccess } from '@/lib/services/task-patch';
 import { addQuestion, listQuestions, CAUSE_KEY_MAX, CAUSE_SCOPES } from '@/lib/tasks/questions';
-import { questionContextSchema } from '@/lib/tasks/question-context';
+import { questionContextSchema, clientQuestionSchema } from '@/lib/tasks/question-context';
 
 /**
  * GET /api/tasks/:id/questions
@@ -19,6 +19,9 @@ import { questionContextSchema } from '@/lib/tasks/question-context';
  * Optional `cause_key` (3 to 120 characters) and `cause_scope` (`card` default, or `project`): when a question with that key already exists on the card (or anywhere in the
  * card's project for scope `project`) and was not withdrawn, open OR answered OR defaulted, the answer is that question with 200 and `deduped: true` (its answer, if any, is on it, so the
  * asker reads the answer instead of asking again), and nothing is created. A withdrawn question can be asked again. A changed cause is a different cause_key by definition: a new key is a new question.
+ * Optional client-question parts (Mike, 2026-11-19): `asked_of_contact_id` (the client contact we asked), `sent` {account, message_id, thread_id?,
+ * at} (the email that carried it), `default_at` (go_with_recommendation only: the recommendation goes ahead then if nobody answers), and `blocks`
+ * (card ids in the same project, or this card): an open question holds each active one in `blocked` until it is answered, withdrawn or defaulted.
  */
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -45,11 +48,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     await guardDoxTaskWrite(auth, request.headers, { status: task.status, project_id: task.project_id ?? null });
     guardDeskQuestionAsk(auth, { status: task.status });
     const raw = (await request.json()) as Record<string, unknown>;
-    const { chat_conversation_id, cause_key, cause_scope, ...rest } = raw ?? {};
+    const { chat_conversation_id, cause_key, cause_scope, asked_of_contact_id, sent, default_at, blocks, ...rest } = raw ?? {};
     const conv = withConversation.parse({ chat_conversation_id }).chat_conversation_id ?? null;
     const cause = withCause.parse({ cause_key, cause_scope });
+    const client = clientQuestionSchema.parse(Object.fromEntries(Object.entries({ asked_of_contact_id, sent, default_at, blocks }).filter(([, v]) => v !== undefined)));
     const body = questionContextSchema.parse(rest);
-    const out = await addQuestion(task, auth, body, conv, cause.cause_key ? { key: cause.cause_key, scope: cause.cause_scope } : null);
+    const out = await addQuestion(task, auth, body, conv, cause.cause_key ? { key: cause.cause_key, scope: cause.cause_scope } : null, client);
     // A repeat of a cause that is still open answers 200 with the question that already exists; a new question is 201.
     return NextResponse.json(out, { status: out.deduped ? 200 : 201 });
   } catch (error) {

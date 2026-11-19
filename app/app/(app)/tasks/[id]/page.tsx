@@ -254,10 +254,13 @@ export default function QuestDetailPage() {
   const [cardTab, setCardTab] = React.useState<'card' | 'questions' | 'plan' | null>(null);
   React.useEffect(() => {
     if (cardTab === null && task && questionData && !planLoading) {
-      const wantsPlan = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('tab') === 'plan';
-      setCardTab(wantsPlan && planShown ? 'plan' : task.status === 'triage' && openQuestions > 0 ? 'questions' : 'card');
+      const tabParam = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('tab') : null;
+      const wantsPlan = tabParam === 'plan';
+      // A question blocker links here with ?tab=questions
+      const wantsQuestions = tabParam === 'questions' && questionsShown > 0;
+      setCardTab(wantsPlan && planShown ? 'plan' : wantsQuestions || (task.status === 'triage' && openQuestions > 0) ? 'questions' : 'card');
     }
-  }, [cardTab, task, questionData, openQuestions, planLoading, planShown]);
+  }, [cardTab, task, questionData, openQuestions, planLoading, planShown, questionsShown]);
   const updateTask = useUpdateTask();
   const deleteTask = useDeleteTask();
   const timer = useTimer();
@@ -349,7 +352,8 @@ export default function QuestDetailPage() {
   }
 
   const incompleteBlockers = task.blocked_by?.filter((b) => b.status !== 'done') || [];
-  const hasBlockers = incompleteBlockers.length > 0;
+  const openQuestionBlockers = task.blocked_by_questions?.filter((q) => q.state === 'open') || [];
+  const hasBlockers = incompleteBlockers.length > 0 || openQuestionBlockers.length > 0;
   const isBlocking = task.blocking && task.blocking.length > 0;
 
   return (
@@ -573,6 +577,15 @@ export default function QuestDetailPage() {
                       <span className="text-red-400"> ({getTaskStatusLabel(blocker.status as any)})</span>
                     </React.Fragment>
                   ))}
+                  {openQuestionBlockers.map((q, i) => (
+                    <React.Fragment key={`q-${q.id}`}>
+                      {(incompleteBlockers.length > 0 || i > 0) && ', '}
+                      <Link href={`/tasks/${q.task_id}?tab=questions`} className="underline hover:text-red-800">
+                        {q.question}
+                      </Link>
+                      <span className="text-red-400"> ({q.asked_of_contact?.name ? `question for ${q.asked_of_contact.name}` : 'open question'})</span>
+                    </React.Fragment>
+                  ))}
                 </div>
               </div>
             </div>
@@ -793,6 +806,7 @@ export default function QuestDetailPage() {
             projectId={task.project_id}
             blockedBy={task.blocked_by || []}
             blocking={task.blocking || []}
+            blockedByQuestions={task.blocked_by_questions || []}
           />
 
           {/* Review Section - visible to task creator and PM/Admin */}

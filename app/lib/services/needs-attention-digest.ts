@@ -143,7 +143,8 @@ export async function gatherNeedsAttention(): Promise<NeedsAttentionData> {
       }),
       prisma.task.findMany({
         where: { is_deleted: false, status: 'blocked' },
-        select: { ...TASK_SELECT, blocked_by: BLOCKER_SELECT },
+        // Open questions hold a card too (Mike, 2026-11-19): a card an open question holds is waiting, not stuck
+        select: { ...TASK_SELECT, blocked_by: BLOCKER_SELECT, blocked_by_questions: { where: { state: 'open' }, select: { id: true } } },
       }),
       prisma.task.findMany({
         where: { is_deleted: false, status: 'in_progress', updated_at: { lt: staleCutoff } },
@@ -170,9 +171,9 @@ export async function gatherNeedsAttention(): Promise<NeedsAttentionData> {
   // self-healed) — surface them. `.every` on an empty list is true, so a blocked task
   // with no remaining blockers also counts.
   const blockedButUnblockable = (
-    blockedRows as Array<TaskRow & { blocked_by: Parameters<typeof isBlockerSatisfied>[0][] }>
+    blockedRows as Array<TaskRow & { blocked_by: Parameters<typeof isBlockerSatisfied>[0][]; blocked_by_questions?: { id: string }[] }>
   )
-    .filter((t) => t.blocked_by.every(isBlockerSatisfied))
+    .filter((t) => t.blocked_by.every(isBlockerSatisfied) && (t.blocked_by_questions?.length ?? 0) === 0)
     .map((t) => toItem(t, 'Blocked, but all blockers are done'));
 
   const stale = (staleInProgressRows as TaskRow[]).map((r) =>
