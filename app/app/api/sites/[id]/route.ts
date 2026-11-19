@@ -5,6 +5,7 @@ import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { formatSiteResponse } from '@/lib/api/formatters';
 import { BAST_USER_ID } from '@/lib/oracle/projects/gate-constants';
+import { redactForDox } from '@/lib/dox/guard';
 
 const updateSiteSchema = z.object({
   name: z.string().min(1).max(255).optional(),
@@ -48,7 +49,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await requireAuth();
+    const auth = await requireAuth();
     const { id } = await params;
 
     const site = await prisma.site.findUnique({
@@ -74,7 +75,7 @@ export async function GET(
       throw new ApiError('Site not found', 404);
     }
 
-    return NextResponse.json(formatSiteResponse(site));
+    return NextResponse.json(redactForDox(auth, formatSiteResponse(site)));
   } catch (error) {
     return handleApiError(error);
   }

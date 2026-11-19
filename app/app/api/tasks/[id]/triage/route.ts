@@ -6,7 +6,7 @@ import { ApiError, handleApiError } from '@/lib/api/errors';
 import { requireTriageEditor, requireTriageOwner } from '@/lib/tasks/triage-auth';
 import { TRIAGE_KINDS } from '@/lib/tasks/triage-kind';
 import { loadCards } from '@/lib/tasks/triage-card';
-import { isDoxLane } from '@/lib/dox/guard';
+import { guardDoxTriagePatch, isDoxLane } from '@/lib/dox/guard';
 import { actorOf, recordTriageChange, recordProjectChange } from '@/lib/tasks/triage-rev';
 import { assertLinkableProject, guardChatProjectDates, linkIsNarrowed } from '@/lib/tasks/triage-link';
 import { isTriageDeskLane, guardDeskTriagePatch } from '@/lib/triage-desk/guard';
@@ -71,12 +71,14 @@ const bodySchema = z
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const auth = await requireAuth();
-    requireTriageEditor(auth);
+    // Dox sets the kind of a card he filed (lib/dox/guard.ts guardDoxTriagePatch, below); everything else here is the editors'.
+    if (!isDoxLane(auth)) requireTriageEditor(auth);
     const { id } = await params;
     const rawBody = await request.json();
     const body = bodySchema.parse(rawBody);
-    const task = await prisma.task.findFirst({ where: { id, is_deleted: false }, select: { id: true, status: true, project_id: true, client_id: true, triage_kind: true, estimated_minutes: true, energy_estimate: true, mystery_factor: true, battery_impact: true, tags: true } });
+    const task = await prisma.task.findFirst({ where: { id, is_deleted: false }, select: { id: true, status: true, project_id: true, client_id: true, triage_kind: true, estimated_minutes: true, energy_estimate: true, mystery_factor: true, battery_impact: true, tags: true, created_by_id: true } });
     if (!task || task.status !== 'triage') throw new ApiError('That card is not in Triage.', 404, 'not_in_triage');
+    guardDoxTriagePatch(auth, rawBody, task);
     // The triage desk may not change the dates of a project the portal shows.
     await guardDeskTriagePatch(auth, rawBody, task.project_id);
     guardChatProjectDates(auth, body.target_start_date !== undefined || body.target_launch_date !== undefined, body.date_source);

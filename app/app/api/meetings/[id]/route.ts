@@ -5,6 +5,7 @@ import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { formatMeetingResponse } from '@/lib/api/formatters';
 import { logUpdate, logDelete } from '@/lib/services/activity';
+import { redactForDox } from '@/lib/dox/guard';
 
 const meetingInclude = {
   client: { select: { id: true, name: true, status: true } },
@@ -42,7 +43,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await requireAuth();
+    const auth = await requireAuth();
     const { id } = await params;
 
     const meeting = await prisma.meeting.findUnique({
@@ -68,10 +69,10 @@ export async function GET(
     }
 
     const response = formatMeetingResponse(meeting);
-    return NextResponse.json({
+    return NextResponse.json(redactForDox(auth, {
       ...response,
       tasks: meeting.tasks,
-    });
+    }));
   } catch (error) {
     return handleApiError(error);
   }

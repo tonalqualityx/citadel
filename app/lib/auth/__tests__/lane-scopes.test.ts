@@ -155,8 +155,8 @@ describe('matching', () => {
     expect(laneAllows('bast-chat', 'POST', '/api/tasks/7f1c/triage/shape')).toBe(false);
     for (const lane of LANES.filter((l) => l !== 'bast-chat')) {
       for (const [m, path] of [['GET', '/api/tasks/7f1c/triage'], ['PATCH', '/api/tasks/7f1c/triage'], ['PUT', '/api/tasks/7f1c/triage/shape']] as const) {
-        // Dox reads a Triage card (its dates) and nothing more: the GET only.
-        if (lane === 'dox' && m === 'GET') continue;
+        // Dox reads a Triage card (its dates) and sets the kind of a card he filed (lib/dox/guard.ts guardDoxTriagePatch narrows the PATCH); never the shape.
+        if (lane === 'dox' && (m === 'GET' || m === 'PATCH')) continue;
         // The triage desk edits a card too (its own list and refusals are pinned in lane-triage-desk.test.ts).
         if (lane === 'triage-desk') continue;
         expect(laneAllows(lane, m, path), `${lane} ${m} ${path}`).toBe(false);

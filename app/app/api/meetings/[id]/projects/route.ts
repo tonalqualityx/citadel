@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { formatMeetingProjectResponse } from '@/lib/api/formatters';
+import { guardDoxMeetingLink } from '@/lib/dox/guard';
 
 const linkProjectSchema = z.object({
   project_id: z.string().uuid(),
@@ -19,6 +20,8 @@ export async function POST(
     const { id } = await params;
 
     const body = await request.json();
+    // Dox links a meeting to a project it covered: both must exist (a link is added, never removed through his lane).
+    await guardDoxMeetingLink(auth, id, body);
     const data = linkProjectSchema.parse(body);
 
     try {

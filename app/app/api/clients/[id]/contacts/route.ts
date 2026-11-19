@@ -7,6 +7,7 @@ import { formatClientContactResponse } from '@/lib/api/formatters';
 import { logCreate } from '@/lib/services/activity';
 import { deriveContactPortalFields } from '@/lib/portal/access';
 import { pronounsFields, pronounsWrite } from '@/lib/contacts/pronouns';
+import { redactForDox } from '@/lib/dox/guard';
 
 const createContactSchema = z.object({
   name: z.string().max(255).optional().nullable(),
@@ -25,7 +26,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await requireAuth();
+    const auth = await requireAuth();
     const { id } = await params;
 
     const client = await prisma.client.findUnique({
@@ -41,7 +42,7 @@ export async function GET(
       orderBy: [{ is_primary: 'desc' }, { created_at: 'asc' }],
     });
 
-    return NextResponse.json({ contacts: contacts.map(formatClientContactResponse) });
+    return NextResponse.json(redactForDox(auth, { contacts: contacts.map(formatClientContactResponse) }));
   } catch (error) {
     return handleApiError(error);
   }

@@ -3,7 +3,13 @@
  * reaches; this file narrows the task, project, wait, comment and question writes on those routes. Every function is a no-op for any caller
  * that does not carry the Dox lane, and every refusal is a 403 (or a 400 for a malformed body) with a code that starts `dox_`.
  *
- * THE PROJECT IN PLAY. A Dox write to a project's tasks, waits or the project itself is allowed only when
+ * ANY LIVE PROJECT (the client email loop, Mike 2026-11-19: "let's give Dox the power he needs to make this happen"). A task create, a comment, a
+ * question and an answer reach a task of any live project (ready, in progress or review) without a header or a pass, and a client's standalone task
+ * (no project) too; a dry pass open on the project still writes nothing (requireLiveProject). Dox also files Triage cards, hands a live-site change to
+ * the change-request lane (a standalone task on the client's site, assigned to Bast), links meetings to projects, and reads clients, contacts, sites,
+ * meetings and email asks with every secret key removed (redactForDox).
+ *
+ * THE PROJECT IN PLAY. A Dox EDIT of a project's tasks, waits, sitemap or the project itself is allowed only when
  *   1. the `x-dox-project` header names the project (the declaration), and
  *   2. that project is live (ready, in_progress or review): Dox never writes to a quote, queue, suspended, done or cancelled project, and
  *   3. an OPEN EngagementPass for it, started through the dox lane, exists (EngagementPass.lane carries `dox`, finished_at is null, and it was
@@ -155,6 +161,24 @@ export async function requireDoxBriefBinding(headers: Hdrs, projectId: string, d
   }
 }
 
+/**
+ * A write that reaches any live project, not only the one in play (Mike, 2026-11-19, on the client email loop: "let's give Dox the power he needs
+ * to make this happen"): a task create, a comment, a question, an answer. The project must exist and be live (ready, in progress or review), and a
+ * DRY pass that is open on it still writes nothing (Dox is rehearsing there). No header and no live pass are needed.
+ */
+export async function requireLiveProject(projectId: unknown, db: Db = prisma): Promise<PlayProject> {
+  if (typeof projectId !== 'string' || !UUID_RE.test(projectId)) return badBody('project_id is a project id.');
+  const project = await db.project.findFirst({ where: { id: projectId, is_deleted: false }, select: { id: true, status: true, type: true, client_id: true, name: true } });
+  if (!project) return refuse('That project does not exist.', 'dox_outside_project');
+  if (!(DOX_LIVE_PROJECT_STATUSES as readonly string[]).includes(project.status)) {
+    return refuse(`Dox does not write to a project that is ${project.status}: only ready, in progress or in review.`, 'dox_project_closed');
+  }
+  if (!(await openDoxPass(db, project.id, new Date(), { live: true })) && (await openDoxPass(db, project.id))) {
+    return refuse('The open pass on this project is dry: a dry pass writes nothing. Start a live pass to write.', 'dox_pass_dry');
+  }
+  return project as PlayProject;
+}
+
 // ---------------------------------------------------------------- card passes
 
 /** The statuses a card is in while Dox works it: released (not_started) or picked up (in_progress). */
@@ -238,7 +262,14 @@ async function cardPassIsLive(headers: Hdrs, cardId: string | undefined, db: Db)
 const POST_TASK_FIELDS = new Set([
   'title', 'description', 'status', 'priority', 'project_id', 'phase_id', 'phase', 'assignee_id', 'function_id', 'due_date',
   'tags', 'blocked_by_ids', 'energy_estimate', 'mystery_factor', 'battery_impact', 'sop_id', 'notes', 'requirements', 'sort_order', 'plan_item_ids',
+  // a client's standalone task and a Triage card name their client and site; an email-sourced one carries the email it came from
+  'client_id', 'site_id', 'source', 'source_ref', 'source_rfc', 'source_key',
 ]);
+/** What a task Dox files may say it came from. Never `portal`: a portal request is the client's own, filed by the portal. */
+const DOX_TASK_SOURCES = ['email', 'internal'] as const;
+/** On a Triage card Dox files: no owner, no order, no plan links. Mike sorts the card; the rest comes when he releases it. */
+// sop_id too: an SOP's function auto-assigns the card to the project's team member for that function.
+const DOX_TRIAGE_CLOSED_FIELDS = ['assignee_id', 'function_id', 'sop_id', 'blocked_by_ids', 'plan_item_ids', 'phase_id', 'phase', 'sort_order', 'site_id'] as const;
 /**
  * phase_id is not here on purpose: the task patch schema has no phase_id (it was silently dropped), and widening that shared schema for every
  * caller is not this lane's call. A phase is set when the task is created (POST validates it belongs to the project); moving a task to another
@@ -336,21 +367,85 @@ async function checkPlanItemIds(db: Db, raw: unknown, projectId: string): Promis
   return ids;
 }
 
-/** POST /api/tasks as Dox: a new task on the project in play, status not_started, never Triage. Returns the body to use. */
+/** The client a standalone task or a Triage card names: an id of a client that exists. */
+async function requireClient(db: Db, clientId: unknown): Promise<string> {
+  if (typeof clientId !== 'string' || !UUID_RE.test(clientId)) return badBody('client_id is a client id.');
+  const n = await db.client.count({ where: { id: clientId, is_deleted: false } });
+  if (n !== 1) return refuse('That client does not exist.', 'dox_outside_project');
+  return clientId;
+}
+
+/** A site named on a standalone task must be a site of that task's client. */
+async function requireSiteOfClient(db: Db, siteId: unknown, clientId: string): Promise<void> {
+  if (siteId === undefined || siteId === null) return;
+  if (typeof siteId !== 'string' || !UUID_RE.test(siteId)) badBody('site_id is a site id.');
+  const n = await db.site.count({ where: { id: siteId as string, client_id: clientId, is_deleted: false } });
+  if (n !== 1) refuse('That site is not a site of this client.', 'dox_outside_project');
+}
+
+/**
+ * POST /api/tasks as Dox. Three shapes, all born not_started (or triage) and none ever client-visible (no portal source, no requester, no flag):
+ *   1. A task on ANY live project (no pass or header needed; a dry pass open on the project still writes nothing). The project gives the client.
+ *   2. A client's standalone task: no project, a client_id, and optionally one of that client's sites. Assigned to Bast with a site, this is the hand-off
+ *      to the change-request lane: the worker stages the change and shows the client (handbook 6a).
+ *   3. A Triage card (status triage): an idea or new work parked for Mike, with no owner, no order and no plan links. Mike sorts it.
+ * Returns the body to use.
+ */
 export async function guardDoxTaskCreate(auth: LaneAuth, headers: Hdrs, rawBody: unknown, db: Db = prisma): Promise<Record<string, unknown>> {
   if (!isDoxLane(auth)) return rawBody as Record<string, unknown>;
   const body = requireObject(rawBody);
   for (const k of Object.keys(body)) {
     if (!POST_TASK_FIELDS.has(k)) refuse(`Dox cannot set "${k}" on a new task.`, 'dox_field_closed');
   }
-  const project = await requireProjectInPlay(headers, null, db);
-  if (body.project_id !== project.id) refuse('A task Dox creates belongs to the project in the x-dox-project header.', 'dox_outside_project');
-  if (body.status !== undefined && body.status !== 'not_started') refuse('Dox creates tasks as not_started, never in Triage or any other status.', 'dox_status_closed');
+  if (body.source !== undefined && !(DOX_TASK_SOURCES as readonly unknown[]).includes(body.source)) {
+    refuse('A task Dox files comes from an email or is internal, never a portal request.', 'dox_field_closed');
+  }
+  if (body.status !== undefined && body.status !== 'not_started' && body.status !== 'triage') {
+    refuse('Dox creates tasks as not_started, or files a card into Triage; never any other status.', 'dox_status_closed');
+  }
   const tags = checkCreateTags(body.tags);
+  const markFromDox = () => {
+    if (!tags.includes(FROM_DOX_TAG)) tags.push(FROM_DOX_TAG);
+  };
+  const hasProject = body.project_id !== undefined && body.project_id !== null;
+
+  if (body.status === 'triage') {
+    for (const k of DOX_TRIAGE_CLOSED_FIELDS) {
+      if (body[k] !== undefined && body[k] !== null) refuse(`A Triage card Dox files has no "${k}": Mike sorts the card and the rest comes when he releases it.`, 'dox_triage_closed');
+    }
+    if (tags.some((t) => t.startsWith(SETUP_TAG_PREFIX))) refuse('A Triage card carries no setup tag.', 'dox_tag_closed');
+    if (hasProject) {
+      const project = await requireLiveProject(body.project_id, db);
+      if (body.client_id !== undefined && body.client_id !== null && body.client_id !== project.client_id) refuse('The client must be the project\'s own client.', 'dox_outside_project');
+    } else if (body.client_id !== undefined && body.client_id !== null) {
+      await requireClient(db, body.client_id);
+    }
+    markFromDox();
+    return { ...body, status: 'triage', tags };
+  }
+
+  if (!hasProject) {
+    // A client's standalone task (shape 2).
+    const clientId = await requireClient(db, body.client_id);
+    await requireSiteOfClient(db, body.site_id, clientId);
+    for (const k of ['phase_id', 'phase', 'plan_item_ids', 'blocked_by_ids'] as const) {
+      if (body[k] !== undefined && body[k] !== null) refuse(`A task with no project has no "${k}".`, 'dox_field_closed');
+    }
+    if (tags.some((t) => t.startsWith(SETUP_TAG_PREFIX))) refuse('A setup tag names a card of a project; this task has no project.', 'dox_tag_closed');
+    if (body.assignee_id !== undefined) await checkAssignee(db, body.assignee_id, { inProject: true });
+    markFromDox();
+    return { ...body, project_id: null, status: 'not_started', tags };
+  }
+
+  // A task on a live project (shape 1). The project gives the client and the site.
+  for (const k of ['client_id', 'site_id'] as const) {
+    if (body[k] !== undefined && body[k] !== null) refuse(`A project task takes its ${k === 'client_id' ? 'client' : 'site'} from the project.`, 'dox_field_closed');
+  }
+  const project = await requireLiveProject(body.project_id, db);
   for (const t of tags) {
     if (!t.startsWith(SETUP_TAG_PREFIX)) continue;
     const card = await db.task.count({ where: { id: t.slice(SETUP_TAG_PREFIX.length), project_id: project.id, is_deleted: false } });
-    if (card !== 1) refuse('A setup tag must name a card of the project Dox is working on.', 'dox_tag_closed');
+    if (card !== 1) refuse('A setup tag must name a card of the project the task is filed on.', 'dox_tag_closed');
   }
   const assign = body.assignee_id === undefined ? { toBast: false } : await checkAssignee(db, body.assignee_id, { inProject: true });
   await requirePhaseInProject(db, body.phase_id, project.id);
@@ -360,9 +455,21 @@ export async function guardDoxTaskCreate(auth: LaneAuth, headers: Hdrs, rawBody:
     if (!Array.isArray(ids) || !ids.every((i) => typeof i === 'string' && UUID_RE.test(i))) badBody('blocked_by_ids is a list of task ids.');
     await requireBlockersInProject(db, ids as string[], project.id);
   }
-  if (assign.toBast && !tags.includes(FROM_DOX_TAG)) tags.push(FROM_DOX_TAG);
+  if (assign.toBast) markFromDox();
   const planItems = body.plan_item_ids === undefined ? {} : { plan_item_ids: await checkPlanItemIds(db, body.plan_item_ids, project.id) };
   return { ...body, ...planItems, status: 'not_started', tags };
+}
+
+/**
+ * PATCH /api/tasks/:id/triage as Dox: the kind of a Triage card he filed himself (created by his user, tagged from-dox), and nothing else. Linking a
+ * project, the dates and the shape stay with Mike, the chat and the triage desk.
+ */
+export function guardDoxTriagePatch(auth: Pick<AuthPayload, 'lane' | 'userId'>, rawBody: unknown, card: { created_by_id: string | null; tags: string[] }): void {
+  if (!isDoxLane(auth)) return;
+  const body = requireObject(rawBody);
+  const keys = Object.keys(body);
+  if (keys.length !== 1 || keys[0] !== 'kind') refuse('On a Triage card Dox sets the kind only.', 'dox_triage_closed');
+  if (card.created_by_id !== auth.userId || !card.tags.includes(FROM_DOX_TAG)) refuse('Dox sets the kind only on a Triage card he filed.', 'dox_triage_closed');
 }
 
 /** True when a bot-held task's hold is dead: no live linked session (the snapshot's own rule) and no movement (task update or comment) for 48 hours. */
@@ -463,11 +570,119 @@ export async function guardDoxTaskPatch(auth: LaneAuth, headers: Hdrs, rawBody: 
   return out;
 }
 
-/** A comment or a question on a task as Dox: not on a task of a quote, queue, suspended or finished project; on a live project only inside the project in play. A Triage card or a card with no project is open. */
-export async function guardDoxTaskWrite(auth: LaneAuth, headers: Hdrs, task: { status: string; project_id: string | null }, db: Db = prisma): Promise<void> {
+/**
+ * A comment or a question on a task as Dox: on a task of ANY live project (no pass or header needed; a dry pass open on it still writes nothing),
+ * never on a task of a quote, queue, suspended or finished project. A Triage card or a task with no project (a client's standalone task) is open.
+ */
+export async function guardDoxTaskWrite(auth: LaneAuth, _headers: Hdrs, task: { status: string; project_id: string | null }, db: Db = prisma): Promise<void> {
+  if (!isDoxLane(auth)) return;
+  if (task.status === 'triage' || !task.project_id) return;
+  await requireLiveProject(task.project_id, db);
+}
+
+/**
+ * A write to a task's PLAN as Dox (lib/tasks/plan.ts): still bound to the project in play (header and an open live pass), as before 2026-11-19. A Triage
+ * card or a card with no project is open. The plan is what Mike released; editing it stays a pass's work.
+ */
+export async function guardDoxPlanWrite(auth: LaneAuth, headers: Hdrs, task: { status: string; project_id: string | null }, db: Db = prisma): Promise<void> {
   if (!isDoxLane(auth)) return;
   if (task.status === 'triage' || !task.project_id) return;
   await requireProjectInPlay(headers, task.project_id, db);
+}
+
+/** The task a Dox question write is about, as the question routes have it (checkTaskAccess returns the whole row). */
+export interface DoxQuestionTask {
+  id: string;
+  status: string;
+  project_id: string | null;
+  client_id: string | null;
+  tags: string[];
+}
+
+/**
+ * Where Dox may close a question (answer it, or change or withdraw it): a task of a live project, or a CLIENT'S standalone task (no project, a client).
+ * Never a Triage card, never an internal standalone card, and never a task held for Mike: a `needs-mike` tag means its questions are his to close
+ * (an answer or a withdrawal would lift his hold, or leave the card held with nothing open).
+ */
+async function requireQuestionCloseable(auth: LaneAuth, headers: Hdrs, task: DoxQuestionTask, db: Db): Promise<void> {
+  if (task.tags.includes('needs-mike')) refuse('This task is held for Mike: its questions are his to close. Leave what you found as a comment.', 'dox_mike_hold');
+  if (!task.project_id && !task.client_id) refuse('A standalone task with no client is internal: its questions are Mike\'s.', 'dox_outside_project');
+  await guardDoxTaskWrite(auth, headers, task, db);
+}
+
+/**
+ * POST /api/tasks/:id/questions/:qid/answer as Dox: closing a question that someone outside Citadel answered (a client email, most often). Not on a
+ * Triage card (those questions are Mike's); on a task of a live project or a client's standalone task that is not held for Mike. The answer's source is
+ * required and checked in lib/tasks/questions.ts (who said it, their words, when; only an open or defaulted question); it is never recorded as Mike's word.
+ */
+export async function guardDoxAnswer(auth: LaneAuth, headers: Hdrs, task: DoxQuestionTask, db: Db = prisma): Promise<void> {
+  if (!isDoxLane(auth)) return;
+  if (task.status === 'triage') refuse('A question on a Triage card is Mike\'s to answer.', 'dox_triage_closed');
+  await requireQuestionCloseable(auth, headers, task, db);
+}
+
+/**
+ * PATCH /api/tasks/:id/questions/:qid as Dox. Withdraw a question nobody needs answered any more: on a task of a live project or a client's standalone task
+ * that is not held for Mike. Change a question's Context: only a question he asked himself. On a Triage card: only a question he asked himself.
+ */
+export async function guardDoxQuestionPatch(auth: LaneAuth, headers: Hdrs, task: DoxQuestionTask, qid: string, body: { withdraw?: boolean }, db: Db = prisma): Promise<void> {
+  if (!isDoxLane(auth)) return;
+  if (!UUID_RE.test(qid)) return; // the route answers 404
+  const q = await db.taskQuestion.findFirst({ where: { id: qid, task_id: task.id }, select: { asked_by_lane: true } });
+  if (!q) return; // the route answers 404
+  const own = isDoxLaneValue(q.asked_by_lane);
+  if (task.status === 'triage') {
+    if (!own) refuse('On a Triage card Dox changes only a question he asked.', 'dox_triage_closed');
+    return;
+  }
+  if (!body.withdraw && !own) refuse('Dox changes the wording of his own questions only; another\'s he can withdraw once it is answered elsewhere.', 'dox_question_closed');
+  await requireQuestionCloseable(auth, headers, task, db);
+}
+
+/** POST /api/meetings/:id/projects as Dox: link a meeting to a project it covered. Both must exist; a link is added, never removed (no DELETE on the lane). */
+export async function guardDoxMeetingLink(auth: LaneAuth, meetingId: string, rawBody: unknown, db: Db = prisma): Promise<void> {
+  if (!isDoxLane(auth)) return;
+  const body = requireObject(rawBody);
+  if (Object.keys(body).some((k) => k !== 'project_id')) refuse('Dox links a meeting to a project: send project_id only.', 'dox_field_closed');
+  if (!UUID_RE.test(meetingId)) badBody('Bad meeting id.');
+  if (typeof body.project_id !== 'string' || !UUID_RE.test(body.project_id)) badBody('project_id is a project id.');
+  const [m, p] = await Promise.all([
+    db.meeting.count({ where: { id: meetingId, is_deleted: false } }),
+    db.project.count({ where: { id: body.project_id as string, is_deleted: false } }),
+  ]);
+  if (m !== 1) throw new ApiError('Meeting not found', 404);
+  if (p !== 1) throw new ApiError('Project not found', 404);
+}
+
+/**
+ * Keys a Dox read never carries, at any depth: credentials and sign-in secrets (handbook section 3 item 4). A site record holds the staging basic-auth
+ * password; a contract or proposal holds its portal token. Dox reads clients, contacts, sites, meetings and email asks without them.
+ */
+export const DOX_SECRET_KEYS = [
+  'staging_auth_password', 'password_hash', 'portal_token', 'portal_token_expires_at', 'confirmation_token_hash', 'token_hash', 'key_hash', 'api_key',
+] as const;
+/**
+ * Prices and rates on the records Dox reads for routing (a client's hourly rate and retainer, a site's hosting and maintenance rates and discount). Dox
+ * reads a deal or a quote's prices only inside his project binding (mayReadDeal, guardDoxSnapshotRead); these reads keep that line.
+ */
+export const DOX_PRICE_KEYS = ['hourly_rate', 'retainer_hours', 'rate', 'hosting_discount', 'billing_amount', 'billing_target', 'budget_amount'] as const;
+
+/** The value with every secret and price key removed, at any depth, for the Dox lane; the value itself, untouched, for every other caller. */
+export function redactForDox<T>(auth: LaneAuth, value: T): T {
+  if (!isDoxLane(auth)) return value;
+  const secret = new Set<string>([...DOX_SECRET_KEYS, ...DOX_PRICE_KEYS]);
+  const walk = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(walk);
+    // Plain objects only: a Date, a Decimal or any other class instance is passed through as it is (it serialises itself).
+    const proto = v && typeof v === 'object' ? Object.getPrototypeOf(v) : undefined;
+    if (proto === Object.prototype || proto === null) {
+      const out: Record<string, unknown> = {};
+      for (const [k, x] of Object.entries(v as Record<string, unknown>)) if (!secret.has(k)) out[k] = walk(x);
+      return out;
+    }
+    return v;
+  };
+  return walk(value) as T;
 }
 
 // ---------------------------------------------------------------- projects

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
+import { redactForDox } from '@/lib/dox/guard';
 
 /**
  * GET /api/contacts/resolve?email=<addr>
@@ -14,7 +15,7 @@ import { handleApiError, ApiError } from '@/lib/api/errors';
  */
 export async function GET(request: NextRequest) {
   try {
-    await requireAuth();
+    const auth = await requireAuth();
 
     const { searchParams } = new URL(request.url);
     const email = (searchParams.get('email') || '').trim();
@@ -70,7 +71,7 @@ export async function GET(request: NextRequest) {
       })),
     }));
 
-    return NextResponse.json({ email, matches });
+    return NextResponse.json(redactForDox(auth, { email, matches }));
   } catch (error) {
     return handleApiError(error);
   }

@@ -122,12 +122,28 @@ export const questionPatchSchema = z
   .refine((b) => Object.keys(b).length > 0, { message: 'Say what to change.' });
 export type QuestionPatch = z.infer<typeof questionPatchSchema>;
 
+/** Where an answer recorded by Dox came from: the person, their exact words, the date, and a link when there is one. */
+export const answerSourceSchema = z
+  .object({
+    who: z.string().trim().min(2, 'Say who gave the answer.').max(120),
+    said: z.string().trim().min(2, 'Quote their words.').max(ANSWER_TEXT_MAX),
+    at: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}/, 'at is the date they said it, YYYY-MM-DD.').max(40),
+    url: z.string().trim().url().max(500).optional(),
+  })
+  .strict();
+export type AnswerSource = z.infer<typeof answerSourceSchema>;
+
 export const questionAnswerSchema = z
   .object({
     option_id: z.string().trim().min(1).max(40).optional(),
     text: z.string().max(ANSWER_TEXT_MAX).optional(),
     /** The question's `version` from the GET the screen or chat read. A changed question answers 409. */
     version: z.string({ error: 'version is required: send the question version you read.' }).trim().min(1).max(40),
+    /**
+     * Who gave the answer, in their words, and when: required from Dox (an answer from outside Citadel, a client email most often) and read only for
+     * Dox. Never Mike: his answers come from his own session or the chat.
+     */
+    source: answerSourceSchema.optional(),
   })
   .strict()
   .refine((b) => !!b.option_id || (b.text ?? '').trim() !== '', { message: 'Pick an option or write an answer.' });
@@ -151,14 +167,24 @@ export function citationDate(d: Date): string {
 }
 
 /** The one line an agent may quote: his exact words and the date. Null for anything that is not his answer. */
-export function citationLine(q: { state: string; question: string; answer_text: string | null; answered_at: Date | null }): string | null {
+/** Mike's user id (gate-constants.ts holds the same value; this file stays free of server imports). */
+const MIKE_ID = '3ecfb7be-20bb-43cb-9b4d-31c44337dc81';
+
+/** Mike's exact words and date, ready to quote. Null unless HE answered: an answer Dox recorded from someone else is never cited as Mike's word. */
+export function citationLine(q: { state: string; question: string; answer_text: string | null; answered_at: Date | null; answered_by_id?: string | null }): string | null {
   if (q.state !== 'answered' || !q.answer_text || !q.answered_at) return null;
+  if (q.answered_by_id && q.answered_by_id !== MIKE_ID) return null;
   return `Mike, ${citationDate(q.answered_at)}, on "${q.question}": "${q.answer_text}"`;
 }
 
 /** The comment an answer leaves on the card. The id in chat_meta is what ties it back to its question. */
 export function answerComment(question: string, words: string): string {
   return `Answer on "${question}": ${words}`;
+}
+
+/** The comment an answer Dox recorded leaves: the answer, then who gave it, when, in their own words. */
+export function sourcedAnswerComment(question: string, words: string, source: AnswerSource): string {
+  return `${answerComment(question, words)}\nFrom ${source.who}, ${source.at}: "${source.said}"${source.url ? ` (${source.url})` : ''}`;
 }
 
 export function optionOf(options: unknown, id: string | null | undefined): QuestionOption | null {

@@ -6,6 +6,7 @@ import { handleApiError, ApiError } from '@/lib/api/errors';
 import { formatClientResponse } from '@/lib/api/formatters';
 import { mayReadDeal } from '@/lib/deals/access';
 import { readDeals } from '@/lib/deals/read';
+import { redactForDox } from '@/lib/dox/guard';
 
 const updateClientSchema = z.object({
   name: z.string().min(1).max(255).optional(),
@@ -59,7 +60,7 @@ export async function GET(
 
     // The client's deals and retainers (read-only), for the chat lane and for Dox inside its project binding. Nobody else gets the key.
     const deal = (await mayReadDeal(auth, request.headers, { clientId: id })) ? await readDeals(prisma, { clientId: id }) : undefined;
-    return NextResponse.json(deal ? { ...formatClientResponse(client), deal } : formatClientResponse(client));
+    return NextResponse.json(redactForDox(auth, deal ? { ...formatClientResponse(client), deal } : formatClientResponse(client)));
   } catch (error) {
     return handleApiError(error);
   }

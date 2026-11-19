@@ -232,6 +232,7 @@ export const meetingEndpoints: ApiEndpoint[] = [
         summary: 'Link a project to a meeting.',
         auth: 'required',
         roles: ['pm', 'admin'],
+        responseNotes: 'The enforced Dox lane may call this (it links a meeting to the projects it covered): project_id only (403 dox_field_closed otherwise), 404 when the meeting or the project does not exist. Unlinking is not on its lane.',
         bodySchema: [
           { name: 'project_id', type: 'uuid', required: true, description: 'Project ID to link' },
         ],
