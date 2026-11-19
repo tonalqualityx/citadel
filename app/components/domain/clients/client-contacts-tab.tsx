@@ -18,6 +18,7 @@ import { Badge } from '@/components/ui/badge';
 import { Spinner } from '@/components/ui/spinner';
 import { showToast } from '@/lib/hooks/use-toast';
 import type { ClientContact, PortalRole } from '@/types/entities';
+import { PRONOUNS_SOURCES, PRONOUNS_SOURCE_LABELS, type PronounsSource } from '@/lib/contacts/pronouns';
 
 // Role is the source of truth; the API derives can_initiate_work from it (owner and member = true).
 const PORTAL_ROLE_OPTIONS: { value: PortalRole; label: string }[] = [
@@ -27,6 +28,18 @@ const PORTAL_ROLE_OPTIONS: { value: PortalRole; label: string }[] = [
   { value: 'none', label: 'None (no portal access)' },
 ];
 
+const PRONOUNS_SOURCE_OPTIONS = PRONOUNS_SOURCES.map((value) => ({
+  value,
+  label: PRONOUNS_SOURCE_LABELS[value],
+}));
+
+/** "he/him (assumed)": the source is always shown, so a guess never reads as fact. */
+export function pronounsLabel(c: Pick<ClientContact, 'pronouns' | 'pronouns_source'>): string | null {
+  if (!c.pronouns) return null;
+  if (c.pronouns_source === 'stated' || !c.pronouns_source) return c.pronouns;
+  return `${c.pronouns} (${PRONOUNS_SOURCE_LABELS[c.pronouns_source].toLowerCase()})`;
+}
+
 interface ClientContactsTabProps {
   clientId: string;
 }
@@ -35,6 +48,8 @@ interface FormState {
   name: string;
   email: string;
   role: string;
+  pronouns: string;
+  pronouns_source: PronounsSource;
   portal_role: PortalRole;
   is_primary: boolean;
 }
@@ -43,6 +58,8 @@ const emptyForm: FormState = {
   name: '',
   email: '',
   role: '',
+  pronouns: '',
+  pronouns_source: 'stated',
   portal_role: 'viewer',
   is_primary: false,
 };
@@ -74,6 +91,8 @@ export function ClientContactsTab({ clientId }: ClientContactsTabProps) {
       name: c.name ?? '',
       email: c.email,
       role: c.role ?? '',
+      pronouns: c.pronouns ?? '',
+      pronouns_source: c.pronouns_source ?? 'stated',
       portal_role: c.portal_role ?? 'viewer',
       is_primary: c.is_primary,
     });
@@ -92,10 +111,14 @@ export function ClientContactsTab({ clientId }: ClientContactsTabProps) {
       showToast.error('Email is required');
       return;
     }
+    const pronouns = form.pronouns.trim() || null;
     const payload = {
       name: form.name.trim() || null,
       email,
       role: form.role.trim() || null,
+      // Blank pronouns clear both fields; on a new contact the pronouns sweep then checks the signature.
+      pronouns,
+      pronouns_source: pronouns ? form.pronouns_source : null,
       portal_role: form.portal_role,
       is_primary: form.is_primary,
     };
@@ -212,6 +235,24 @@ export function ClientContactsTab({ clientId }: ClientContactsTabProps) {
                 onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
                 placeholder="Marketing Lead"
               />
+              <Input
+                label="Pronouns"
+                value={form.pronouns}
+                // A person typing pronouns makes them stated, unless the source is then changed below.
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, pronouns: e.target.value, pronouns_source: 'stated' }))
+                }
+                placeholder="she/her"
+              />
+              <Select
+                label="Pronouns source"
+                options={PRONOUNS_SOURCE_OPTIONS}
+                value={form.pronouns_source}
+                onChange={(v) => {
+                  if (!v) return;
+                  setForm((f) => ({ ...f, pronouns_source: v as PronounsSource }));
+                }}
+              />
             </div>
             <div className="flex flex-wrap items-center gap-6">
               <div className="w-64">
@@ -283,6 +324,7 @@ export function ClientContactsTab({ clientId }: ClientContactsTabProps) {
                   <div className="text-sm text-text-sub truncate">
                     {c.name ? `${c.email} · ` : ''}
                     {c.role || 'No role set'}
+                    {` · ${pronounsLabel(c) ?? 'Pronouns not set'}`}
                   </div>
                 </div>
                 <div className="w-44 shrink-0">

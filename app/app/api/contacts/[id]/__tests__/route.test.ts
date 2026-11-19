@@ -102,6 +102,34 @@ describe('PATCH /api/contacts/[id]', () => {
     expect(data.can_initiate_work).toBe(expected);
   });
 
+  it('writes pronouns with their source, and logs the change', async () => {
+    mockFindUnique.mockResolvedValue(existing);
+    mockUpdate.mockResolvedValue({ ...existing, pronouns: 'she/her', pronouns_source: 'signature' });
+    const response = await PATCH(patchReq({ pronouns: 'she/her', pronouns_source: 'signature' }), { params });
+    expect(response.status).toBe(200);
+    const data = mockUpdate.mock.calls[0][0].data;
+    expect(data.pronouns).toBe('she/her');
+    expect(data.pronouns_source).toBe('signature');
+  });
+
+  it('clearing pronouns clears the source too', async () => {
+    mockFindUnique.mockResolvedValue({ ...existing, pronouns: 'he/him', pronouns_source: 'assumed' });
+    mockUpdate.mockResolvedValue({ ...existing, pronouns: null, pronouns_source: null });
+    await PATCH(patchReq({ pronouns: '' }), { params });
+    const data = mockUpdate.mock.calls[0][0].data;
+    expect(data.pronouns).toBeNull();
+    expect(data.pronouns_source).toBeNull();
+  });
+
+  it('an edit without pronouns leaves them untouched', async () => {
+    mockFindUnique.mockResolvedValue(existing);
+    mockUpdate.mockResolvedValue(existing);
+    await PATCH(patchReq({ name: 'Janet' }), { params });
+    const data = mockUpdate.mock.calls[0][0].data;
+    expect(data).not.toHaveProperty('pronouns');
+    expect(data).not.toHaveProperty('pronouns_source');
+  });
+
   it('rejects an unknown portal_role', async () => {
     mockFindUnique.mockResolvedValue(existing);
     const response = await PATCH(patchReq({ portal_role: 'admin' }), { params });

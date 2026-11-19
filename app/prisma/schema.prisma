@@ -704,6 +704,12 @@ model ClientContact {
   is_primary        Boolean @default(false)
   notes             String? @db.Text
 
+  // Pronouns (2026-11-19). pronouns_source says where the value came from: stated (the person or
+  // Mike told us), signature (read from their email signature), assumed (a guess, never fact).
+  // Both null = not filled yet; the local pronouns sweep checks the mail signature and fills it.
+  pronouns        String? @db.VarChar(50)
+  pronouns_source String? @db.VarChar(20)
+
   // Client-portal role (portal MVP A3). `can_initiate_work` is derived from it on every write
   // (owner and member = true). `role` above is the contact's job title, unrelated.
   portal_role    PortalRole       @default(viewer)

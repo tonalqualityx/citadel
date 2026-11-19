@@ -7,6 +7,7 @@ import { formatClientContactResponse } from '@/lib/api/formatters';
 import { revokeContactAccess } from '@/lib/services/client-auth';
 import { deriveContactPortalFields, GRANTABLE_ROLES, PORTAL_GRANTABLE_PROJECT_WHERE } from '@/lib/portal/access';
 import { logUpdate, logDelete, detectChanges } from '@/lib/services/activity';
+import { pronounsFields, pronounsWrite } from '@/lib/contacts/pronouns';
 
 const updateContactSchema = z.object({
   name: z.string().max(255).optional().nullable(),
@@ -16,6 +17,7 @@ const updateContactSchema = z.object({
   portal_role: z.enum(['owner', 'member', 'viewer', 'none']).optional(),
   is_primary: z.boolean().optional(),
   notes: z.string().optional().nullable(),
+  ...pronounsFields,
 });
 
 // PATCH /api/contacts/[id] — update a contact
@@ -34,7 +36,8 @@ export async function PATCH(
     }
 
     const body = await request.json();
-    const data = updateContactSchema.parse(body);
+    const { pronouns: _pronouns, pronouns_source: _source, ...data } = updateContactSchema.parse(body);
+    const pronouns = pronounsWrite({ pronouns: _pronouns, pronouns_source: _source });
     const email = data.email !== undefined ? data.email.trim() : undefined;
 
     // Guard the (client, email) uniqueness when email changes
@@ -52,6 +55,7 @@ export async function PATCH(
       // Role is the source of truth; can_initiate_work is derived from it on every write.
       data: {
         ...data,
+        ...pronouns,
         ...deriveContactPortalFields(data, existing.portal_role),
         ...(email !== undefined ? { email } : {}),
       },
@@ -60,7 +64,7 @@ export async function PATCH(
     const changes = detectChanges(
       existing as unknown as Record<string, unknown>,
       contact as unknown as Record<string, unknown>,
-      ['name', 'email', 'role', 'portal_role', 'can_initiate_work', 'is_primary', 'notes']
+      ['name', 'email', 'role', 'portal_role', 'can_initiate_work', 'is_primary', 'notes', 'pronouns', 'pronouns_source']
     );
     await logUpdate(auth.userId, 'client_contact', contact.id, contact.email, changes);
 
