@@ -37,7 +37,7 @@ export async function PATCH(
 
     const body = await request.json();
     const { pronouns: _pronouns, pronouns_source: _source, ...data } = updateContactSchema.parse(body);
-    const pronouns = pronounsWrite({ pronouns: _pronouns, pronouns_source: _source });
+    const pronouns = pronounsWrite({ pronouns: _pronouns, pronouns_source: _source }, existing.pronouns);
     const email = data.email !== undefined ? data.email.trim() : undefined;
 
     // Guard the (client, email) uniqueness when email changes

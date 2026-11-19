@@ -23,8 +23,13 @@ describe('pronounsWrite', () => {
     expect(pronounsWrite({ pronouns: null })).toEqual({ pronouns: null, pronouns_source: null });
   });
 
-  it('writes a source alone (confirming an assumption)', () => {
-    expect(pronounsWrite({ pronouns_source: 'stated' })).toEqual({ pronouns_source: 'stated' });
+  it('writes a source alone only when the contact already has pronouns', () => {
+    expect(pronounsWrite({ pronouns_source: 'stated' }, 'he/him')).toEqual({ pronouns_source: 'stated' });
+    expect(pronounsWrite({ pronouns_source: 'stated' })).toEqual({});
+  });
+
+  it('never clears a source while leaving the pronouns', () => {
+    expect(pronounsWrite({ pronouns_source: null }, 'he/him')).toEqual({});
   });
 });
 

@@ -26,16 +26,18 @@ export const pronounsFields = {
 
 /**
  * The pronoun columns to write for a create or update body. Rules:
- * - pronouns not sent: only an explicit pronouns_source is written (e.g. confirming an assumption).
+ * - pronouns not sent: a non-null pronouns_source is written only when the contact already has
+ *   pronouns (e.g. confirming an assumption). A source never stands without a value, and to clear
+ *   it you clear the pronouns.
  * - pronouns empty or null: both columns are cleared.
  * - pronouns sent without a source: the source is "stated" (a person typed it in).
  */
-export function pronounsWrite(data: {
-  pronouns?: string | null;
-  pronouns_source?: PronounsSource | null;
-}): { pronouns?: string | null; pronouns_source?: PronounsSource | null } {
+export function pronounsWrite(
+  data: { pronouns?: string | null; pronouns_source?: PronounsSource | null },
+  existingPronouns: string | null = null
+): { pronouns?: string | null; pronouns_source?: PronounsSource | null } {
   if (data.pronouns === undefined) {
-    return data.pronouns_source === undefined ? {} : { pronouns_source: data.pronouns_source };
+    return data.pronouns_source && existingPronouns ? { pronouns_source: data.pronouns_source } : {};
   }
   const value = (data.pronouns ?? '').trim();
   if (!value) return { pronouns: null, pronouns_source: null };
