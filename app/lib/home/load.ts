@@ -289,7 +289,12 @@ async function loadTasks(db: PrismaClient, userId: string): Promise<RawTask[]> {
       is_deleted: false,
       status: { notIn: CLOSED },
       OR: [
-        { assignee_id: userId },
+        // The owner's own task is listed only once every task it waits on is closed (handbook 10: "tasks that rely on
+        // others don't get picked up ahead of the schedule"). A "review and send the draft" task filed with the task
+        // that writes the draft showed on the home screen before the draft existed (Mike, 2026-11-20: "It's telling
+        // me that I've got a draft email to send. The links show no draft."). It appears the moment its last open
+        // blocker closes. A status of blocked with no open blocker is still listed.
+        { assignee_id: userId, blocked_by: { none: { is_deleted: false, status: { notIn: CLOSED } } } },
         { assignee_id: { in: [...BOT_USER_IDS] }, tags: { has: NEEDS_MIKE_TAG } },
       ],
       AND: [{ OR: [{ project_id: null }, { project: { status: { notIn: [...EXCLUDED_PROJECT_STATUSES] } } }] }],

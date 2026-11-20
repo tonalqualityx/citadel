@@ -136,7 +136,8 @@ describe('loadHomeInputs: tasks', () => {
     const arg = taskCall(db, false);
     expect(arg.where.is_deleted).toBe(false);
     expect(arg.where.status).toEqual({ notIn: ['done', 'abandoned', 'triage'] });
-    expect(arg.where.OR[0]).toEqual({ assignee_id: U });
+    // The owner's own task is read only when no task it waits on is still open (Mike, 2026-11-20).
+    expect(arg.where.OR[0]).toEqual({ assignee_id: U, blocked_by: { none: { is_deleted: false, status: { notIn: ['done', 'abandoned', 'triage'] } } } });
     expect(arg.where.AND).toEqual([
       {
         OR: [
