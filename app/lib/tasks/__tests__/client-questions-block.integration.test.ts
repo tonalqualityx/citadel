@@ -175,6 +175,13 @@ describe.skipIf(!SCRATCH)('client questions block cards (real database)', () => 
     const body = await res.json();
     expect(body.total).toBe(1);
     expect(body.questions[0]).toMatchObject({ id: qid, task: { id: home, project_id: projectId }, sent: { message_id: 'm1' }, nudge_drafted_at: null });
+    // who asked it, by name (the project screen's Questions tab shows it); the asker is the worker here
+    const asker = await prisma.user.findUnique({ where: { id: BAST }, select: { id: true, name: true } });
+    expect(body.questions[0].asked_by).toEqual(asker ? { id: asker.id, name: asker.name } : null);
+    expect(body.questions[0].asked_by_lane).toBe('bast');
+    const openOnProject = await (await listAll(req(undefined, 'GET', `http://localhost/api/questions?state=open&for=all&project_id=${projectId}&limit=500`))).json();
+    expect(openOnProject.questions.map((q: { id: string }) => q.id)).toEqual([qid]);
+    expect(openOnProject.questions[0].blocks.map((b: { id: string }) => b.id).sort()).toEqual([home, waiting].sort());
     const mikeOnly = await (await listAll(req(undefined, 'GET', `http://localhost/api/questions?for=mike&project_id=${projectId}`))).json();
     expect(mikeOnly.total).toBe(0);
     as(tech(techId));
@@ -295,5 +302,23 @@ describe.skipIf(!SCRATCH)('client questions block cards (real database)', () => 
     expect(reason?.content).toContain('Use the new draft');
     // A second sweep finds nothing more to default
     expect((await (await sweep()).json()).questions_defaulted).toBe(0);
+  });
+  it("a Triage card's questions on the project list only for Mike, and only when asked for (the project screen's Questions tab)", async () => {
+    const triCard = await fx.mkTask('Project addition in Triage', { project_id: projectId, status: 'triage' });
+    as(mike());
+    const tq = await (await addQ(req(waitQ('Should the booth page join this project?')), tp(triCard))).json();
+    const url = (extra: string) => `http://localhost/api/questions?state=open&for=all&project_id=${projectId}&limit=500${extra}`;
+    const ids = async () => ((await (await listAll(req(undefined, 'GET', url('&include_triage=1')))).json()).questions as Array<{ id: string }>).map((q) => q.id);
+    expect(await ids()).toContain(tq.id);
+    const plain = (await (await listAll(req(undefined, 'GET', url('')))).json()).questions as Array<{ id: string }>;
+    expect(plain.map((q) => q.id)).not.toContain(tq.id);
+    // the worker's flag is ignored: a Triage card is Mike's and the chat's
+    as(worker());
+    expect(await ids()).not.toContain(tq.id);
+    // Mike answers it from the project screen, through the card's own answer route
+    as(mike());
+    const row = await prisma.taskQuestion.findUniqueOrThrow({ where: { id: tq.id } });
+    expect((await answerQ(req({ version: row.updated_at.toISOString(), text: 'Yes, add it' }), qp(triCard, tq.id))).status).toBe(200);
+    expect(await ids()).not.toContain(tq.id);
   });
 });

@@ -595,21 +595,26 @@ export const QUESTION_STATES = ['open', 'answered', 'defaulted', 'withdrawn', 'a
 
 export interface QuestionListOut extends QuestionOut {
   task: { id: string; title: string; status: string; project_id: string | null; project: { id: string; name: string } | null };
+  /** Who asked it, by name. Null when the asker is not recorded or no longer exists (asked_by_lane may still say which agent lane filed it). */
+  asked_by: { id: string; name: string } | null;
 }
 
 /**
- * GET /api/questions: questions across cards, oldest first, each with its card and project. Never a question on a Triage card (those are Mike's
- * and the chat's, read on the card). `for`: client (we sent it to a client contact), mike (no contact), all.
+ * GET /api/questions: questions across cards, oldest first, each with its card and project. No question on a Triage card (those are Mike's
+ * and the chat's, read on the card), unless `include_triage` is set by Mike's own session or the chat lane (the project screen's Questions tab:
+ * "all open questions attached to a project", Mike, 2026-11-19); for anyone else the flag is ignored. `for`: client (we sent it to a client
+ * contact), mike (no contact), all.
  */
 export async function listAllQuestions(
   auth: Auth & { role?: string },
-  q: { state: (typeof QUESTION_STATES)[number]; for: (typeof QUESTION_FOR)[number]; project_id?: string; limit: number },
+  q: { state: (typeof QUESTION_STATES)[number]; for: (typeof QUESTION_FOR)[number]; project_id?: string; limit: number; include_triage?: boolean },
 ): Promise<{ questions: QuestionListOut[]; total: number }> {
   if (auth.role !== 'pm' && auth.role !== 'admin') throw new ApiError('Insufficient permissions', 403);
+  const withTriage = q.include_triage === true && mayAnswerQuestions(auth);
   const where: Prisma.TaskQuestionWhereInput = {
     ...(q.state === 'all' ? {} : { state: q.state }),
     ...(q.for === 'client' ? { asked_of_contact_id: { not: null } } : q.for === 'mike' ? { asked_of_contact_id: null } : {}),
-    task: { is_deleted: false, status: { not: 'triage' }, ...(q.project_id ? { project_id: q.project_id } : {}) },
+    task: { is_deleted: false, ...(withTriage ? {} : { status: { not: 'triage' as const } }), ...(q.project_id ? { project_id: q.project_id } : {}) },
   };
   const [rows, total] = await Promise.all([
     prisma.taskQuestion.findMany({
@@ -620,8 +625,16 @@ export async function listAllQuestions(
     }),
     prisma.taskQuestion.count({ where }),
   ]);
+  // TaskQuestion carries the asker as a bare id (no relation), so read the names in one query.
+  const askerIds = [...new Set(rows.map((r) => r.asked_by_user_id).filter((v): v is string => !!v))];
+  const askers = askerIds.length ? await prisma.user.findMany({ where: { id: { in: askerIds } }, select: { id: true, name: true } }) : [];
+  const askerById = new Map(askers.map((u) => [u.id, u]));
   return {
-    questions: rows.map((r) => ({ ...formatQuestion(r), task: { id: r.task.id, title: r.task.title, status: r.task.status, project_id: r.task.project_id, project: r.task.project } })),
+    questions: rows.map((r) => ({
+      ...formatQuestion(r),
+      task: { id: r.task.id, title: r.task.title, status: r.task.status, project_id: r.task.project_id, project: r.task.project },
+      asked_by: (r.asked_by_user_id && askerById.get(r.asked_by_user_id)) || null,
+    })),
     total,
   };
 }

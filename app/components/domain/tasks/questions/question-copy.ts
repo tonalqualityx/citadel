@@ -24,3 +24,9 @@ export function answeredDate(iso: string | null): string {
   if (!iso) return '';
   return new Intl.DateTimeFormat('en-GB', { timeZone: QUESTION_TZ, day: 'numeric', month: 'short' }).format(new Date(iso));
 }
+
+/** "13 Nov 2026", in Mike's timezone: a question's asked date, where the year matters on an old one. */
+export function askedDate(iso: string | null): string {
+  if (!iso) return '';
+  return new Intl.DateTimeFormat('en-GB', { timeZone: QUESTION_TZ, day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(iso));
+}

@@ -95,6 +95,7 @@ export const projectKeys = {
   bySite: (siteId: string) => [...projectKeys.all, 'bySite', siteId] as const,
   team: (id: string) => [...projectKeys.all, 'team', id] as const,
   communication: (id: string) => [...projectKeys.all, 'communication', id] as const,
+  questions: (id: string) => [...projectKeys.all, 'questions', id] as const,
 };
 
 // Task filters and keys

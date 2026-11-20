@@ -2,7 +2,7 @@ import { useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
 import { showToast } from '@/lib/hooks/use-toast';
-import { taskKeys } from '@/lib/api/query-keys';
+import { projectKeys, taskKeys } from '@/lib/api/query-keys';
 import { HOME_KEYS } from '@/lib/hooks/use-home';
 import { QUESTION_CHANGED_MESSAGE, type QuestionAnswerBody, type QuestionView } from '@/lib/tasks/question-context';
 
@@ -55,6 +55,8 @@ export function useAnswerQuestion(taskId: string) {
       showToast.success('Answer saved.');
       await queryClient.invalidateQueries({ queryKey: questionKeys.task(taskId) });
       queryClient.invalidateQueries({ queryKey: taskKeys.detail(taskId) });
+      // Every project's open-question list and header count (the card's project is not known here).
+      queryClient.invalidateQueries({ queryKey: [...projectKeys.all, 'questions'] });
       try {
         await queryClient.refetchQueries({ queryKey: HOME_KEYS.all });
       } catch {

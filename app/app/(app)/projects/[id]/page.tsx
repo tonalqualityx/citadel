@@ -21,6 +21,7 @@ import {
   Check,
   X,
   GripVertical,
+  HelpCircle,
 } from 'lucide-react';
 import {
   DndContext,
@@ -89,6 +90,9 @@ import { ProjectTeamTab } from '@/components/domain/projects/project-team-tab';
 import { ProjectBriefTab } from '@/components/domain/projects/project-brief-tab';
 import { MeetingList } from '@/components/domain/meetings/MeetingList';
 import { ProjectCommunicationTab } from '@/components/domain/projects/project-communication-tab';
+import { ProjectQuestionsTab } from '@/components/domain/projects/project-questions-tab';
+import { useProjectQuestions } from '@/lib/hooks/use-project-questions';
+import { MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import { RichTextRenderer } from '@/components/ui/rich-text-editor';
 import { TaskPeekDrawer } from '@/components/domain/tasks/task-peek-drawer';
 import { BulkEditTasksModal } from '@/components/domain/tasks/bulk-edit-tasks-modal';
@@ -119,8 +123,12 @@ export default function ProjectDetailPage() {
   const params = useParams();
   const router = useRouter();
   const { t } = useTerminology();
-  const { isPmOrAdmin } = useAuth();
+  const { isPmOrAdmin, user } = useAuth();
   const projectId = params.id as string;
+  const [activeTab, setActiveTab] = React.useState('tasks');
+  // Open questions on the project's cards (pm/admin read them; only Mike answers). The header count and the Questions tab share this read.
+  const { data: questionData } = useProjectQuestions(projectId, isPmOrAdmin);
+  const openQuestions = questionData?.total ?? 0;
 
   const [isEditOpen, setIsEditOpen] = React.useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = React.useState(false);
@@ -467,6 +475,17 @@ export default function ProjectDetailPage() {
               )}
               <ProjectPlanLink projectId={project.id} />
               <ProjectReportLine projectId={project.id} />
+              {isPmOrAdmin && openQuestions > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('questions')}
+                  className="flex items-center gap-1 hover:text-primary"
+                  data-testid="project-open-questions"
+                >
+                  <HelpCircle className="h-4 w-4" />
+                  {openQuestions} open {openQuestions === 1 ? 'question' : 'questions'}
+                </button>
+              )}
               {project.site && (
                 <Link
                   href={`/sites/${project.site.id}`}
@@ -604,7 +623,7 @@ export default function ProjectDetailPage() {
       </div>
 
       {/* Tabs */}
-      <Tabs defaultValue="tasks">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="tasks">{t('tasks')}</TabsTrigger>
           <TabsTrigger value="brief">Brief</TabsTrigger>
@@ -612,6 +631,7 @@ export default function ProjectDetailPage() {
           <TabsTrigger value="time">Time</TabsTrigger>
           <TabsTrigger value="team">Team</TabsTrigger>
           <TabsTrigger value="meetings">Meetings</TabsTrigger>
+          {isPmOrAdmin && <TabsTrigger value="questions">{openQuestions > 0 ? `Questions (${openQuestions})` : 'Questions'}</TabsTrigger>}
           {isPmOrAdmin && <TabsTrigger value="communication">Communication</TabsTrigger>}
           <TabsTrigger value="details">Details</TabsTrigger>
         </TabsList>
@@ -1181,6 +1201,12 @@ export default function ProjectDetailPage() {
         <TabsContent value="meetings" className="mt-4">
           <MeetingList projectId={project.id} clientId={project.client?.id} />
         </TabsContent>
+
+        {isPmOrAdmin && (
+          <TabsContent value="questions" className="mt-4">
+            <ProjectQuestionsTab projectId={project.id} canAnswer={user?.id === MIKE_USER_ID} />
+          </TabsContent>
+        )}
 
         {isPmOrAdmin && (
           <TabsContent value="communication" className="mt-4">

@@ -136,6 +136,14 @@ vi.mock('@/lib/hooks/use-auth', () => ({
   }),
 }));
 
+// Mock the project's open questions (header count and Questions tab)
+vi.mock('@/lib/hooks/use-project-questions', () => ({
+  useProjectQuestions: () => ({ data: { questions: [], total: 2 }, isLoading: false }),
+}));
+vi.mock('@/components/domain/projects/project-questions-tab', () => ({
+  ProjectQuestionsTab: () => <div data-testid="project-questions-tab" />,
+}));
+
 // Mock use-terminology hook
 vi.mock('@/lib/hooks/use-terminology', () => ({
   useTerminology: () => ({ t: (key: string) => key }),
@@ -406,5 +414,18 @@ describe('ProjectDetailPage Details Tab - Rich Text Rendering', () => {
 
       expect(renderedRichTextContent).toEqual(bugReportStructure);
     });
+  });
+});
+
+describe('ProjectDetailPage open questions', () => {
+  it('shows the open question count on the header and opens the Questions tab from it', async () => {
+    currentMockProjectData = createMockProjectData(null);
+    render(<ProjectDetailPage />);
+    expect(screen.getByRole('tab', { name: 'Questions (2)' })).toBeInTheDocument();
+    expect(screen.queryByTestId('project-questions-tab')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByTestId('project-open-questions'));
+    expect(screen.getByTestId('project-open-questions')).toHaveTextContent('2 open questions');
+    expect(screen.getByRole('tab', { name: 'Questions (2)' })).toHaveAttribute('data-state', 'active');
+    expect(screen.getByTestId('project-questions-tab')).toBeInTheDocument();
   });
 });
