@@ -160,7 +160,7 @@ export function collapsedLine(res: HomeResponse, pinnedKey: string | null): stri
     res.today?.steps ?? [],
     res.sections.needs_you_now,
     res.sections.leads,
-    res.sections.mail,
+    res.sections.mail.filter((i) => !i.fyi), // an FYI row is shown, not waiting
     res.sections.next,
   ];
   for (const l of lists) for (const i of l) if (i.key !== pinnedKey) keys.add(i.key);

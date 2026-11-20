@@ -137,6 +137,8 @@ export function owedQueue(
     } else if (bast) {
       if (row?.mike_edited_at) continue;
       if (row?.draft_for_ask_id && row.draft_for_ask_id !== newest.id) {
+        // Same timing as before client mail showed at once: an automatic redraft waits one business day.
+        if (!lead && !woke && businessDaysElapsed(newest.received_at, now) < THREAD_MIN_AGE_BUSINESS_DAYS) continue;
         reason = 'redraft';
       } else if (!lead && clock.thoughtDue && !row?.auto_drafted_at && (!row?.thought_since || row.thought_since.getTime() <= newest.received_at.getTime())) {
         // Day 5 with Bast's draft still unsent: Bast writes its read, and the row becomes Needs thought.

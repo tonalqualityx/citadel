@@ -1637,7 +1637,8 @@ export function selectHome(input: SelectInput): SelectResult {
   // Slice 8b: a project's next step is a row only while the project has nothing else of his in view (one row per project). Steps
   // are placed after everyone else, so they never take a slot a real item qualified for and never change another item's place.
   const projectsInView = new Set<string>();
-  for (const c of [...needs, ...working, ...leads, ...mailAll, ...nextAll]) if (c.item.project) projectsInView.add(c.item.project.id);
+  // An FYI row asks nothing of him, so it never hides its project's next step.
+  for (const c of [...needs, ...working, ...leads, ...mailAll, ...nextAll]) if (c.item.project && !c.item.fyi) projectsInView.add(c.item.project.id);
   const stepStill = new Set<string>();
   const unboostedSteps: Candidate[] = [];
   const stepRows = raw.project_steps.filter((s) => {
