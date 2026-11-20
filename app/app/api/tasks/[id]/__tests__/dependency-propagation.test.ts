@@ -297,6 +297,33 @@ describe('Task dependency propagation on status change', () => {
       });
     });
 
+    it('unblocks dependents when needs_review is cleared on a done, unapproved blocker', async () => {
+      mockTaskFindUnique.mockResolvedValue({
+        id: 'task-1',
+        status: 'done',
+        project: null,
+        is_deleted: false,
+        created_by_id: 'user-1',
+        assignee_id: null,
+        started_at: null,
+      });
+      mockTaskUpdate.mockResolvedValue(updatedTask({ status: 'done' }));
+
+      mockTaskFindMany.mockResolvedValueOnce([
+        { id: 'task-2', status: 'blocked', blocked_by: [blocker('task-1', 'done', false, false, false)] },
+      ]);
+      mockTaskUpdateMany.mockResolvedValue({ count: 1 });
+
+      const response = await PATCH(makeRequest({ needs_review: false }), { params: makeParams() });
+      expect(response.status).toBe(200);
+
+      expect(mockTaskFindMany).toHaveBeenCalledWith(UNBLOCK_QUERY);
+      expect(mockTaskUpdateMany).toHaveBeenCalledWith({
+        where: { id: { in: ['task-2'] }, status: 'blocked' },
+        data: { status: 'not_started' },
+      });
+    });
+
     it('does not unblock dependents when approval is revoked (approved: false)', async () => {
       mockTaskFindUnique.mockResolvedValue({
         id: 'task-1',

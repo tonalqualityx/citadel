@@ -901,7 +901,8 @@ export async function patchTask(input: PatchTaskInput) {
 
   // When a blocker is newly approved, dependents held on its review become workable — unblock them.
   // (dependents of a blocker not marked needs_review, or in an ordering-only project, were already unblocked when it hit `done`.)
-  if (updateData.approved === true) {
+  // Clearing needs_review on a blocker releases the same way: a done blocker not marked for review satisfies its dependents.
+  if (updateData.approved === true || updateData.needs_review === false) {
     await unblockEligibleDependents(id);
   }
 
