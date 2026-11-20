@@ -556,6 +556,33 @@ describe('POST /api/oracle/email-sync: the intake decision (work stage B)', () =
     expect(mockUpsert.mock.calls[0][0].update).toMatchObject({ state: 'open', disposition: 'emergency', closed_reason: null, closed_by: null, closed_at: null });
   });
 
+  it('a posted fyi stores the first names only, with Mike as owner and the row open', async () => {
+    homeOn();
+    mockUpsert.mockResolvedValue(row({ disposition: 'fyi' }));
+    await POST(postRequest({ asks: [baseAsk({ disposition: 'fyi', addressed_to: 'Lisa, lisa@nl-creative.com' })] }));
+    expect(created()).toMatchObject({ disposition: 'fyi', owner: 'mike', decided_by: 'intake', addressed_to: 'Lisa' });
+    expect('state' in created()).toBe(false);
+    expect(mockUpsert.mock.calls[0][0].update).toMatchObject({ addressed_to: 'Lisa' });
+  });
+
+  it('an fyi with admin intent is stored as reply_mike and reported in adjusted', async () => {
+    homeOn();
+    mockUpsert.mockResolvedValue(row({ disposition: 'reply_mike' }));
+    const res = await POST(postRequest({ asks: [baseAsk({ intent: 'admin', disposition: 'fyi', addressed_to: 'Lisa' })] }));
+    const body = await res.json();
+    expect(created()).toMatchObject({ disposition: 'reply_mike' });
+    expect(body.items[0].adjusted).toBe('fyi_refused_admin');
+  });
+
+  it('a payload without addressed_to leaves the key out of create and update', async () => {
+    homeOn();
+    mockUpsert.mockResolvedValue(row());
+    await POST(postRequest({ asks: [baseAsk({ disposition: 'fyi' })] }));
+    const arg = mockUpsert.mock.calls[0][0];
+    expect('addressed_to' in arg.create).toBe(false);
+    expect('addressed_to' in arg.update).toBe(false);
+  });
+
   it('refuses a disposition outside the list and a decided_by of mike', async () => {
     expect((await POST(postRequest({ asks: [baseAsk({ disposition: 'ignore' })] }))).status).toBe(400);
     expect((await POST(postRequest({ asks: [baseAsk({ decided_by: 'mike' })] }))).status).toBe(400);

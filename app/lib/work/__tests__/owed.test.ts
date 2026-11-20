@@ -30,7 +30,7 @@ describe('askIsMine: the one rule for "is this email mine to answer"', () => {
 });
 
 // Work stage B: the owed rule
-import { askIsOwed, askShowsAsMeeting } from '../owed';
+import { askIsOwed, askShowsAsFyi, askShowsAsMeeting } from '../owed';
 
 describe('askIsOwed: reply_mike, an undecided old row, or work with no live task is owed', () => {
   const none = facts({});
@@ -71,7 +71,7 @@ describe('askIsOwed: reply_mike, an undecided old row, or work with no live task
   });
 
   it('the other non-owed dispositions stay not owed with no task', () => {
-    for (const disposition of ['no_action', 'meeting', 'waiting_them', 'emergency']) {
+    for (const disposition of ['no_action', 'meeting', 'waiting_them', 'emergency', 'fyi']) {
       expect(askIsOwed({ task_id: null, disposition }, none)).toBe(false);
     }
   });
@@ -80,5 +80,13 @@ describe('askIsOwed: reply_mike, an undecided old row, or work with no live task
     expect(askShowsAsMeeting({ task_id: null, disposition: 'meeting' }, none)).toBe(true);
     expect(askShowsAsMeeting({ task_id: null, disposition: 'reply_mike' }, none)).toBe(false);
     expect(askShowsAsMeeting({ task_id: 't1', disposition: 'meeting' }, facts({ t1: { is_deleted: false, status: 'in_progress' } }))).toBe(false);
+  });
+
+  it('an fyi ask is never owed and shows as an fyi row until a live task carries it', () => {
+    expect(askIsOwed({ task_id: null, disposition: 'fyi' }, none)).toBe(false);
+    expect(askShowsAsFyi({ task_id: null, disposition: 'fyi' }, none)).toBe(true);
+    expect(askShowsAsFyi({ task_id: null, disposition: 'reply_mike' }, none)).toBe(false);
+    expect(askShowsAsFyi({ task_id: 't1', disposition: 'fyi' }, facts({ t1: { is_deleted: false, status: 'in_progress' } }))).toBe(false);
+    expect(askShowsAsFyi({ task_id: 't1', disposition: 'fyi' }, facts({ t1: { is_deleted: true, status: 'done' } }))).toBe(true);
   });
 });

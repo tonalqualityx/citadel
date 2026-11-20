@@ -6,7 +6,7 @@ import { handleApiError } from '@/lib/api/errors';
 import { notifyUrgentEmail } from '@/lib/services/notifications';
 import { AskQueue, AskSeverity, EmailAskIntent, EmailMatchSource } from '@prisma/client';
 import { normalizeRfc } from '@/lib/work/link-asks';
-import { DISPOSITIONS, FLOOR_EXEMPTIONS, OWNERS, ownerOfAssignee, planSync, waitKeyFor, type DecisionOwner, type SyncExisting } from '@/lib/work/decision';
+import { cleanAddressee, DISPOSITIONS, FLOOR_EXEMPTIONS, OWNERS, ownerOfAssignee, planSync, waitKeyFor, type DecisionOwner, type SyncExisting } from '@/lib/work/decision';
 import { homeOwner } from '@/lib/work/ask-closure';
 import { BOT_USER_IDS } from '@/lib/oracle/projects/gate-constants';
 import { prismaSweepStore } from '@/lib/waits/prisma-store';
@@ -58,6 +58,8 @@ const emailAskSchema = z.object({
   // A claim that this is a routine provider receipt (admin intent, no trouble wording). The server re-checks subject, sender domain
   // and wording itself (lib/work/decision.ts isVerifiedProviderReceipt) and ignores the claim when the check fails.
   floor_exempt: z.enum(FLOOR_EXEMPTIONS).optional().nullable(),
+  // An fyi message: who it is written to (first names). Addresses are dropped on store. Absent = untouched.
+  addressed_to: z.string().max(400).optional().nullable(),
 });
 
 const emailSyncSchema = z.object({
@@ -239,6 +241,7 @@ export async function POST(request: NextRequest) {
         // Work stage A: the keys, same rule (absent = untouched).
         ...(ask.rfc_message_id !== undefined && { rfc_message_id: normalizeRfc(ask.rfc_message_id) }),
         ...(ask.conversation_key !== undefined && { conversation_key: normalizeRfc(ask.conversation_key) }),
+        ...(ask.addressed_to !== undefined && { addressed_to: cleanAddressee(ask.addressed_to) }),
       };
 
       const decisionFields = { ...(plan?.fields ?? {}), ...(plan?.birth?.state === 'handled' ? { closed_at: new Date() } : {}) };

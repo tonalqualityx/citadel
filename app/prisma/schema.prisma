@@ -3364,10 +3364,11 @@ model EmailAsk {
   // Work stage B (one intake decision per message). One disposition per message, decided once at birth, nullable so old rows
   // behave as before until the replay sets one. Only reply_mike is ever owed (lib/work/owed.ts). decided_by 'mike' is the hold:
   // nothing closes an ask he reopened.
-  disposition        String? @db.VarChar(20) // no_action | reply_mike | work | meeting | waiting_them | emergency
+  disposition        String? @db.VarChar(20) // no_action | reply_mike | work | meeting | waiting_them | emergency | fyi
   disposition_reason String? @db.VarChar(200)
   owner              String? @db.VarChar(10) // mike | bast | sabeen | nobody
   decided_by         String? @db.VarChar(20) // intake | mike | bast | other_copy
+  addressed_to       String? @db.VarChar(120) // fyi only: who the message is written to, first names, never an address
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt

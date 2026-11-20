@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
-import { DISPOSITIONS, FLOOR_EXEMPTIONS, MACHINE_DECIDERS, RECEIPT_VETO_RE, applyFloors, floorExemptHolds, isVerifiedProviderReceipt, senderDomain, birthState, cleanReason, decideReplay, notHeldByMike, ownerFor, ownerOfAssignee, planSync, waitKeyFor, type ReplayAsk, type SyncExisting } from '../decision';
+import { DISPOSITIONS, cleanAddressee, FLOOR_EXEMPTIONS, MACHINE_DECIDERS, RECEIPT_VETO_RE, applyFloors, floorExemptHolds, isVerifiedProviderReceipt, senderDomain, birthState, cleanReason, decideReplay, notHeldByMike, ownerFor, ownerOfAssignee, planSync, waitKeyFor, type ReplayAsk, type SyncExisting } from '../decision';
 
 describe('applyFloors', () => {
   it.each([
@@ -11,6 +11,9 @@ describe('applyFloors', () => {
     ['no_action', { is_urgent: false, intent: 'sales' }, 'reply_mike', 'no_action_refused_sales'],
     ['waiting_them', { is_urgent: false, intent: 'sales' }, 'reply_mike', 'waiting_them_refused_sales'],
     ['emergency', { is_urgent: false, intent: null }, 'reply_mike', 'emergency_without_urgent_flag'],
+    ['fyi', { is_urgent: true, intent: null }, 'reply_mike', 'fyi_refused_urgent'],
+    ['fyi', { is_urgent: false, intent: 'admin' }, 'reply_mike', 'fyi_refused_admin'],
+    ['fyi', { is_urgent: false, intent: 'sales' }, 'reply_mike', 'fyi_refused_sales'],
   ] as const)('%s with %j is %s', (d, facts, out, why) => {
     expect(applyFloors(d, facts)).toEqual({ disposition: out, adjusted: why });
   });
@@ -33,6 +36,7 @@ describe('owner, birth state, wait key, reason', () => {
     expect(ownerFor('reply_mike')).toBe('mike');
     expect(ownerFor('meeting')).toBe('mike');
     expect(ownerFor('emergency')).toBe('mike');
+    expect(ownerFor('fyi')).toBe('mike');
     expect(ownerFor('no_action')).toBe('nobody');
     expect(ownerFor('waiting_them')).toBe('nobody');
     expect(ownerFor('work')).toBeNull();
@@ -47,7 +51,7 @@ describe('owner, birth state, wait key, reason', () => {
   it('only no_action and waiting_them are born handled; only waiting_them opens a wait', () => {
     expect(birthState('no_action')).toEqual({ state: 'handled', closed_reason: 'no_action', closed_by: 'intake', wait: false });
     expect(birthState('waiting_them')).toEqual({ state: 'handled', closed_reason: 'waiting_them', closed_by: 'intake', wait: true });
-    for (const d of ['reply_mike', 'work', 'meeting', 'emergency'] as const) expect(birthState(d)).toEqual({ state: 'open', closed_reason: null, closed_by: null, wait: false });
+    for (const d of ['reply_mike', 'work', 'meeting', 'emergency', 'fyi'] as const) expect(birthState(d)).toEqual({ state: 'open', closed_reason: null, closed_by: null, wait: false });
   });
   it('wait key is the conversation, else the message', () => {
     expect(waitKeyFor('root@x', 'm1')).toBe('conv:root@x');
@@ -68,7 +72,7 @@ describe('owner, birth state, wait key, reason', () => {
 
 describe('planSync', () => {
   const ex = (o: Partial<SyncExisting> = {}): SyncExisting => ({ disposition: null, decided_by: null, intent: null, task_id: null, state: 'open', closed_by: null, is_urgent: false, ...o });
-  const post = (d: 'no_action' | 'reply_mike' | 'work' | 'meeting' | 'waiting_them' | 'emergency', o: Partial<Parameters<typeof planSync>[1]> = {}) => ({ disposition: d, reason: 'r', is_urgent: false, intent: null, ...o });
+  const post = (d: 'no_action' | 'reply_mike' | 'work' | 'meeting' | 'waiting_them' | 'emergency' | 'fyi', o: Partial<Parameters<typeof planSync>[1]> = {}) => ({ disposition: d, reason: 'r', is_urgent: false, intent: null, ...o });
 
   it('a new no_action row is born handled, once', () => {
     const p = planSync(null, post('no_action'));
@@ -95,6 +99,18 @@ describe('planSync', () => {
     expect(planSync(ex(), post('work')).fields).toEqual({});
     expect(planSync(ex({ task_id: 't', task_owner: 'bast' }), post('work')).fields).toMatchObject({ disposition: 'work', owner: 'bast' });
   });
+  it('a new fyi row is born open, decided by intake, owner mike', () => {
+    const p = planSync(null, post('fyi'));
+    expect(p.fields).toMatchObject({ disposition: 'fyi', owner: 'mike', decided_by: 'intake' });
+    expect('state' in p.fields).toBe(false);
+    expect(p.adjusted).toBeNull();
+  });
+  it('an existing undecided row takes fyi; a row already decided as reply_mike is unchanged', () => {
+    expect(planSync(ex(), post('fyi')).fields).toMatchObject({ disposition: 'fyi' });
+    const p = planSync(ex({ disposition: 'reply_mike' }), post('fyi'));
+    expect(p.fields).toEqual({});
+    expect(p.prior).toEqual({ disposition: 'reply_mike', task_id: null });
+  });
   it('a decided row is never rewritten, and reports prior', () => {
     const p = planSync(ex({ disposition: 'reply_mike', task_id: 't' }), post('meeting'));
     expect(p.fields).toEqual({});
@@ -115,6 +131,19 @@ describe('planSync', () => {
   it('but never one he reopened and re-decided', () => {
     const p = planSync(ex({ disposition: 'reply_mike', decided_by: 'mike', state: 'handled', closed_by: 'intake' }), post('emergency', { is_urgent: true }));
     expect(p.reopen).toBe(false);
+  });
+});
+
+describe('cleanAddressee', () => {
+  it('keeps first names, drops addresses and dashes, and caps the length', () => {
+    expect(cleanAddressee('Lisa, lisa@nl-creative.com')).toBe('Lisa');
+    expect(cleanAddressee('Dan \u2014 Lisa')).toBe('Dan, Lisa');
+    expect(cleanAddressee('Dan\u2013Lisa, <x@y.org>')).toBe('Dan, Lisa');
+    expect(cleanAddressee('  Lisa   Ann ')).toBe('Lisa Ann');
+    expect(cleanAddressee('a@b.co')).toBeNull();
+    expect(cleanAddressee('   ')).toBeNull();
+    expect(cleanAddressee(null)).toBeNull();
+    expect(cleanAddressee('x'.repeat(300))?.length).toBe(120);
   });
 });
 
@@ -270,6 +299,20 @@ describe('the provider receipt exemption', () => {
     const ex: SyncExisting = { disposition: null, decided_by: null, intent: 'admin', task_id: null, state: 'open', closed_by: null, is_urgent: false };
     const p = planSync(ex, { disposition: 'no_action', reason: null, is_urgent: false, intent: 'admin', floor_exempt: 'provider_receipt', subject: 'Payment received: Invoice #5', from_email: 'q@intuit.com', gist: null });
     expect(p).toMatchObject({ disposition: null, adjusted: 'close_only_at_birth' });
+  });
+});
+
+describe('the WPMU DEV payment receipt', () => {
+  const SUBJECT = 'You Received Payment from Mike Lynn for Invoice INV-0042';
+  const rec = (o: Partial<Parameters<typeof isVerifiedProviderReceipt>[0]> = {}) => ({ subject: SUBJECT, from_email: 'contact@wpmudev.com', gist: 'You have received a payment of $23.99. Attached are the payment details.', is_urgent: false, intent: 'admin', ...o });
+  it('verifies from the exact sender with intent admin', () => {
+    expect(isVerifiedProviderReceipt(rec())).toBe(true);
+  });
+  it('does not verify from another WPMU address, a lookalike domain, with a veto word, or when urgent', () => {
+    expect(isVerifiedProviderReceipt(rec({ from_email: 'no-reply@wpmudev.com' }))).toBe(false);
+    expect(isVerifiedProviderReceipt(rec({ from_email: 'contact@wpmudev.com.evil.example' }))).toBe(false);
+    expect(isVerifiedProviderReceipt(rec({ subject: `${SUBJECT} failed` }))).toBe(false);
+    expect(isVerifiedProviderReceipt(rec({ is_urgent: true }))).toBe(false);
   });
 });
 

@@ -49,7 +49,7 @@ function carriedByLiveTask(ask: AskLinkFacts, taskById: ReadonlyMap<string, Link
  * row, which behaves exactly as before until the replay decides it; the 21-day look-back is the existing thread age rule), or it is
  * `work` with no live task linked (the classifier's follow-up link failed or the task was deleted, so the email would otherwise be
  * invisible: it is owed exactly like reply_mike until a task carries it). The drafter's queue, short drafts, clocks and Slack lines
- * all read this one function. An urgent ask keeps its emergency path (it is never a thread).
+ * all read this one function. An urgent ask keeps its emergency path (it is never a thread). An `fyi` ask (Mike only copied) is never owed.
  */
 export function askIsOwed(ask: AskLinkFacts, taskById: ReadonlyMap<string, LinkedTaskFacts>): boolean {
   if (!askIsMine(ask, taskById)) return false;
@@ -63,6 +63,14 @@ export function askIsOwed(ask: AskLinkFacts, taskById: ReadonlyMap<string, Linke
  */
 export function askShowsAsMeeting(ask: AskLinkFacts, taskById: ReadonlyMap<string, LinkedTaskFacts>): boolean {
   return ask.disposition === 'meeting' && askIsMine(ask, taskById);
+}
+
+/**
+ * An FYI ask: Mike is only copied, so it shows as a thread row that is not owed (no clock, no draft). A live task carrying it hides it,
+ * like any other ask.
+ */
+export function askShowsAsFyi(ask: AskLinkFacts, taskById: ReadonlyMap<string, LinkedTaskFacts>): boolean {
+  return ask.disposition === 'fyi' && askIsMine(ask, taskById);
 }
 
 /** The linked tasks' facts for a set of asks, one query. */

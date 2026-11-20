@@ -902,7 +902,7 @@ export const bastChatEndpoints: ApiEndpoint[] = [
         summary: 'Chat lane: what replayed intake decisions would change (writes nothing)',
         auth: 'required',
         roles: WORKER,
-        bodySchema: [{ name: 'items', type: 'object', required: true, description: 'Array (1-500): { ask_id (uuid), disposition (no_action|reply_mike|work|meeting|waiting_them|emergency), reason? (max 200), floor_exempt? (provider_receipt) }. Strict. Body at most 256 KB.' }],
+        bodySchema: [{ name: 'items', type: 'object', required: true, description: 'Array (1-500): { ask_id (uuid), disposition (no_action|reply_mike|work|meeting|waiting_them|emergency|fyi), reason? (max 200), floor_exempt? (provider_receipt) }. Strict. Body at most 256 KB.' }],
         responseExample: {
           counts: { total: 'number', would_close: 'number', would_set: 'number', left: 'number', refused: 'number', by_disposition: { no_action: 'number' } },
           rows: [{ ask_id: 'uuid', verdict: 'close|set|leave|refused', disposition: 'string|null', why: 'string|null', now: { state: 'string', disposition: 'string|null' }, subject: 'string|null' }],

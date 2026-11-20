@@ -6,6 +6,8 @@
  *
  * - An urgent ask, an admin ask (money mail is always shown) and a sales ask can never be no_action or waiting_them. A refused
  *   value is stored as reply_mike and reported in adjusted[]. The floors only raise, never lower.
+ * - An fyi (Mike is only copied; the message is written to someone else) is shown, never owed, and closes nothing, like meeting.
+ *   An urgent, admin or sales ask can never be fyi: it is stored as reply_mike and reported.
  * - An emergency with no urgent flag has no emergency path to land on, so it is stored as reply_mike (the ask stays on his
  *   screen as an owed reply) and reported.
  *
@@ -17,7 +19,7 @@
  * drafts or changes mail.
  */
 
-export const DISPOSITIONS = ['no_action', 'reply_mike', 'work', 'meeting', 'waiting_them', 'emergency'] as const;
+export const DISPOSITIONS = ['no_action', 'reply_mike', 'work', 'meeting', 'waiting_them', 'emergency', 'fyi'] as const;
 export type Disposition = (typeof DISPOSITIONS)[number];
 
 export const OWNERS = ['mike', 'bast', 'sabeen', 'nobody'] as const;
@@ -30,6 +32,22 @@ export const notHeldByMike: { OR: ({ decided_by: null } | { decided_by: { not: s
 
 export function isDisposition(v: unknown): v is Disposition {
   return typeof v === 'string' && (DISPOSITIONS as readonly string[]).includes(v);
+}
+
+/**
+ * Who an fyi message is written to, as stored: first names separated by commas, never an address (a token with an @ is dropped),
+ * no dashes (a dash becomes a comma), at most 120 characters. Null when nothing is left.
+ */
+export const ADDRESSED_TO_MAX = 120;
+export function cleanAddressee(v: string | null | undefined): string | null {
+  const s = (v ?? '')
+    .replace(/[\u2013\u2014]/g, ',')
+    .split(',')
+    .map((t) => t.replace(/\s+/g, ' ').trim())
+    .filter((t) => t !== '' && !t.includes('@'))
+    .join(', ');
+  if (s === '') return null;
+  return s.length > ADDRESSED_TO_MAX ? s.slice(0, ADDRESSED_TO_MAX).trimEnd() : s;
 }
 
 /** A reason as stored: one plain line of at most 120 characters, no dashes (a dash from a model becomes a comma). */
@@ -128,6 +146,14 @@ export const PROVIDER_RECEIPT_RULES: readonly ReceiptRule[] = [
     subjects: [/^new invoice from black river innovation campus\s*$/i, /^payment confirmation for invoice\s+#?[A-Za-z0-9-]+\s*$/i],
   },
   {
+    // WPMU DEV's own payment receipt for an invoice we paid. Only this exact sender and this exact subject shape. Keep equal to
+    // PROVIDER_SENDER_RECEIPTS in the classifier (email-classifier.py).
+    domains: ['wpmudev.com'],
+    sub: false,
+    senders: ['contact@wpmudev.com'],
+    subjects: [/^you received payment from .{1,120}? for invoice inv-\d+\s*$/i],
+  },
+  {
     // Our own support group relays the AWS statement. Only this exact sender and this exact subject shape.
     domains: ['becomeindelible.com'],
     sub: false,
@@ -202,6 +228,11 @@ export function applyFloors(disposition: Disposition, facts: FloorFacts): FloorR
     }
     if (facts.intent === 'sales') return { disposition: 'reply_mike', adjusted: `${disposition}_refused_sales` };
   }
+  if (disposition === 'fyi') {
+    if (facts.is_urgent) return { disposition: 'reply_mike', adjusted: 'fyi_refused_urgent' };
+    if (facts.intent === 'admin') return { disposition: 'reply_mike', adjusted: 'fyi_refused_admin' };
+    if (facts.intent === 'sales') return { disposition: 'reply_mike', adjusted: 'fyi_refused_sales' };
+  }
   if (disposition === 'emergency' && !facts.is_urgent) return { disposition: 'reply_mike', adjusted: 'emergency_without_urgent_flag' };
   return { disposition, adjusted: null };
 }
@@ -214,6 +245,7 @@ export function ownerFor(disposition: Disposition, taskOwner?: DecisionOwner | n
     case 'reply_mike':
     case 'meeting':
     case 'emergency':
+    case 'fyi':
       return 'mike';
     case 'no_action':
     case 'waiting_them':
