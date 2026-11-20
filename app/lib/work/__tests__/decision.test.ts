@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
-import { DISPOSITIONS, cleanAddressee, FLOOR_EXEMPTIONS, MACHINE_DECIDERS, RECEIPT_VETO_RE, applyFloors, floorExemptHolds, isVerifiedProviderReceipt, senderDomain, birthState, cleanReason, decideReplay, notHeldByMike, ownerFor, ownerOfAssignee, planSync, waitKeyFor, type ReplayAsk, type SyncExisting } from '../decision';
+import { DISPOSITIONS, cleanAddressee, FLOOR_EXEMPTIONS, MACHINE_DECIDERS, RECEIPT_VETO_RE, applyFloors, floorExemptHolds, isVerifiedProviderReceipt, isVerifiedPasswordNotice, senderDomain, birthState, cleanReason, decideReplay, notHeldByMike, ownerFor, ownerOfAssignee, planSync, waitKeyFor, type ReplayAsk, type SyncExisting } from '../decision';
 
 describe('applyFloors', () => {
   it.each([
@@ -183,8 +183,8 @@ describe('the provider receipt exemption', () => {
     subject: 'Payment received: Invoice #1042-(Acme Co)', from_email: 'quickbooks@notification.intuit.com', gist: 'A payment came in.', is_urgent: false, intent: 'admin', ...o,
   });
 
-  it('the only exemption is provider_receipt', () => {
-    expect([...FLOOR_EXEMPTIONS]).toEqual(['provider_receipt']);
+  it('the exemptions are provider_receipt and password_notice', () => {
+    expect([...FLOOR_EXEMPTIONS]).toEqual(['provider_receipt', 'password_notice']);
   });
 
   it.each([
@@ -412,5 +412,90 @@ describe('the routine invoice senders added with the home checklist work', () =>
     expect(isVerifiedProviderReceipt(rec({ subject: 'Your bill is available to view online, call us', from_email: 'a@smarthub.coop' }))).toBe(false);
     expect(isVerifiedProviderReceipt(rec({ subject: 'New Invoice from Someone Else', from_email: 'a@mail.nexudus.com' }))).toBe(false);
     expect(isVerifiedProviderReceipt(rec({ subject: 'You have a new invoice from SendGrid', from_email: 'a@sendgrid.com' }))).toBe(false);
+  });
+});
+
+describe('the WordPress password notice exemption (Mike, 2026-11-20: "Always unless it\'s an admin")', () => {
+  const SUBJECT = '[Herba Releaf] Password Changed';
+  const note = (o: Partial<Parameters<typeof isVerifiedPasswordNotice>[0]> = {}) => ({ subject: SUBJECT, from_email: 'noreply@herbapumps.com', is_urgent: false, intent: 'admin', ...o });
+  const facts = (o: Record<string, unknown> = {}) => ({
+    is_urgent: false, intent: 'admin', exempt: { kind: 'password_notice' as const, subject: SUBJECT, from_email: 'noreply@herbapumps.com', gist: 'g' }, ...o,
+  });
+
+  it.each([
+    ['[Herba Releaf] Password Changed', 'noreply@herbapumps.com'],
+    ["[Mitch's Maples] Password Changed", 'noreply@mitchsmaples.com'],
+    ['[Wheels to Learning] Password Changed', 'noreply@yourwpsite.email'],
+    ['[Bootleggers] Password Changed ', 'no-reply@bootleggersfootwear.com'],
+  ])('verifies %s from %s, for admin, general and absent intent', (subject, from_email) => {
+    for (const intent of ['admin', 'general', null]) expect(isVerifiedPasswordNotice(note({ subject, from_email, intent }))).toBe(true);
+  });
+
+  it.each([
+    ['subject with extra words', { subject: '[Herba Releaf] Password Changed today' }],
+    ['no site brackets', { subject: 'Password Changed' }],
+    ['empty brackets', { subject: '[] Password Changed' }],
+    ['site name over 120', { subject: `[${'x'.repeat(121)}] Password Changed` }],
+    ['a reset notice', { subject: '[Herba Releaf] Password Reset' }],
+    ['a person as sender', { from_email: 'bob@herbapumps.com' }],
+    ['a display name instead of one address', { from_email: 'Site <noreply@herbapumps.com>' }],
+    ['no sender', { from_email: null }],
+    ['urgent', { is_urgent: true }],
+    ['sales intent', { intent: 'sales' }],
+  ])('does not verify %s', (_n, o) => {
+    expect(isVerifiedPasswordNotice(note(o as never))).toBe(false);
+  });
+
+  it('applyFloors lets a verified notice through the admin floor, and still closes it for general intent', () => {
+    expect(applyFloors('no_action', facts())).toEqual({ disposition: 'no_action', adjusted: null, exempted: 'password_notice' });
+    expect(applyFloors('no_action', facts({ intent: 'general' }))).toEqual({ disposition: 'no_action', adjusted: null, exempted: 'password_notice' });
+    expect(applyFloors('waiting_them', facts())).toEqual({ disposition: 'reply_mike', adjusted: 'waiting_them_refused_admin' });
+  });
+
+  it('applyFloors keeps the floor for a bad shape, a missing claim, urgent and sales', () => {
+    const bad = { kind: 'password_notice' as const, subject: 'Password Changed', from_email: 'noreply@herbapumps.com', gist: 'g' };
+    expect(applyFloors('no_action', facts({ exempt: bad }))).toEqual({ disposition: 'reply_mike', adjusted: 'no_action_refused_admin' });
+    expect(applyFloors('no_action', facts({ exempt: undefined }))).toEqual({ disposition: 'reply_mike', adjusted: 'no_action_refused_admin' });
+    expect(applyFloors('no_action', facts({ is_urgent: true }))).toEqual({ disposition: 'reply_mike', adjusted: 'no_action_refused_urgent' });
+    expect(applyFloors('no_action', facts({ intent: 'sales' }))).toEqual({ disposition: 'reply_mike', adjusted: 'no_action_refused_sales' });
+  });
+
+  it('a password_notice claim cannot exempt a provider receipt and the reverse', () => {
+    const receipt = { kind: 'provider_receipt' as const, subject: SUBJECT, from_email: 'noreply@herbapumps.com', gist: 'g' };
+    expect(applyFloors('no_action', facts({ exempt: receipt }))).toMatchObject({ disposition: 'reply_mike' });
+    const asNotice = { kind: 'password_notice' as const, subject: 'Payment received: Invoice #1', from_email: 'q@notification.intuit.com', gist: 'g' };
+    expect(applyFloors('no_action', facts({ exempt: asNotice }))).toMatchObject({ disposition: 'reply_mike' });
+  });
+
+  it('planSync records a verified notice as handled at birth and ignores an unverified claim', () => {
+    const posted = { disposition: 'no_action' as const, reason: 'A routine password change by a site user who is not an admin.', is_urgent: false, intent: 'admin', floor_exempt: 'password_notice' as const, subject: SUBJECT, from_email: 'noreply@herbapumps.com', gist: 'g' };
+    const ok = planSync(null, posted);
+    expect(ok).toMatchObject({ disposition: 'no_action', exempted: 'password_notice', adjusted: null });
+    expect(ok.birth?.state).toBe('handled');
+    expect(planSync(null, { ...posted, from_email: 'bob@herbapumps.com' })).toMatchObject({ disposition: 'reply_mike', adjusted: 'no_action_refused_admin' });
+    expect(planSync(null, { ...posted, floor_exempt: null })).toMatchObject({ disposition: 'reply_mike' });
+    expect(planSync(null, { ...posted, intent: 'general' })).toMatchObject({ disposition: 'no_action', exempted: 'password_notice' });
+  });
+
+  describe('decideReplay', () => {
+    const ask = (o: Partial<ReplayAsk> = {}): ReplayAsk => ({
+      id: 'a1', state: 'open', disposition: null, decided_by: null, is_urgent: false, intent: 'admin', task_id: null, task_security: false,
+      subject: SUBJECT, from_email: 'noreply@herbapumps.com', gist: 'g', ...o,
+    });
+    const run = (a: ReplayAsk | null, claim: 'password_notice' | null = 'password_notice') => decideReplay(a, { disposition: 'no_action', floor_exempt: claim });
+    it('closes an undecided verified notice, leaves one held by Mike or on a security task', () => {
+      expect(run(ask())).toMatchObject({ verdict: 'close', disposition: 'no_action', why: 'password_notice' });
+      expect(run(ask({ decided_by: 'mike' }))).toMatchObject({ verdict: 'leave', why: 'held_by_mike' });
+      expect(run(ask({ task_security: true, task_id: 't' }))).toMatchObject({ verdict: 'leave', why: 'security_task' });
+      expect(run(ask(), null)).toMatchObject({ verdict: 'set', disposition: 'reply_mike' });
+    });
+    it.each([...MACHINE_DECIDERS])('a stored reply_mike decided by %s is redecided; never one Mike decided', (by) => {
+      expect(run(ask({ disposition: 'reply_mike', decided_by: by }))).toMatchObject({ verdict: 'close', disposition: 'no_action', why: 'password_notice_redecided' });
+      expect(run(ask({ disposition: 'reply_mike', decided_by: by, from_email: 'bob@herbapumps.com' }))).toMatchObject({ verdict: 'leave', why: 'already_decided' });
+      expect(run(ask({ disposition: 'reply_mike', decided_by: by, is_urgent: true }))).toMatchObject({ verdict: 'leave', why: 'already_decided' });
+    });
+    it('Mike\'s own decision is never redecided', () => {
+      expect(run(ask({ disposition: 'reply_mike', decided_by: 'mike' }))).toMatchObject({ verdict: 'leave', why: 'already_decided' });
+    });
   });
 });

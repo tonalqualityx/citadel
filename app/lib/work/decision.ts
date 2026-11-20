@@ -15,6 +15,13 @@
  *   trust the claim: isVerifiedProviderReceipt re-checks the subject against a closed list, the sender's domain against the
  *   provider, and the absence of any trouble wording. Anything that fails keeps the floor exactly as it was.
  *
+ * - A second narrow exemption: a routine WordPress "Password Changed" notice (floor_exempt 'password_notice'). Mike, 2026-11-20:
+ *   "Password changes don't need to be of concern to me."; asked "this time or always?": "Always unless it's an admin". Only the
+ *   classifier can know whether the user is an admin (it reads a local list of each site's admin usernames and the one-line body),
+ *   and the server cannot see either. So the server checks SHAPE only: isVerifiedPasswordNotice (the subject is exactly
+ *   "[Site] Password Changed" and the sender is a no-reply address). Not urgent and not sales, like every no_action. Without this
+ *   the claim would not hold and the admin floor would put the notice back on Mike's screen.
+ *
  * It also holds the birth state (what row an intake decision creates) and the owner of a decision. Nothing here sends,
  * drafts or changes mail.
  */
@@ -64,7 +71,7 @@ export function cleanReason(v: string | null | undefined): string | null {
 // The one floor exemption: a routine provider receipt
 // ----------------------------------------------------------------------------
 
-export const FLOOR_EXEMPTIONS = ['provider_receipt'] as const;
+export const FLOOR_EXEMPTIONS = ['provider_receipt', 'password_notice'] as const;
 export type FloorExempt = (typeof FLOOR_EXEMPTIONS)[number];
 
 export interface ReceiptFacts {
@@ -196,6 +203,30 @@ export function isVerifiedProviderReceipt(f: ReceiptFacts): boolean {
   );
 }
 
+/** WordPress core's admin notice subject. Same shape as PASSWORD_NOTICE_SUBJECT_RE in the classifier (email-classifier.py). */
+export const PASSWORD_NOTICE_SUBJECT_RE = /^\[.{1,120}\] Password Changed\s*$/;
+/** A no-reply style sender address. Same shape as PASSWORD_NOTICE_SENDER_RE in the classifier. */
+export const PASSWORD_NOTICE_SENDER_RE = /^(?:no-?reply|do-?not-?reply)@[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/;
+
+export interface PasswordNoticeFacts {
+  subject: string | null | undefined;
+  from_email: string | null | undefined;
+  is_urgent: boolean;
+  intent: string | null | undefined;
+}
+
+/**
+ * The server's own check of a password_notice claim: SHAPE ONLY. It cannot know the site's admin list (that lives on the
+ * classifier's machine, ~/.config/oracle/site-admins.json), so it trusts the classifier on "this user is not an admin" and
+ * verifies only that the stored subject is the WordPress notice subject and the sender is a no-reply address. Not urgent, not sales.
+ */
+export function isVerifiedPasswordNotice(f: PasswordNoticeFacts): boolean {
+  if (f.is_urgent || f.intent === 'sales') return false;
+  const addr = (f.from_email ?? '').trim().toLowerCase();
+  if (!senderDomain(addr)) return false;
+  return PASSWORD_NOTICE_SENDER_RE.test(addr) && PASSWORD_NOTICE_SUBJECT_RE.test((f.subject ?? '').trim());
+}
+
 export interface FloorFacts {
   is_urgent: boolean;
   intent: string | null;
@@ -214,6 +245,9 @@ export interface FloorResult {
 /** True when a no_action may skip the admin floor: the claim names a known exemption and the server's own check passes. */
 export function floorExemptHolds(f: FloorFacts): boolean {
   const e = f.exempt;
+  if (e && e.kind === 'password_notice') {
+    return isVerifiedPasswordNotice({ subject: e.subject, from_email: e.from_email, is_urgent: f.is_urgent, intent: f.intent });
+  }
   if (!e || e.kind !== 'provider_receipt') return false;
   return isVerifiedProviderReceipt({ subject: e.subject, from_email: e.from_email, gist: e.gist, is_urgent: f.is_urgent, intent: f.intent });
 }
@@ -223,10 +257,13 @@ export function applyFloors(disposition: Disposition, facts: FloorFacts): FloorR
   if (disposition === 'no_action' || disposition === 'waiting_them') {
     if (facts.is_urgent) return { disposition: 'reply_mike', adjusted: `${disposition}_refused_urgent` };
     if (facts.intent === 'admin') {
-      if (disposition === 'no_action' && floorExemptHolds(facts)) return { disposition, adjusted: null, exempted: 'provider_receipt' };
+      if (disposition === 'no_action' && floorExemptHolds(facts)) return { disposition, adjusted: null, exempted: facts.exempt!.kind as FloorExempt };
       return { disposition: 'reply_mike', adjusted: `${disposition}_refused_admin` };
     }
     if (facts.intent === 'sales') return { disposition: 'reply_mike', adjusted: `${disposition}_refused_sales` };
+    if (disposition === 'no_action' && facts.exempt?.kind === 'password_notice' && floorExemptHolds(facts)) {
+      return { disposition, adjusted: null, exempted: 'password_notice' };
+    }
   }
   if (disposition === 'fyi') {
     if (facts.is_urgent) return { disposition: 'reply_mike', adjusted: 'fyi_refused_urgent' };
@@ -338,14 +375,14 @@ export function decideReplay(ask: ReplayAsk | null, item: { disposition: string;
       floorExemptHolds({ is_urgent: ask.is_urgent, intent: ask.intent, exempt: exemptFacts });
     if (!redo) return out('leave', null, 'already_decided');
     if (ask.task_security) return out('leave', null, 'security_task');
-    return out('close', 'no_action', 'provider_receipt_redecided');
+    return out('close', 'no_action', `${item.floor_exempt}_redecided`);
   }
   if (ask.decided_by === 'mike') return out('leave', null, 'held_by_mike');
   const floored = applyFloors(item.disposition, { is_urgent: ask.is_urgent, intent: ask.intent, exempt: exemptFacts });
   const d = floored.disposition;
   if (d === 'no_action') {
     if (ask.task_security) return out('leave', null, 'security_task');
-    return out('close', 'no_action', floored.exempted ? 'provider_receipt' : null);
+    return out('close', 'no_action', floored.exempted ?? null);
   }
   if (d === 'waiting_them') return out('leave', null, 'waiting_not_applied');
   if (d === 'work') return ask.task_id ? out('set', 'work', null) : out('leave', null, 'work_without_task');
