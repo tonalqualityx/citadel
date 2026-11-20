@@ -36,6 +36,7 @@ const REST_WORDS: Record<string, string> = {
 };
 
 export function whereOf(c: Candidate, timeZone: string): string {
+  if (c.section === 'mail' && c.fyi) return 'An FYI email';
   if (c.section !== 'rest') return SECTION_WORDS[c.section];
   if (c.parked && c.state?.view_at) return backOnText(c.state.view_at, timeZone);
   return REST_WORDS[c.restGroup ?? 'waiting_turn'] ?? 'Waiting its turn';

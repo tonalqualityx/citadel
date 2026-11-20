@@ -46,9 +46,10 @@ describe('threadStatus', () => {
     expect(threadStatus(makeThread({ ...base, subject: 'Accepted: Weekly call' }), NOW)).toBe('no');
     expect(threadStatus(makeThread({ intent: 'sales', client: makeClient('Balloon Guild'), received_at: old }), NOW)).toBe('no');
   });
-  it('under one business day old is young, except a sales thread, which shows from the first minute', () => {
+  it('a client thread shows at once; a thread known only by his draft waits one business day; a sales thread shows at once', () => {
     const fresh = d('2026-11-09T20:00:00Z');
-    expect(threadStatus(makeThread({ client: active, received_at: fresh }), NOW)).toBe('young');
+    expect(threadStatus(makeThread({ client: active, received_at: fresh }), NOW)).toBe('show');
+    expect(threadStatus(makeThread({ draft_url: draft, received_at: fresh }), NOW)).toBe('young');
     expect(threadStatus(makeThread({ intent: 'sales', received_at: fresh }), NOW)).toBe('show');
   });
   it('21 calendar days is the edge: 21 shows, 22 is an older open thread', () => {
@@ -195,7 +196,7 @@ describe('people tiles', () => {
   });
 
   it('threads too young to show are counted under New mail, shown after one business day', () => {
-    const young = makeThread({ client: active, received_at: d('2026-11-09T20:00:00Z') });
+    const young = makeThread({ draft_url: 'https://mail.google.com/draft/2', received_at: d('2026-11-09T20:00:00Z') });
     const unknown = makeThread({ received_at: d('2026-11-09T20:00:00Z') });
     const r = sel({ threads: [young, unknown] });
     expect(r.sections.mail).toEqual([]);
@@ -490,7 +491,7 @@ describe('Slice 2: fresh tasks, the nightly sort, drawer rows', () => {
     const overflow = [0, 1, 2, 3].map((i) => clientTask({ clock_started_at: d(`2026-10-1${i}T14:00:00Z`) }));
     const venture = makeTask({ client: makeClient('Saiph Grants') });
     const older = makeThread({ client: active, received_at: d('2026-10-01T15:00:00Z') });
-    const young = makeThread({ client: active, received_at: d('2026-11-09T20:00:00Z') });
+    const young = makeThread({ draft_url: 'https://mail.google.com/draft/3', received_at: d('2026-11-09T20:00:00Z') });
     const proj = makeProject('Grok');
     const r = sel(
       {

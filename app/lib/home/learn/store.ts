@@ -54,7 +54,7 @@ export async function buildDailySnapshot(db: Db, ownerId: string, now: Date, tz:
   }
   const owed: OwedEntry[] = [];
   for (const c of sel.candidates) {
-    if (c.kind !== 'thread' || !c.inView || c.parked) continue;
+    if (c.kind !== 'thread' || c.fyi || !c.inView || c.parked) continue; // copied mail is not owed, so it never counts or teaches
     const hit = newest.get(c.key);
     if (!hit) continue;
     owed.push({ key: c.key, label: cleanLabel(c.item.title || hit.label), age_bd: businessDaysElapsed(hit.at, now) });

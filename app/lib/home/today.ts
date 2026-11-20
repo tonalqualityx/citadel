@@ -105,11 +105,12 @@ export function freeMinutes(events: readonly RawCalendarEvent[], now: Date): num
 const DAY_MS = 86_400_000;
 
 /**
- * Today's candidates: a task Bast stopped on is listed in Decisions ready, but is never a step, a group or Quick. The
+ * Today's candidates: a task Bast stopped on is listed in Decisions ready, but is never a step, a group or Quick, and neither is an FYI
+ * thread (he is only copied). The
  * Monday hands row (Slice 6a) is a weekly row of its own, never a step.
  */
 function todayPool(sel: SelectResult): Candidate[] {
-  return sel.candidates.filter((c) => !c.botTask && c.kind !== 'hands' && c.kind !== 'step' && c.kind !== 'proposal');
+  return sel.candidates.filter((c) => !c.botTask && c.kind !== 'hands' && c.kind !== 'step' && c.kind !== 'proposal' && !c.fyi);
 }
 
 /**

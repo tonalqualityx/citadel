@@ -44,7 +44,7 @@ export function buildTiles(res: HomeResponse, projectCount: number | null): Home
     past_date_others: res.past_date_others?.count ?? 0,
     working_on: res.sections.working_on.length,
     leads: res.sections.leads.length,
-    mail: res.sections.mail.length,
+    mail: res.sections.mail.filter((i) => !i.fyi).length,
     next: res.sections.next.length,
     projects: projectCount ?? 0,
     handled: res.sections.handled.length + (res.sections.handled_more?.count ?? 0),

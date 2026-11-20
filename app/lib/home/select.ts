@@ -17,7 +17,8 @@
  *   thread older than 21 days                   -> Everything else, "Older open threads"
  *   other venture, not boosted, not fresh       -> Everything else, "Other ventures"
  *   qualifying thread, newest ask is sales      -> Sales leads waiting
- *   other qualifying thread                     -> Client emails waiting (3 visible)
+ *   other qualifying thread                     -> Client emails waiting (3 visible); an FYI thread (he is only copied)
+ *                                                  takes the same list, after every owed row, and is never owed
  *   task, sign-off, session ask, wait in view
  *   that meets the Next rule (a fresh or
  *   arrived task meets it)                      -> Decisions ready (3 visible)
@@ -26,6 +27,7 @@
  * No score, class, emergency rule or quadrant is placed on any HomeItem.
  */
 
+import { cleanAddressee } from '@/lib/work/decision';
 import { calculateEstimatedMinutes } from '@/lib/calculations/energy';
 import { actionsFor } from './actions-for';
 import {
@@ -105,7 +107,7 @@ import { ATTACH_CARD } from '@/lib/work/attach-copy';
 import { FINISHED_CARD_KEY, buildItemKey } from './item-key';
 import { nextStepSource } from './projects/copy';
 import { descriptionHash, readStoredChecklist } from './summary-hash';
-import { emailLinkLabel, HANDLED_MAIL, recordedLine, handledReason } from '@/lib/work/copy';
+import { emailLinkLabel, FYI_MAIL, HANDLED_MAIL, recordedLine, handledReason } from '@/lib/work/copy';
 import { askRef } from '@/lib/work/intake';
 import { stripSubjectPrefix } from '@/lib/email-asks';
 import {
@@ -214,6 +216,8 @@ export interface Candidate {
   arrived: boolean;
   /** Slice 4c: a client reply on its third business day, or a lead past its clock. It goes to the top of its People tile (after a boosted row). */
   clockDue?: boolean;
+  /** An FYI thread: he is only copied. Sorts after every owed row, never in Quick, never an arc step. */
+  fyi?: boolean;
   /** "Do it on a day": his day has come. Boosted for that day only; the card says "You said today." */
   dayArrived?: boolean;
   /** "Do it on a day": the emergency rule he parked until a day (rule is null meanwhile). The Slack lifeline line still reads it. */
@@ -323,6 +327,7 @@ export function nextCompare(a: Candidate, b: Candidate): number {
 
 /** People lists: boosted first, then the oldest thread first. */
 function peopleCompare(a: Candidate, b: Candidate): number {
+  if (!!a.fyi !== !!b.fyi) return a.fyi ? 1 : -1;
   if (a.boosted !== b.boosted) return a.boosted ? -1 : 1;
   if (!!a.clockDue !== !!b.clockDue) return a.clockDue ? -1 : 1;
   if (a.since.getTime() !== b.since.getTime()) return a.since.getTime() - b.since.getTime();
@@ -335,15 +340,16 @@ function peopleCompare(a: Candidate, b: Candidate): number {
 
 /**
  * How a thread stands for the People tiles (plan 1.3):
- * 'show' qualifies now; 'young' is not yet a business day old (not shown, counted in Everything else as new mail);
+ * 'show' qualifies now (a client thread shows at once); 'young' is a thread known only by his own draft that is not yet a business day old
+ * (not shown, counted in Everything else as new mail);
  * 'older' qualifies except that its newest open ask is over 21 days old (counted in Everything
  * else); 'no' is not a known person, or is automated, noise or a calendar reply.
  */
 export function threadStatus(thread: RawThread, now: Date, opts: { notLead?: boolean; woke?: boolean } = {}): 'show' | 'young' | 'older' | 'no' {
   const newest = thread.asks[0];
   if (!newest) return 'no';
-  const client = threadClient(thread);
-  if (!isPersonMessage({ from_email: newest.from_email, subject: newest.subject, client_name: client?.name ?? null })) {
+  const threadClientRef = threadClient(thread);
+  if (!isPersonMessage({ from_email: newest.from_email, subject: newest.subject, client_name: threadClientRef?.name ?? null })) {
     return 'no';
   }
   const known =
@@ -353,8 +359,10 @@ export function threadStatus(thread: RawThread, now: Date, opts: { notLead?: boo
   if (!known) return 'no';
   if (daysSince(newest.received_at, now) > THREAD_MAX_AGE_DAYS) return 'older';
   const lead = newest.intent === 'sales' && !opts.notLead;
-  // A thread whose Not now just ended because they wrote again comes back at once; it does not wait out the first business day.
-  if (!lead && !opts.woke && businessDaysElapsed(newest.received_at, now) < THREAD_MIN_AGE_BUSINESS_DAYS) return 'young';
+  const hasClient = thread.asks.some((a) => a.client !== null);
+  // A client thread shows at once (Mike, 2026-11-20). A thread known only by his own draft waits one business day. A thread whose
+  // Not now just ended because they wrote again comes back at once; it does not wait out the first business day.
+  if (!lead && !hasClient && !opts.woke && businessDaysElapsed(newest.received_at, now) < THREAD_MIN_AGE_BUSINESS_DAYS) return 'young';
   return 'show';
 }
 
@@ -504,6 +512,8 @@ interface Draft {
     thread?: { status: 'show' | 'older' };
     /** Work stage B: the newest ask is a request for a time (disposition meeting): a row that wants a time, never owed, no clock, no draft. */
     meeting?: boolean;
+    /** An FYI thread (every ask fyi): shown, never owed. */
+    fyi?: boolean;
     /** Slice 4a: where Bast's reply work stands, whether it holds a suggested answer, and the "If you do nothing" line. */
     owedState?: OwedState | null;
     owedSuggestion?: boolean;
@@ -835,7 +845,9 @@ function buildThread(
   sendOn = false,
   bookOn = false,
 ): Draft {
-  const owed = newestIsMeeting(th) ? undefined : owedRow;
+  // FYI: he is only copied. Shown, never owed: no clock, no draft, no Waiting words, one Clear button.
+  const fyi = threadIsFyi(th);
+  const owed = fyi || newestIsMeeting(th) ? undefined : owedRow;
   const score = scoreThread(th, now);
   const newest = th.asks[0];
   // Work stage B: a request for a time is a row of its own: no clock, no draft, no Waiting words. It closes when the meeting is booked.
@@ -848,12 +860,12 @@ function buildThread(
   const hisDraftUrl = th.asks.find((a) => !!a.draft_url)?.draft_url ?? null;
   // Slice 4a: Bast's own draft sits in the same Gmail thread, so its link is the thread's link.
   const draftUrl = hisDraftUrl ?? (hasBastDraft(owed) && newest.deep_link ? newest.deep_link : null);
-  const owedState = owedStatus(th, owed, now, drafterFreshAt);
-  const lead = !meeting && isLeadNow(newest.intent, newest.received_at, owed);
+  const owedState = fyi ? null : owedStatus(th, owed, now, drafterFreshAt);
+  const lead = !fyi && !meeting && isLeadNow(newest.intent, newest.received_at, owed);
   const clock = owedClock(newest.received_at, lead, owed, now);
   const leadAsk = lead && status === 'show' && !!clock.lead?.ask;
-  const woke = !meeting && status === 'show' && wokeByNewMessage(st, newest.received_at, now);
-  const cameBack = !meeting && status === 'show' && leadResurfacedPastPark(clock.lead, st, now);
+  const woke = !fyi && !meeting && status === 'show' && wokeByNewMessage(st, newest.received_at, now);
+  const cameBack = !fyi && !meeting && status === 'show' && leadResurfacedPastPark(clock.lead, st, now);
   // His short holding draft is shown only while the full draft it came from still covers the newest message.
   const showShort = !!owed?.short_draft_id && !!owed.short_draft_text && owedState !== 'stale_draft' && owedState !== 'his_draft' && owedState !== 'his_draft_older';
   // Slice 4b: the Send buttons exist only while the owner's switch is on and the draft is Bast's current, untouched one with no blank left in it.
@@ -862,7 +874,7 @@ function buildThread(
   // Slice 4d: Book 30 minutes exists only while his switch is on, on a needs-thought row with no request or block already.
   const bookBtn = bookOn && status === 'show' && owedState === 'needs_thought' && !owed?.book_requested_at && !owed?.booked_event_id && !owed?.book_undo_requested_at;
   const bookedWords = owed?.booked_event_id && owed.booked_start && !owed.book_undo_requested_at ? bookedLine(owed.booked_start, timezone) : null;
-  const minutes = draftUrl ? MINUTES.threadWithDraft : MINUTES.threadNoDraft;
+  const minutes = fyi ? 2 : draftUrl ? MINUTES.threadWithDraft : MINUTES.threadNoDraft;
   const said = stripEndPeriod(displayText(newest.gist) || displayText(newest.subject)) || 'a message';
   const links: { label: string; href: string }[] = [];
   if (draftUrl) links.push({ label: hisDraftUrl ? 'Your draft in Gmail' : 'The draft in Gmail', href: draftUrl });
@@ -874,26 +886,36 @@ function buildThread(
   const thought = owedState === 'needs_thought' && owed;
   const autoDrafted = owedState === 'draft_ready' && !!owed?.auto_drafted_at;
   const stateLine = owedState === 'his_draft_older' ? NEW_MESSAGE_AFTER_DRAFT : autoDrafted ? AUTO_DRAFT_LINE : owedSecondLine(owedState);
-  const dueLine = !meeting && lead && clock.lead && status === 'show' ? leadDueLine(weekdayIn(clock.lead.due, timezone), clock.lead.past) : null;
-  const waitLine = !meeting && status === 'show' && clock.waiting ? waitingLine(clock.days) : null;
+  const dueLine = !fyi && !meeting && lead && clock.lead && status === 'show' ? leadDueLine(weekdayIn(clock.lead.due, timezone), clock.lead.past) : null;
+  const waitLine = !fyi && !meeting && status === 'show' && clock.waiting ? waitingLine(clock.days) : null;
   // ONE state phrase on the meta line (the age is already on the row), by a fixed order: a booked block, they wrote again, a short draft,
   // Needs thought, the draft state, the lead's due day, then how long they have waited.
   const needsThoughtLine = owedState === 'needs_thought' ? stateLine : null;
-  const owedLine = meeting
+  const owedLine = fyi
+    ? FYI_MAIL.line
+    : meeting
     ? HANDLED_MAIL.wantsATime
     : [bookedWords, woke || cameBack ? WOKE_LINE : null, showShort ? SHORT_READY_LINE : null, needsThoughtLine, stateLine, dueLine, waitLine].find((x) => !!x) ?? null;
   // Work stage B: the title reads "sender, client: subject" (the subject, not the gist), cut at 90 characters.
   const head = client && !sameName(client.name, person) ? `${person}, ${client.name}` : person;
-  const fullTitle = `${head}: ${stripSubjectPrefix(displayText(newest.subject)) || said}`;
+  // An FYI row names who it was written to: "FYI: Dan and Lisa, newsletter email".
+  const addressee = fyi ? (th.asks.find((a) => !!cleanAddressee(a.addressed_to))?.addressed_to ?? null) : null;
+  const addresseeWords = cleanAddressee(addressee);
+  const subjectWords = stripSubjectPrefix(displayText(newest.subject)) || said;
+  const fullTitle = fyi
+    ? addresseeWords
+      ? `FYI: ${firstWord(person)} and ${addresseeWords}, ${subjectWords}`
+      : `FYI: ${person}, ${subjectWords}`
+    : `${head}: ${subjectWords}`;
   const threadTitle = fullTitle.length > THREAD_TITLE_MAX ? `${fullTitle.slice(0, THREAD_TITLE_MAX - 1).trimEnd()}\u2026` : fullTitle;
   const item: HomeItem = {
     ...emptyItem(),
     key: threadKey(th.account, th.thread_id),
     type: lead ? 'lead' : 'owed_reply',
     title: threadTitle,
-    who: client && !sameName(client.name, person) ? `${person}, ${client.name}` : person,
+    who: fyi && addresseeWords ? `${person} to ${addresseeWords}${client && !sameName(client.name, person) ? `, ${client.name}` : ''}` : client && !sameName(client.name, person) ? `${person}, ${client.name}` : person,
     age: ageWords(newest.received_at, now, 'arrived'),
-    why_now: meeting ? HANDLED_MAIL.meetingWhy : leadAsk ? LEAD_ASK : whyThread({ lead, since: waitedFor(newest.received_at, now), draftReady: !!draftUrl }),
+    why_now: fyi ? FYI_MAIL.why(addresseeWords) : meeting ? HANDLED_MAIL.meetingWhy : leadAsk ? LEAD_ASK : whyThread({ lead, since: waitedFor(newest.received_at, now), draftReady: !!draftUrl }),
     hard_date: null,
     effort: effortWords(minutes, !!draftUrl),
     minutes,
@@ -917,6 +939,7 @@ function buildThread(
     project,
     owed_state: owedState,
     owed_line: owedLine,
+    ...(fyi ? { fyi: true } : {}),
     ...(bookedWords ? { owed_booked: bookedWords } : {}),
     ...(sendFull || sendShort ? { owed_send: { draft_id: sendFull ? owed!.draft_id : null, short_draft_id: sendShort ? owed!.short_draft_id! : null } } : {}),
   };
@@ -928,12 +951,13 @@ function buildThread(
       rule: null,
       score,
       since: newest.received_at,
-      personWaiting: true,
+      personWaiting: !fyi,
       hardDate: null,
       minutes,
       group: groupFor(client, project, null, refs),
       arcId: null,
-      clockDue: !meeting && status === 'show' && (lead ? !!clock.lead?.past : clock.waiting),
+      fyi: fyi || undefined,
+      clockDue: !fyi && !meeting && status === 'show' && (lead ? !!clock.lead?.past : clock.waiting),
       unpark: woke || cameBack,
     },
     ctx: {
@@ -942,6 +966,7 @@ function buildThread(
       lead,
       thread: { status },
       meeting: meeting || undefined,
+      fyi: fyi || undefined,
       owedState,
       owedSuggestion: !!(thought && owed.suggested_answer),
       // Older threads (Everything else) keep the old line; the drafter does not work them.
@@ -951,7 +976,7 @@ function buildThread(
       owedSend: sendFull || sendShort ? { full: sendFull, short: sendShort } : undefined,
       owedBook: bookBtn || undefined,
       owedIfIgnored:
-        status !== 'show' || meeting
+        status !== 'show' || meeting || fyi
           ? null
           : leadAsk
             ? IF_IGNORED_4C.lead_ask
@@ -968,6 +993,19 @@ const THREAD_TITLE_MAX = 90;
 
 function newestIsMeeting(th: RawThread): boolean {
   return th.asks[0]?.disposition === 'meeting';
+}
+
+/**
+ * An FYI thread: every ask on it is fyi (he is only copied). A later message addressed to him is reply_mike, so the thread is no
+ * longer all fyi and turns back into an ordinary owed thread with no state change. Reads the merged asks, so it also covers a
+ * thread joined across inboxes.
+ */
+function threadIsFyi(th: RawThread): boolean {
+  return th.asks.length > 0 && th.asks.every((a) => a.disposition === 'fyi');
+}
+
+function firstWord(name: string): string {
+  return name.trim().split(/\s+/)[0] ?? name;
 }
 
 function sameName(a: string, b: string): boolean {
@@ -1211,7 +1249,7 @@ function reasonFor(c: Candidate, ctx: FinalizeCtx): string {
     case 'leads':
       return REASON.lead;
     case 'mail':
-      return REASON.mail;
+      return c.fyi ? REASON.fyi : c.item.client ? REASON.clientMail : REASON.mail;
     case 'next':
       if (c.fresh) return REASON.fresh;
       if (c.arrived) return REASON.arrived;
@@ -1251,7 +1289,7 @@ function finalize(c: Candidate, ctx: FinalizeCtx, filledFirst: boolean): void {
     botTask: c.botTask,
     owedThread:
       c.kind === 'thread' && ctx.thread?.status === 'show'
-        ? { state: ctx.owedState ?? null, suggestion: !!ctx.owedSuggestion, lead: ctx.owedLead, leadAsk: ctx.owedLeadAsk, short: ctx.owedShort, send: ctx.owedSend, book: ctx.owedBook, meeting: ctx.meeting }
+        ? { state: ctx.owedState ?? null, suggestion: !!ctx.owedSuggestion, lead: ctx.owedLead, leadAsk: ctx.owedLeadAsk, short: ctx.owedShort, send: ctx.owedSend, book: ctx.owedBook, meeting: ctx.meeting, fyi: ctx.fyi }
         : undefined,
     mailUrl: ctx.mailUrl,
     siteUrl: ctx.siteUrl,
@@ -1270,6 +1308,8 @@ function finalize(c: Candidate, ctx: FinalizeCtx, filledFirst: boolean): void {
         ? ctx.proposal.ifIgnored
         : c.kind === 'thread' && !c.rule && ctx.owedIfIgnored
         ? ctx.owedIfIgnored
+        : c.kind === 'thread' && c.fyi
+          ? FYI_MAIL.ifIgnored
         : c.kind === 'site' && c.rule && ctx.siteIfIgnored
           ? ctx.siteIfIgnored
           : ifIgnored(c),

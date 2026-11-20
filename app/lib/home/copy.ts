@@ -328,6 +328,8 @@ export function reasonEmergency(rule: EmergencyRule, outsideDate = false): strin
 export const REASON = {
   lead: 'Sales replies show from the first minute.',
   mail: 'A known person is waiting on a reply, and a business day has passed.',
+  clientMail: 'A client is waiting on a reply.',
+  fyi: 'You were copied on it, so it is shown, not owed.',
   boosted: 'You said this matters more.',
   signOff: 'Finished pieces wait for your yes.',
   session: 'A session is waiting for your answer.',

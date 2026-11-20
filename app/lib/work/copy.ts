@@ -94,6 +94,14 @@ export function handledMeasureLine(recorded: number, reopened: number): string {
   return `Recorded ${emails(recorded)} as handled. You reopened ${reopened}.`;
 }
 
+/** An FYI row (Mike, 2026-11-20): he was only copied. Shown, never owed. */
+export const FYI_MAIL = {
+  line: 'You were copied',
+  why: (to: string | null | undefined): string => (to ? `Written to ${to} about their own work. Nothing is owed.` : 'Written to someone else. Nothing is owed.'),
+  ifIgnored: 'It stays here until you clear it. Nothing is owed.',
+  clear: 'Clear',
+} as const;
+
 export const HANDLED_MAIL = {
   title: 'Mail recorded as handled',
   intro: 'The last 30 days. Each one needed no reply from you. Undo puts it back as a reply you owe.',

@@ -66,7 +66,7 @@ import type {
   RawWait,
 } from './types';
 import { loadReconcile } from './reconcile/screen';
-import { askIsOwed, askShowsAsMeeting, linkedTaskFacts } from '@/lib/work/owed';
+import { askIsOwed, askShowsAsFyi, askShowsAsMeeting, linkedTaskFacts } from '@/lib/work/owed';
 import { INTAKE_CLOSE_REASONS, loadHandledMail } from '@/lib/work/intake';
 import { loadFinishedCard } from '@/lib/work/finished-store';
 import { latestAnswers } from '@/lib/tasks/checklist-answers';
@@ -881,6 +881,7 @@ const ASK_SELECT = {
   deep_link: true,
   received_at: true,
   disposition: true,
+  addressed_to: true,
   client: { select: CLIENT_SELECT },
   project: { select: PROJECT_SELECT },
 } satisfies Prisma.EmailAskSelect;
@@ -911,6 +912,7 @@ function toRawAsk(a: AskRow): RawEmailAsk {
     deep_link: a.deep_link,
     received_at: a.received_at,
     disposition: a.disposition,
+    addressed_to: a.addressed_to,
   };
 }
 
@@ -921,7 +923,7 @@ async function loadThreads(db: PrismaClient): Promise<RawThread[]> {
     orderBy: { received_at: 'desc' },
   });
 
-  // Work stage B: only a reply_mike ask (or an undecided old one, or a work ask with no live task) is owed; a meeting request shows as a row that wants a time. Work stage A: an ask a live task carries is not the owner's to answer (lib/work/owed.ts, the one rule). It is no thread
+  // Work stage B: only a reply_mike ask (or an undecided old one, or a work ask with no live task) is owed; a meeting request shows as a row that wants a time, and an fyi ask (he is only copied) shows as a row that is not owed. Work stage A: an ask a live task carries is not the owner's to answer (lib/work/owed.ts, the one rule). It is no thread
   // row, so it is never owed, never drafted and never an arc step. The drafter's queue reads these same threads.
   const taskFacts = await linkedTaskFacts(db, rows);
 
@@ -929,7 +931,7 @@ async function loadThreads(db: PrismaClient): Promise<RawThread[]> {
   // newest first, so each group's asks are newest first and groups run newest thread first.
   const groups = new Map<string, RawThread>();
   for (const r of rows) {
-    if (!askIsOwed(r, taskFacts) && !askShowsAsMeeting(r, taskFacts)) continue;
+    if (!askIsOwed(r, taskFacts) && !askShowsAsMeeting(r, taskFacts) && !askShowsAsFyi(r, taskFacts)) continue;
     const threadId = r.thread_id ?? r.message_id;
     if (r.account.includes(':') || !isItemKey(`thread:${r.account}:${threadId}`)) continue; // cannot be keyed
     const k = `${r.account}\u0000${threadId}`;

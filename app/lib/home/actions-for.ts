@@ -16,6 +16,7 @@
  */
 
 import { ACTION_LABELS, approveAllLabel } from './copy';
+import { FYI_MAIL } from '@/lib/work/copy';
 import { CAPS, NOT_NOW } from './rules';
 import type { OwedState } from './owed/state';
 import type { HomeActionId, HomeChoice, HomeItemAction, HomeSourceKind } from './types';
@@ -61,6 +62,8 @@ export interface ActionsInput {
     send?: { full: boolean; short: boolean };
     /** Work stage B: a request for a time (disposition meeting). */
     meeting?: boolean;
+    /** An FYI thread (he is only copied): Open the email and Clear, nothing else. */
+    fyi?: boolean;
     /** Slice 4d: Book 30 minutes (under More on a needs-thought row), present only while the owner's book_blocks switch is on. */
     book?: boolean;
   };
@@ -228,6 +231,13 @@ export function actionsFor(input: ActionsInput): ActionsOutput {
   if (input.kind === 'hands') {
     const only = [button('not_this_week')];
     return { actions: input.filledFirst ? [{ ...only[0], filled: true }] : only, more_actions: [] };
+  }
+  // An FYI row has one action that changes state (Clear) and no Not now, This matters more, snooze, on-day or Add to arc.
+  if (input.kind === 'thread' && input.owedThread?.fyi && !input.pinned && !input.emergency) {
+    const row: HomeItemAction[] = [];
+    if (input.threadUrl) row.push(button('open_thread', input.threadUrl));
+    row.push(button('no_reply_needed', null, FYI_MAIL.clear));
+    return { actions: row, more_actions: [] };
   }
   const { primary, extras } = own(input);
   const visible: HomeItemAction[] = [...primary];

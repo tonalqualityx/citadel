@@ -334,6 +334,8 @@ export interface HomeItem {
   owed_state?: OwedState | null;
   /** Slice 4a, threads only: the words after the age on the row ("Draft ready", "Their new message came after your draft."), or null. */
   owed_line?: string | null;
+  /** An FYI thread: shown, never owed, never counted as waiting. */
+  fyi?: boolean;
   /**
    * Slice 6c: the outside scan's result line, "Outside check 10:42: nothing new found from outside.", on a Needs you now row
    * (a security task with a site) while the scan came after the row landed. Absent when there is none.
@@ -1393,8 +1395,10 @@ export interface RawEmailAsk {
   draft_started_at: Date | null;
   deep_link: string;
   received_at: Date;
-  /** Work stage B: the intake decision (no_action | reply_mike | work | meeting | waiting_them | emergency), or null on an old row. */
+  /** Work stage B: the intake decision (no_action | reply_mike | work | meeting | waiting_them | emergency | fyi), or null on an old row. */
   disposition?: string | null;
+  /** An fyi ask only: who the message is written to (first names, never an address). */
+  addressed_to?: string | null;
 }
 
 /** Open, non-urgent asks grouped by (account, thread_id ?? message_id). */

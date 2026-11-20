@@ -24,6 +24,11 @@ describe('owedQueue qualifying', () => {
     const lead = leadThread({ received_at: d('2026-11-09T20:00:00Z') });
     expect(keys(owedQueue({}, [young, lead], [], NOW, 6))).toEqual([keyOf(lead)]);
   });
+  it('a young client thread with a tap waiting is queued at once (only the automatic first draft waits)', () => {
+    const young = clientThread({ received_at: d('2026-11-09T20:00:00Z') });
+    const r = makeRow({ thread_key: keyOf(young), request_kind: 'draft', requested_at: NOW });
+    expect(keys(owedQueue({}, [young], [r], NOW, 6))).toEqual([keyOf(young)]);
+  });
   it('a thread over 21 days old is out', () => {
     expect(owedQueue({}, [clientThread({ received_at: d('2026-10-01T15:00:00Z') })], [], NOW, 6)).toEqual([]);
   });

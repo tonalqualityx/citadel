@@ -471,6 +471,20 @@ describe('loadHomeInputs: email asks', () => {
     ]);
   });
 
+  it('an fyi ask is a thread row with its addressee; one carried by a live task is not a row', async () => {
+    db.emailAsk.findMany.mockImplementation(async (a: { where: { state: string; is_urgent?: boolean } }) =>
+      a.where.state === 'open' && a.where.is_urgent === false
+        ? [
+            askRow({ id: 'f1', message_id: 'mf1', thread_id: 'thf1', disposition: 'fyi', addressed_to: 'Lisa' }),
+            askRow({ id: 'f2', message_id: 'mf2', thread_id: 'thf2', disposition: 'fyi', addressed_to: 'Dan', task_id: 'live-task' }),
+          ]
+        : [],
+    );
+    db.task.findMany.mockImplementation(async (a: { where: { id?: unknown; status?: unknown } }) => (a.where.id ? [{ id: 'live-task', is_deleted: false, status: 'in_progress', tags: [] }] : []));
+    const { threads } = await loadHomeInputs(asDb(db), U, NOW);
+    expect(threads.map((t) => [t.thread_id, t.asks[0].addressed_to])).toEqual([['thf1', 'Lisa']]);
+  });
+
   it('reads crisis mail as open and urgent', async () => {
     db.emailAsk.findMany.mockImplementation(async (a: { where: { is_urgent?: boolean } }) =>
       a.where.is_urgent === true ? [askRow({ id: 'c1', is_urgent: true })] : []

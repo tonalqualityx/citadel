@@ -1,8 +1,10 @@
 /**
  * Slice 4a: which owed threads Bast drafts this run, in order. Pure.
  *
- * Qualifies: threadStatus is 'show' (leads at any age within 21 days; known person, one business day, last-message
- * check for the rest), no crisis ask on the thread, not dismissed, no draft of his own on it, its row is not
+ * Qualifies: threadStatus is 'show' (leads at any age within 21 days; known person, last-message check for the rest) and,
+ * for an automatic first draft of a thread that is not a lead, one business day has passed (a client thread shows on the
+ * screen at once, but the drafter keeps its timing; a tap is served at once). An FYI thread is never drafted. The thread also has
+ * no crisis ask on it, no crisis ask on the thread, not dismissed, no draft of his own on it, its row is not
  * needs_thought unless a tap is waiting, fewer than 3 failed attempts in the last 24 hours, and nothing left to do
  * (a Bast draft that already covers the newest message, or one he edited, is skipped).
  *
@@ -13,6 +15,7 @@
 import type { RawThread } from '../types';
 import { threadKey } from '../item-key';
 import { threadStatus } from '../select';
+import { THREAD_MIN_AGE_BUSINESS_DAYS, businessDaysElapsed } from '../rules';
 import { OWED } from './copy';
 import { autoDraftDue, isLeadNow, owedClock, wokeByNewMessage } from './clock';
 import { repliedElsewhere, type JoinRow } from './join';
@@ -87,13 +90,16 @@ export function owedQueue(
     if (!newest) continue;
     // Work stage B: a request for a time is never drafted (it is not owed); it closes when the meeting is booked.
     if (newest.disposition === 'meeting') continue;
+    // An FYI thread (he is only copied) is never offered to the drafter, a tap included.
+    if (thread.asks.every((a) => a.disposition === 'fyi')) continue;
     const key = threadKey(thread.account, thread.thread_id);
     if (sel.dismissed?.has(key)) continue;
     if (sel.crisisKeys?.has(key) || thread.asks.some((a) => a.is_urgent)) continue;
 
     const row = rows.get(key) ?? null;
     const lead = isLeadNow(newest.intent, newest.received_at, row);
-    if (threadStatus(thread, now, { notLead: newest.intent === 'sales' && !lead, woke: wokeByNewMessage(sel.states?.get(key), newest.received_at, now) }) !== 'show') continue;
+    const woke = wokeByNewMessage(sel.states?.get(key), newest.received_at, now);
+    if (threadStatus(thread, now, { notLead: newest.intent === 'sales' && !lead, woke }) !== 'show') continue;
     const joined = [...(sel.members?.get(key) ?? [])];
     // Someone on our side already answered (in this thread or a joined one): nothing to draft.
     if (repliedElsewhere(key, joined, rows as ReadonlyMap<string, JoinRow>, newest.received_at)) continue;
@@ -147,6 +153,8 @@ export function owedQueue(
         continue;
       }
     } else {
+      // A client thread now shows at once, but the drafter keeps its timing: an automatic first draft waits one business day.
+      if (!lead && !woke && businessDaysElapsed(newest.received_at, now) < THREAD_MIN_AGE_BUSINESS_DAYS) continue;
       reason = lead ? 'lead' : 'oldest';
     }
     out.push({ thread, thread_key: key, row, reason, request: asked, lead, joined });
