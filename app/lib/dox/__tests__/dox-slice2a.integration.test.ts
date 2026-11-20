@@ -65,8 +65,13 @@ describe.skipIf(!SCRATCH)('Dox slice 2a (real database)', () => {
       expect(res.status).toBe(201);
       expect((await prisma.task.findUniqueOrThrow({ where: { id: t } })).tags).toEqual(['keep', ASKED_DOX_TAG]);
       expect((await prisma.project.findUniqueOrThrow({ where: { id: P } })).next_step_refresh_requested_at).not.toBeNull();
+      const before = (await prisma.task.findUniqueOrThrow({ where: { id: t } })).updated_at;
+      await new Promise((r) => setTimeout(r, 5));
       await addComment(call(undefined, { content: 'Still waiting.', mentioned_user_ids: [DOX_USER_ID] }), idParams(t));
-      expect((await prisma.task.findUniqueOrThrow({ where: { id: t } })).tags).toEqual(['keep', ASKED_DOX_TAG]);
+      const after = await prisma.task.findUniqueOrThrow({ where: { id: t } });
+      expect(after.tags).toEqual(['keep', ASKED_DOX_TAG]);
+      // the repeat still marks the task as newly asked, so the scheduler offers it to Dox again after his last pass
+      expect(after.updated_at.getTime()).toBeGreaterThan(before.getTime());
     });
 
     it('a comment with no mention, a mention of someone else, and Dox\'s own comment change nothing', async () => {

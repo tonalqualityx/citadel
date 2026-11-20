@@ -523,6 +523,9 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('GET', '/api/clients'),
     r('GET', '/api/clients/:id'),
     r('GET', '/api/clients/:id/contacts'),
+    // The billing test on a client's answer or addition (Mike, 2026-11-19, on comparing it against the SOW page list or "the retainer's monthly
+    // hours"): the month's retainer hours, minutes used and projected. Hours only: the read carries no rate and no amount. Read only.
+    r('GET', '/api/clients/:id/retainer'),
     r('GET', '/api/sites'),
     r('GET', '/api/sites/:id'),
     r('GET', '/api/meetings'),

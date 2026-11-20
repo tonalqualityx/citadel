@@ -23,11 +23,14 @@ export async function markAskedDox(
   if (author.userId === DOX_USER_ID || isDoxLaneValue(author.lane)) return false;
   if (task.status === 'triage') return false;
   if (!mentionsDox(comment.mentionedUserIds, comment.content)) return false;
-  if (!task.tags.includes(ASKED_DOX_TAG)) {
-    const fresh = await db.task.findUnique({ where: { id: task.id }, select: { tags: true } });
-    const tags = fresh?.tags ?? task.tags;
-    if (!tags.includes(ASKED_DOX_TAG)) await db.task.update({ where: { id: task.id }, data: { tags: [...tags, ASKED_DOX_TAG] } });
-  }
+  const fresh = await db.task.findUnique({ where: { id: task.id }, select: { tags: true } });
+  const tags = fresh?.tags ?? task.tags;
+  // Every mention marks the task as newly asked, a repeat on a task already tagged included: the scheduler offers an asked-dox task to Dox only
+  // when it changed after his last pass, and a second client email handed to him on the same home card must reach him too.
+  await db.task.update({
+    where: { id: task.id },
+    data: tags.includes(ASKED_DOX_TAG) ? { updated_at: now } : { tags: [...tags, ASKED_DOX_TAG], updated_at: now },
+  });
   if (task.project_id) {
     await db.project.updateMany({ where: { id: task.project_id, is_deleted: false }, data: { next_step_refresh_requested_at: now } });
   }

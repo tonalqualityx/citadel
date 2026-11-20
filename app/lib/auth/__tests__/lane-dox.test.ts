@@ -88,6 +88,8 @@ const ALLOWED: [string, string][] = [
   ['GET', '/api/clients'],
   ['GET', '/api/clients/7f1c'],
   ['GET', '/api/clients/7f1c/contacts'],
+  // the billing test reads a retainer's hours (hours only, no rate or amount)
+  ['GET', '/api/clients/7f1c/retainer'],
   ['GET', '/api/sites'],
   ['GET', '/api/sites/7f1c'],
   ['GET', '/api/meetings'],
@@ -180,7 +182,9 @@ describe('lane dox', () => {
       expect(r.method).not.toBe('DELETE');
       if (r.method === 'PUT') expect(['/api/tasks/:id/plan/:section', '/api/oracle/projects/:id/next-step/write']).toContain(r.pattern); // the plan and the next-step line are the two PUTs Dox has
       if (r.method !== 'GET' && !narrowed.includes(r.pattern)) expect(r.pattern).not.toMatch(/answer|approval|outbox|portal|notice|triage|live|staged|notify|send/);
-      expect(r.pattern).not.toMatch(/api-keys|invoice|billing|retainer|hosting-plans|password|credential|secret|view-as|login/);
+      // The one retainer route is the hours read for the billing test (GET only; it carries no rate or amount).
+      const hoursRead = r.method === 'GET' && r.pattern === '/api/clients/:id/retainer';
+      if (!hoursRead) expect(r.pattern).not.toMatch(/api-keys|invoice|billing|retainer|hosting-plans|password|credential|secret|view-as|login/);
       if (r.method !== 'GET') expect(r.pattern).not.toMatch(/^\/api\/(clients|sites|contacts)/);
     }
   });
