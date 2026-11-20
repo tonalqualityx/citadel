@@ -104,11 +104,12 @@ function updatedTask(overrides: Record<string, any> = {}) {
 }
 
 // Build a blocker entry as returned inside a dependent's `blocked_by` by unblockEligibleDependents.
-function blocker(id: string, status: string, approved: boolean, orderingOnly: boolean | null) {
+function blocker(id: string, status: string, approved: boolean, orderingOnly: boolean | null, needsReview = true) {
   return {
     id,
     status,
     approved,
+    needs_review: needsReview,
     project: orderingOnly === null ? null : { dependencies_ordering_only: orderingOnly },
   };
 }
@@ -127,6 +128,7 @@ const UNBLOCK_QUERY = {
         id: true,
         status: true,
         approved: true,
+        needs_review: true,
         project: { select: { dependencies_ordering_only: true } },
       },
     },
@@ -248,7 +250,7 @@ describe('Task dependency propagation on status change', () => {
       expect(mockTaskUpdateMany).not.toHaveBeenCalled();
     });
 
-    it('treats a blocker with no project as approval-gated (done is not enough)', async () => {
+    it('treats a blocker with no project and marked needs_review as gated (done is not enough)', async () => {
       mockTaskFindUnique.mockResolvedValue({
         id: 'task-1',
         status: 'in_progress',

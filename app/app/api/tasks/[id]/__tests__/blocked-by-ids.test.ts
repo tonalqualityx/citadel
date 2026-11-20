@@ -107,8 +107,8 @@ function updatedTaskResponse(overrides: Record<string, any> = {}) {
   };
 }
 
-function blockerRow(id: string, status: string, approved: boolean, orderingOnly: boolean) {
-  return { id, status, approved, project: { dependencies_ordering_only: orderingOnly } };
+function blockerRow(id: string, status: string, approved: boolean, orderingOnly: boolean, needsReview = true) {
+  return { id, status, approved, needs_review: needsReview, project: { dependencies_ordering_only: orderingOnly } };
 }
 
 describe('PATCH /api/tasks/[id] — dependency wiring (blocked_by_ids)', () => {

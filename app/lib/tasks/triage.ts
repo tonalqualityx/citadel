@@ -497,9 +497,9 @@ export async function drop(db: PrismaClient, userId: string, taskIds: string[], 
  * The done-guards, honestly handled. patchTask has no hard guard on done: the checklist ("Done when") and the review flags are not
  * checked for a status write, and a normal close from the task page or the looks-finished list ticks and approves nothing either.
  * So the close does not tick the checklist and does not set `approved`. Why: an idea Mike closes as done elsewhere was never
- * reviewed here, and `approved` is what lets an approval-gated dependent start (lib/services/dependencies.ts); setting it would
- * start other work on an agent's say-so. A dependent on an approval-gated project therefore stays blocked until someone approves,
- * exactly as it does for any done task. The comment records the evidence and who closed it, which is the honest paper trail.
+ * reviewed here, and `approved` is what lets a dependent start when the closed card was marked needs_review
+ * (lib/services/dependencies.ts); setting it would start other work on an agent's say-so. A dependent of a card marked needs_review
+ * therefore stays blocked until someone approves, exactly as it does for any done task; a card not marked for review releases it on done. The comment records the evidence and who closed it, which is the honest paper trail.
  * Done also closes the emails linked to the task (Stage A), as every other close does; Undo reopens them.
  */
 export async function closeDone(db: PrismaClient, userId: string, taskIds: string[], now: Date): Promise<HomeActResponse> {

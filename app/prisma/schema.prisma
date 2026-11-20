@@ -991,8 +991,8 @@ model Project {
   // Workload display
   workload_completed_mode WorkloadCompletedMode @default(high)
 
-  // Dependency gating: false (default) = approval-gated (a dependent unblocks only once its
-  // blocker is done AND approved); true = ordering-only (unblock as soon as the blocker is done).
+  // Dependency gating: false (default) = a dependent unblocks once its blocker is done, and approved too when that
+  // blocker was marked needs_review; true = ordering-only (unblock as soon as the blocker is done, review or not).
   dependencies_ordering_only Boolean @default(false)
 
   // Notes

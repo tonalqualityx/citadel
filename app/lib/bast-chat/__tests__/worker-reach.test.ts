@@ -93,6 +93,7 @@ const blocker = (id: string, status: string, extra: Partial<BlockerRef> = {}): B
   title: `Blocker ${id}`,
   status,
   approved: false,
+  needs_review: true,
   ordering_only: null,
   ...extra,
 });
@@ -148,6 +149,9 @@ describe('workerView mirrors spawn-gate.py', () => {
     expect(v(bast({ status: 'blocked', blocked_by: [blocker('b', 'done', { approved: true })] })).view).toBe('eligible');
     expect(v(bast({ status: 'blocked', blocked_by: [blocker('b', 'done', { approved: false, ordering_only: true })] })).view).toBe('eligible');
     expect(v(bast({ status: 'blocked', blocked_by: [blocker('b', 'done', { approved: false, ordering_only: false })] })).view).toBe('parked');
+    // A done blocker that was not marked needs_review releases unapproved; one that was, and is unapproved, parks.
+    expect(v(bast({ status: 'blocked', blocked_by: [blocker('b', 'done', { approved: false, needs_review: false, ordering_only: false })] })).view).toBe('eligible');
+    expect(v(bast({ status: 'blocked', blocked_by: [blocker('b', 'done', { approved: false, needs_review: true, ordering_only: false })] })).view).toBe('parked');
     // Citadel does not count abandoned as satisfied, so a blocked card stays blocked.
     expect(v(bast({ status: 'blocked', blocked_by: [blocker('b', 'abandoned')] })).view).toBe('parked');
     expect(v(bast({ status: 'blocked', blocked_by: [blocker('b', 'in_progress')], last_comment_author: 'human' })).view).toBe('wake_parked_reply');
@@ -435,16 +439,22 @@ describe('R2: release', () => {
     reachesWith(patch(m, { status: 'abandoned' }), 'releases_dependent', d.id);
   });
   it('approving a done blocker releases a blocked Bast task (Citadel unblocks on done and approved)', () => {
-    const m = task({ status: 'done', approved: false, ordering_only: false });
+    const m = task({ status: 'done', approved: false, needs_review: true, ordering_only: false });
     const d = bast({ status: 'blocked', blocked_by: [blocker(m.id, 'done', { approved: false, ordering_only: false })] });
     m.dependents = [d];
     reachesWith(patch(m, { approved: true }), 'releases_dependent', d.id);
   });
-  it('done but not approved does not release a blocked Bast task on an approval-gated project', () => {
-    const m = task({ status: 'in_progress', approved: false, ordering_only: false });
+  it('done but not approved does not release a blocked Bast task whose blocker is marked needs_review', () => {
+    const m = task({ status: 'in_progress', approved: false, needs_review: true, ordering_only: false });
     const d = bast({ status: 'blocked', blocked_by: [blocker(m.id, 'in_progress')] });
     m.dependents = [d];
     none(patch(m, { status: 'done' }));
+  });
+  it('done releases a blocked Bast task when the blocker was not marked needs_review, approved or not', () => {
+    const m = task({ status: 'in_progress', approved: false, needs_review: false, ordering_only: false });
+    const d = bast({ status: 'blocked', blocked_by: [blocker(m.id, 'in_progress', { needs_review: false })] });
+    m.dependents = [d];
+    reachesWith(patch(m, { status: 'done' }), 'releases_dependent', d.id);
   });
   it('done releases a blocked Bast task on an ordering-only project', () => {
     const m = task({ status: 'in_progress', approved: false, ordering_only: true });
@@ -453,7 +463,7 @@ describe('R2: release', () => {
     reachesWith(patch(m, { status: 'done' }), 'releases_dependent', d.id);
   });
   it('moving a done blocker to an ordering-only project releases; an unknown project flag reaches as missing data', () => {
-    const m = task({ status: 'done', approved: false, ordering_only: false });
+    const m = task({ status: 'done', approved: false, needs_review: true, ordering_only: false });
     const d = bast({ status: 'blocked', blocked_by: [blocker(m.id, 'done', { approved: false, ordering_only: false })] });
     m.dependents = [d];
     reachesWith(patch(m, { project_id: 'p-ordering', ordering_only_after: true }), 'releases_dependent', d.id);

@@ -358,7 +358,7 @@ export function ProjectForm({ project, onSuccess, onCancel }: ProjectFormProps) 
             </span>
           </label>
           <p className="mt-1 ml-6 text-xs text-text-secondary">
-            Off (default): a dependent task stays blocked until its blocker is approved, so we never build on unreviewed work.
+            Off (default): a dependent task waits until its blocker is done, and approved when that blocker needs review.
           </p>
         </div>
       </div>

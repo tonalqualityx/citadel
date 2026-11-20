@@ -82,6 +82,7 @@ const BLOCKER_SELECT = {
   select: {
     status: true,
     approved: true,
+    needs_review: true,
     project: { select: { dependencies_ordering_only: true } },
   },
 } as const;

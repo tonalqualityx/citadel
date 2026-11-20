@@ -28,11 +28,12 @@ const mockFindMany = prisma.task.findMany as Mock;
 const mockUpdateMany = prisma.task.updateMany as Mock;
 
 // Build a blocker entry as selected by the satisfaction queries.
-function blocker(id: string, status: string, approved: boolean, orderingOnly: boolean | null) {
+function blocker(id: string, status: string, approved: boolean, orderingOnly: boolean | null, needsReview = true) {
   return {
     id,
     status,
     approved,
+    needs_review: needsReview,
     project: orderingOnly === null ? null : { dependencies_ordering_only: orderingOnly },
   };
 }
@@ -48,14 +49,23 @@ describe('isBlockerSatisfied', () => {
   it('ordering-only: not satisfied while not done', () => {
     expect(isBlockerSatisfied(blocker('b', 'in_progress', true, true))).toBe(false);
   });
-  it('approval-gated: done but unapproved is NOT satisfied', () => {
+  it('marked for review: done but unapproved is NOT satisfied', () => {
     expect(isBlockerSatisfied(blocker('b', 'done', false, false))).toBe(false);
   });
-  it('approval-gated: done AND approved is satisfied', () => {
+  it('marked for review: done AND approved is satisfied', () => {
     expect(isBlockerSatisfied(blocker('b', 'done', true, false))).toBe(true);
   });
-  it('no project falls back to approval-gated (done is not enough)', () => {
+  it('no project and marked for review: done is not enough', () => {
     expect(isBlockerSatisfied(blocker('b', 'done', false, null))).toBe(false);
+  });
+  it('done, unapproved, not marked for review, review-gated project: satisfied', () => {
+    expect(isBlockerSatisfied(blocker('b', 'done', false, false, false))).toBe(true);
+  });
+  it('not done is never satisfied, even when not marked for review', () => {
+    expect(isBlockerSatisfied(blocker('b', 'in_progress', false, false, false))).toBe(false);
+  });
+  it('no project and not marked for review: satisfied once done', () => {
+    expect(isBlockerSatisfied(blocker('b', 'done', false, null, false))).toBe(true);
   });
 });
 
@@ -73,6 +83,7 @@ describe('healBlockedTasks (self-healing sweep)', () => {
             id: true,
             status: true,
             approved: true,
+            needs_review: true,
             project: { select: { dependencies_ordering_only: true } },
           },
         },
@@ -94,6 +105,28 @@ describe('healBlockedTasks (self-healing sweep)', () => {
       where: { id: { in: ['dep-1'] }, status: 'blocked' },
       data: { status: 'not_started' },
     });
+  });
+
+  it('releases a dependent whose done blocker was not marked for review, unapproved', async () => {
+    mockFindMany.mockResolvedValueOnce([
+      { id: 'dep-1', blocked_by: [blocker('b1', 'done', false, false, false)] },
+    ]);
+    mockUpdateMany.mockResolvedValue({ count: 1 });
+
+    expect(await healBlockedTasks()).toEqual(['dep-1']);
+    expect(mockUpdateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['dep-1'] }, status: 'blocked' },
+      data: { status: 'not_started' },
+    });
+  });
+
+  it('does not release a dependent whose done blocker was marked for review and is unapproved', async () => {
+    mockFindMany.mockResolvedValueOnce([
+      { id: 'dep-1', blocked_by: [blocker('b1', 'done', false, false, true)] },
+    ]);
+
+    expect(await healBlockedTasks()).toEqual([]);
+    expect(mockUpdateMany).not.toHaveBeenCalled();
   });
 
   it('does NOT unblock an approval-gated dependent whose blocker is done-but-unapproved', async () => {
@@ -175,6 +208,7 @@ describe('unblockEligibleDependents (scoped reactive trigger)', () => {
             id: true,
             status: true,
             approved: true,
+            needs_review: true,
             project: { select: { dependencies_ordering_only: true } },
           },
         },
@@ -238,6 +272,7 @@ describe('areBlockersSatisfied', () => {
         id: true,
         status: true,
         approved: true,
+        needs_review: true,
         project: { select: { dependencies_ordering_only: true } },
       },
     });

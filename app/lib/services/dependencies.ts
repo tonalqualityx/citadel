@@ -3,11 +3,15 @@ import { prisma } from '@/lib/db/prisma';
 /**
  * Dependency / blocking propagation.
  *
- * A task is `blocked` while any of its blockers is unsatisfied. Whether a single
- * blocker is satisfied depends on its project's gating mode:
- * - ordering-only (`project.dependencies_ordering_only === true`): satisfied once `done`.
- * - approval-gated (default): satisfied only once `done` AND `approved` — so we never
- *   build on unreviewed work. A blocker with no project falls back to approval-gated.
+ * A task is `blocked` while any of its blockers is unsatisfied. A blocker is satisfied
+ * when it is `done` AND one of these holds:
+ * - its project is ordering-only (`project.dependencies_ordering_only === true`);
+ * - it was not marked for review (`needs_review !== true`): finished work releases the next task;
+ * - it was marked for review and has since been `approved`.
+ * So only a done blocker that was marked `needs_review` and is not yet approved still holds its
+ * dependents. Owner ruling: Mike, 2026-11-18: "Demanding that a task needs a review should be a decision";
+ * and Mike, 2026-11-20, asked "Should finished work release the next task without an approval, unless
+ * it was marked as needing review?": "Yes".
  *
  * An open card question can block a task too (`blocked_by_questions`; Mike, 2026-11-19: "I mean that in the way that
  * dependencies block tasks"). A task is released only when every blocker task is satisfied AND no question it waits on
@@ -23,14 +27,15 @@ import { prisma } from '@/lib/db/prisma';
 export type BlockerSatisfactionShape = {
   status: string;
   approved: boolean;
+  needs_review: boolean;
   project: { dependencies_ordering_only: boolean } | null;
 };
 
-/** Whether a single blocker satisfies its dependents, given its project's gating mode. */
+/** Whether a single blocker satisfies its dependents: done, and approved if (and only if) it was marked for review. */
 export function isBlockerSatisfied(blocker: BlockerSatisfactionShape): boolean {
   if (blocker.status !== 'done') return false;
-  const orderingOnly = blocker.project?.dependencies_ordering_only ?? false;
-  return orderingOnly ? true : blocker.approved === true;
+  if (blocker.project?.dependencies_ordering_only) return true;
+  return blocker.needs_review === true ? blocker.approved === true : true;
 }
 
 // The blocker fields needed to evaluate satisfaction. Shared so every query that
@@ -41,6 +46,7 @@ const BLOCKER_SATISFACTION_SELECT = {
     id: true,
     status: true,
     approved: true,
+    needs_review: true,
     project: { select: { dependencies_ordering_only: true } },
   },
 } as const;

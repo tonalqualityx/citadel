@@ -33,7 +33,7 @@
  * Sources mirrored (read 2026-11-10): spawn-gate.py `classify` 367 to 381, `has_open_blocker` 330 to 341,
  * `lease_is_live` 351 to 364, `wake_if_human_last_comment` 417 to 448, `wake_client_approved` 454 to 470,
  * `run` 513 to 581; gate.json; citadel-worker.sh 161 to 171 (unblock sweep before the gate);
- * lib/services/dependencies.ts `isBlockerSatisfied` 26 to 30 and `healBlockedTasks` 168 to 190;
+ * lib/services/dependencies.ts `isBlockerSatisfied` and `healBlockedTasks`;
  * the worker skill (~/.openclaw/workspace/skills/citadel-worker/SKILL.md) W1 342 to 363, W2 381 to 405,
  * W3 407 to 422; app/api/tasks/[id]/comments/route.ts 118 (hidden comments are not listed).
  */
@@ -71,6 +71,8 @@ export interface BlockerRef {
   title?: string | null;
   status?: string;
   approved?: boolean;
+  /** Whether the blocker was marked for review; a done blocker not marked for review satisfies its dependents unapproved. */
+  needs_review?: boolean;
   /** The blocker's project `dependencies_ordering_only`; null when the blocker has no project. */
   ordering_only?: boolean | null;
   /** Id of the blocker's newest comment (the worker's W3 reads it). Part of the tap's re-check. */
@@ -363,7 +365,7 @@ const PARKING_TAGS: readonly string[] = [...BLOCKING_TAGS, ...CHAT_PARKED_TAGS];
 /** The task text a session reads (W3 line 417, W1 line 343) and that a card shows. */
 const READ_TEXT_FIELDS: readonly string[] = ['title', 'description', 'requirements', 'notes'];
 /** Changes to a task that can change what a Bast dependent does or reads. */
-const DEPENDENT_RELEVANT: readonly string[] = ['status', 'approved', 'project_id', 'comments', ...READ_TEXT_FIELDS];
+const DEPENDENT_RELEVANT: readonly string[] = ['status', 'approved', 'needs_review', 'project_id', 'comments', ...READ_TEXT_FIELDS];
 /** Changes that can change what a client sees. */
 const CLIENT_RELEVANT: readonly string[] = ['client_visible', 'status', 'approved', 'client_id', 'project_id', 'site_id', 'title', 'description', 'requirements', 'tags'];
 const CLIENT_VISIBILITY_FIELDS = ['client_visible', 'requested_by_contact_id', 'staging_preview_url', 'status', 'approved'] as const;
@@ -431,12 +433,13 @@ function toTime(v: DateLike | null | undefined): number | null {
   return Number.isNaN(t) ? null : t;
 }
 
-/** Citadel's own rule for unblocking a `blocked` dependent (dependencies.ts 26 to 30). */
+/** Citadel's own rule for unblocking a `blocked` dependent (`isBlockerSatisfied` in dependencies.ts). */
 function citadelBlockerState(b: BlockerRef): 'satisfied' | 'open' | 'unknown' {
   if (b.status === undefined) return 'unknown';
   if (b.status !== 'done') return 'open';
   if (b.ordering_only === true || b.approved === true) return 'satisfied';
-  if (b.approved === undefined || b.ordering_only === undefined) return 'unknown';
+  if (b.needs_review === false) return 'satisfied';
+  if (b.approved === undefined || b.ordering_only === undefined || b.needs_review === undefined) return 'unknown';
   return 'open';
 }
 
@@ -520,7 +523,7 @@ export function workerView(t: ReachTask, now: Date): ViewResult {
       if (status === 'blocked') {
         const states = t.blocked_by.map(citadelBlockerState);
         if (states.includes('unknown')) {
-          missing.push('blocked_by (status, approved, ordering_only)');
+          missing.push('blocked_by (status, approved, needs_review, ordering_only)');
           return out('parked');
         }
         if (states.every((s) => s === 'satisfied')) status = 'not_started';
@@ -823,7 +826,7 @@ function evaluateSelf(
 }
 
 function blockerRefOf(t: ReachTask): BlockerRef {
-  return { id: t.id, title: t.title, status: t.status, approved: t.approved, ordering_only: t.ordering_only, last_comment_id: t.last_comment_id, assignee_id: t.assignee_id };
+  return { id: t.id, title: t.title, status: t.status, approved: t.approved, needs_review: t.needs_review, ordering_only: t.ordering_only, last_comment_id: t.last_comment_id, assignee_id: t.assignee_id };
 }
 
 function withBlocker(d: ReachTask, ref: BlockerRef): ReachTask {

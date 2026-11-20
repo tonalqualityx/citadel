@@ -107,7 +107,7 @@ export async function buildProjectSnapshot(db: PrismaClient, projectId: string, 
         function: { select: { id: true, name: true } },
         blocked_by: {
           where: { is_deleted: false },
-          select: { id: true, title: true, status: true, approved: true, assignee_id: true, project: { select: { dependencies_ordering_only: true } } },
+          select: { id: true, title: true, status: true, approved: true, needs_review: true, assignee_id: true, project: { select: { dependencies_ordering_only: true } } },
         },
       },
     }),
@@ -172,7 +172,7 @@ export async function buildProjectSnapshot(db: PrismaClient, projectId: string, 
         title: b.title,
         status: b.status,
         assignee_id: b.assignee_id,
-        satisfied: isBlockerSatisfied({ status: b.status, approved: b.approved, project: b.project }),
+        satisfied: isBlockerSatisfied({ status: b.status, approved: b.approved, needs_review: b.needs_review, project: b.project }),
       }));
       const last = lastBy.get(t.id);
       return {

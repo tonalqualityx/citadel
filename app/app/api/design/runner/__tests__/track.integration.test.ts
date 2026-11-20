@@ -335,13 +335,13 @@ describe.skipIf(!SCRATCH)('design track engine (real database)', () => {
       expect(c.some((x) => x.content.includes('design-stage:art_direction') && x.is_internal)).toBe(true);
     });
 
-    it('an ordering-only project unblocks on done alone; an approval-gated one needs the approval completeStageTask writes', async () => {
+    it('an ordering-only project unblocks on done alone; a task marked needs_review needs the approval completeStageTask writes', async () => {
       const w = await world('order-only', { orderingOnly: true });
       expect(await completeStageTask(w.t.provision, bastId)).toBe(true);
       expect((await task(w.t.wireframe)).status).toBe('not_started');
       expect(await completeStageTask(w.t.provision, bastId)).toBe(false); // idempotent
       const g = await world('gated');
-      await prisma.task.update({ where: { id: g.t.provision }, data: { status: 'done' } }); // done but NOT approved
+      await prisma.task.update({ where: { id: g.t.provision }, data: { status: 'done', needs_review: true } }); // done, marked for review, NOT approved
       expect((await task(g.t.wireframe)).status).toBe('blocked');
       expect(await completeStageTask(g.t.provision, bastId)).toBe(true);
       expect((await task(g.t.wireframe)).status).toBe('not_started');

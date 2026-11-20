@@ -236,7 +236,8 @@ describe.skipIf(!SCRATCH)('triage looks-done (real database)', () => {
       expect(c.content).toBe('Closed as done from Triage. No Looks done note was on the card.');
     });
 
-    it('a dependent on an approval-gated project stays blocked: the close does not approve', async () => {
+    it('a dependent of a card marked needs_review stays blocked: the close does not approve', async () => {
+      await prisma.task.update({ where: { id: card }, data: { needs_review: true } });
       const dep = await mk('dependent');
       await prisma.task.update({ where: { id: dep }, data: { status: 'blocked' } });
       await prisma.task.update({ where: { id: dep }, data: { blocked_by: { connect: { id: card } } } });

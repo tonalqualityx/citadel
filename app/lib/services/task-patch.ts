@@ -336,8 +336,8 @@ export async function checkTaskAccess(taskId: string, auth: any): Promise<any> {
 
 /**
  * When a task's status changes, propagate that change to dependent tasks:
- * - If completed: unblock dependents whose blockers are all satisfied (ordering-only → done;
- *   approval-gated default → done AND approved, so completion alone won't unblock them).
+ * - If completed: unblock dependents whose blockers are all satisfied (done, and approved only when the
+ *   blocker was marked needs_review, unless its project is ordering-only).
  * - If reopened from done: re-block dependent tasks that are in active states.
  *
  * Satisfaction logic and the queries live in `@/lib/services/dependencies` so the reactive
@@ -899,8 +899,8 @@ export async function patchTask(input: PatchTaskInput) {
     await resolvePortalFirstResponse(task);
   }
 
-  // When a blocker is newly approved, approval-gated dependents become workable — unblock them.
-  // (ordering-only dependents were already unblocked when the blocker hit `done`.)
+  // When a blocker is newly approved, dependents held on its review become workable — unblock them.
+  // (dependents of a blocker not marked needs_review, or in an ordering-only project, were already unblocked when it hit `done`.)
   if (updateData.approved === true) {
     await unblockEligibleDependents(id);
   }

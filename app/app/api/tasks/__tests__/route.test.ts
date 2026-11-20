@@ -1262,8 +1262,8 @@ describe('GET /api/tasks', () => {
 describe('POST /api/tasks — dependency wiring (blocked_by_ids)', () => {
   const blockerId = '550e8400-e29b-41d4-a716-446655440010';
 
-  function blockerRow(id: string, status: string, approved: boolean, orderingOnly: boolean) {
-    return { id, status, approved, project: { dependencies_ordering_only: orderingOnly } };
+  function blockerRow(id: string, status: string, approved: boolean, orderingOnly: boolean, needsReview = true) {
+    return { id, status, approved, needs_review: needsReview, project: { dependencies_ordering_only: orderingOnly } };
   }
 
   beforeEach(() => {

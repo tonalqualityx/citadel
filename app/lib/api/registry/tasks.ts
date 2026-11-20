@@ -764,7 +764,7 @@ export const taskEndpoints: ApiEndpoint[] = [
       {
         method: 'POST',
         summary:
-          'Self-healing backstop: unblock every `blocked` task whose blockers are all satisfied (per each blocker project gating mode). Idempotent — safe to run on a schedule so no task stays silently stuck where the not_started-only worker loop can never see it.',
+          'Self-healing backstop: unblock every `blocked` task whose blockers are all satisfied (a blocker is satisfied when it is done, and approved too when it was marked needs_review, unless its project is ordering-only). Idempotent — safe to run on a schedule so no task stays silently stuck where the not_started-only worker loop can never see it.',
         auth: 'required',
         roles: ['pm', 'admin'],
         responseExample: { unblocked: 'number', ids: ['uuid'] },

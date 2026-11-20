@@ -39,10 +39,11 @@ function task(overrides: Partial<Record<string, unknown>> = {}) {
   };
 }
 
-function blocker(status: string, approved: boolean, orderingOnly: boolean | null = false) {
+function blocker(status: string, approved: boolean, orderingOnly: boolean | null = false, needsReview = true) {
   return {
     status,
     approved,
+    needs_review: needsReview,
     project: orderingOnly === null ? null : { dependencies_ordering_only: orderingOnly },
   };
 }

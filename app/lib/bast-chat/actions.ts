@@ -745,6 +745,7 @@ const BLOCKER_SELECT = {
   title: true,
   status: true,
   approved: true,
+  needs_review: true,
   assignee_id: true,
   project: { select: { dependencies_ordering_only: true } },
 } as const;
@@ -782,7 +783,7 @@ const TASK_REACH_SCALARS = {
   blocked_by: { where: { is_deleted: false }, select: BLOCKER_SELECT },
 } as const;
 
-type BlockerRow = { id: string; title: string; status: string; approved: boolean; assignee_id?: string | null; project: { dependencies_ordering_only: boolean } | null };
+type BlockerRow = { id: string; title: string; status: string; approved: boolean; needs_review: boolean; assignee_id?: string | null; project: { dependencies_ordering_only: boolean } | null };
 type TaskReachRow = {
   id: string;
   title: string;
@@ -823,6 +824,7 @@ const blockerRef = (b: BlockerRow, lastCommentId: string | null = null): Blocker
   title: b.title,
   status: b.status,
   approved: b.approved,
+  needs_review: b.needs_review,
   ordering_only: b.project ? b.project.dependencies_ordering_only : null,
   last_comment_id: lastCommentId,
   assignee_id: b.assignee_id === undefined ? undefined : b.assignee_id,
