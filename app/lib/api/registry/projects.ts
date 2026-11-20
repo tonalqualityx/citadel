@@ -345,6 +345,34 @@ export const projectEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/projects/:id/communication',
+    group: 'projects',
+    methods: [
+      {
+        method: 'GET',
+        summary: "A project's emails, logged questions and meetings on one timeline, newest first.",
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseExample: {
+          items: [{
+            kind: 'email|question|meeting',
+            id: 'uuid',
+            at: 'ISO-8601',
+            title: 'string',
+            detail: 'string|null',
+            from: 'string|null',
+            href: 'string',
+            external: 'boolean',
+            card: { id: 'uuid', title: 'string' },
+            state: 'open|answered|defaulted',
+          }],
+          counts: { email: 'number', question: 'number', meeting: 'number' },
+        },
+        responseNotes: 'Emails: email_asks filed to the project or to one of its cards, the mike@ and bast@ copies of one message shown once, href is the Gmail thread (external true). Questions: task_questions on the project\'s cards, never withdrawn, never on a Triage card, href is the card; at is when it was sent, else when it was logged; state is set on questions only. Meetings: linked to the project, or the meeting a project card came from; href is the meeting. card is null when an email has no card and on meetings. pm/admin only (client mail).',
+      },
+    ],
+  },
+  {
     path: '/api/projects/:id/notes',
     group: 'projects',
     methods: [
