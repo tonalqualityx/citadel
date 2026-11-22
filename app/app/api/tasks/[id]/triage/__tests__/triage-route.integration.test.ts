@@ -17,6 +17,7 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth, type AuthPayload } from '@/lib/auth/middleware';
 import { SCRATCH } from '@/lib/engine/__tests__/seed';
 import { MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
+import { mayLeaveTriage } from '@/lib/services/task-patch';
 import { GET, PATCH } from '../route';
 import { PUT } from '../shape/route';
 import { GET as getTask } from '../../route';
@@ -86,11 +87,17 @@ describe.skipIf(!SCRATCH)('triage card routes (real database)', () => {
     expect(t.project_id).toBeNull();
   });
 
-  it("Mike's own un-laned API key sets the shape from a card but still cannot edit the card's kind, read the card or release it", async () => {
+  it("Mike's own un-laned API key sets a card's kind, reads the card and sets the shape, but still cannot release it", async () => {
     const c = await fresh();
     authMock.mockResolvedValue(mikeKey());
-    expect((await patch(c, { kind: 'task' })).status).toBe(403);
-    expect((await GET(req(`http://localhost/api/tasks/${c}/triage`, 'GET'), params(c))).status).toBe(403);
+    const kindRes = await patch(c, { kind: 'task' });
+    expect(kindRes.status).toBe(200);
+    expect((await prisma.task.findUniqueOrThrow({ where: { id: c } })).triage_kind).toBe('task');
+    expect((await GET(req(`http://localhost/api/tasks/${c}/triage`, 'GET'), params(c))).status).toBe(200);
+    // the kind probe create-task.py sends (an id that does not exist) answers 404 to his key, not 403.
+    expect((await patch('00000000-0000-0000-0000-000000000000', { kind: null })).status).toBe(404);
+    // releasing stays his session and the chat lane.
+    expect(mayLeaveTriage(mikeKey())).toBe(false);
     const ownProject = (await prisma.project.create({ data: { name: `${tag} own key project`, client_id: clientId, status: 'queue' } })).id;
     projectIds.push(ownProject);
     const pc = await mk('shape card', { project_id: ownProject });

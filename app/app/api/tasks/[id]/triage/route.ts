@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth } from '@/lib/auth/middleware';
 import { ApiError, handleApiError } from '@/lib/api/errors';
 import { requireTriageEditor, requireTriageOwner } from '@/lib/tasks/triage-auth';
+import { isMikeOwnKey } from '@/lib/services/task-patch';
 import { TRIAGE_KINDS } from '@/lib/tasks/triage-kind';
 import { loadCards } from '@/lib/tasks/triage-card';
 import { guardDoxTriagePatch, isDoxLane } from '@/lib/dox/guard';
@@ -24,13 +25,13 @@ async function cardOr404(id: string) {
 /**
  * GET /api/tasks/:id/triage
  * One Triage card as the Triage tab shows it (kind, age, summary, release_line, release_ready, open questions, looks done, project block).
- * Mike's session or the chat lane only; a card that is not in Triage is 404.
+ * Mike's session, his own un-laned API key (his standalone work sessions) or the chat lane only; a card that is not in Triage is 404.
  */
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const auth = await requireAuth();
     // Dox reads a Triage card (its dates especially) and can never sort one: only GET lets it in. The triage desk reads it too and edits it below.
-    if (!isDoxLane(auth) && !isTriageDeskLane(auth)) requireTriageOwner(auth);
+    if (!isDoxLane(auth) && !isTriageDeskLane(auth) && !isMikeOwnKey(auth)) requireTriageOwner(auth);
     const { id } = await params;
     const card = await cardOr404(id);
     // The deal's items carry prices: only the owner's session, the chat lane and Dox inside its binding keep them.
@@ -66,13 +67,14 @@ const bodySchema = z
  * The two dates are the linked project's start_date and target_date; they need a project card (kind project_setup) with a project.
  * Sets what the card is and, for a project card, which project it sets up (the card takes the new project's client and site, even when it has no site; unlinking clears both). Triage cards
  * The chat lane sets dates on any project, the portal's included, only with date_source (422 date_source_required otherwise); each changed date is a change line with old, new and the source.
- * only; Mike's session or the chat lane only (403 for everyone else). Returns the card.
+ * only; Mike's session, his own un-laned API key or the chat lane only (403 for everyone else). Returns the card.
+ * His own key sorts a card (kind, project, dates) so a card filed from his work session arrives sorted; it still cannot release or drop one (mayLeaveTriage).
  */
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const auth = await requireAuth();
     // Dox sets the kind of a card he filed (lib/dox/guard.ts guardDoxTriagePatch, below); everything else here is the editors'.
-    if (!isDoxLane(auth)) requireTriageEditor(auth);
+    if (!isDoxLane(auth) && !isMikeOwnKey(auth)) requireTriageEditor(auth);
     const { id } = await params;
     const rawBody = await request.json();
     const body = bodySchema.parse(rawBody);
