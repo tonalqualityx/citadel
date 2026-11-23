@@ -3,7 +3,8 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import * as React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ProjectQuestionsTab, questionAsker, questionFor } from '../project-questions-tab';
-import { answerSavedText } from '@/lib/hooks/use-project-questions';
+import { answerSavedText, projectQuestionBody } from '@/lib/hooks/use-project-questions';
+import { projectQuestionProblem } from '../project-question-form';
 
 const mockGet = vi.fn();
 const mockPost = vi.fn();
@@ -12,7 +13,8 @@ vi.mock('@/lib/api/client', () => ({
 }));
 const toastSuccess = vi.fn();
 const toastError = vi.fn();
-vi.mock('@/lib/hooks/use-toast', () => ({ showToast: { success: (m: string) => toastSuccess(m), error: (m: string) => toastError(m) } }));
+const toastApiError = vi.fn();
+vi.mock('@/lib/hooks/use-toast', () => ({ showToast: { success: (m: string) => toastSuccess(m), error: (m: string) => toastError(m), apiError: (e: unknown, m: string) => toastApiError(e, m) } }));
 
 function renderTab(canAnswer = true) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -79,6 +81,131 @@ const mikeQ = {
   blocks: [],
   task: { id: 't4', title: 'Booth page', status: 'not_started', project_id: 'proj-1', project: { id: 'proj-1', name: 'VCDP' } },
 };
+
+/** A question asked on the project itself: no card. */
+const projectQ = {
+  ...mikeQ,
+  id: 'q3',
+  task_id: null,
+  project_id: 'proj-1',
+  question: 'Do orders ship from our stock or from the printer?',
+  version: '2026-11-15T10:00:00.000Z',
+  created_at: '2026-11-15T15:00:00.000Z',
+  asked_by: { id: 'u-sabeen', name: 'Sabeen' },
+  asked_by_lane: null,
+  task: null,
+  project: { id: 'proj-1', name: 'VCDP' },
+};
+
+function renderAskTab() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <ProjectQuestionsTab projectId="proj-1" canAnswer canAsk askerName="Sabeen" />
+    </QueryClientProvider>,
+  );
+}
+
+const DRAFT = {
+  question: 'Do orders ship from our stock or from the printer?',
+  what_it_is: 'The store can ship from our own stock or straight from the printer.',
+  checked: 'The signed proposal and the commerce plan say nothing on it.',
+  unknown: 'Which way the client wants orders shipped.',
+  if_nobody: 'No shipping cards are made until this is answered.',
+};
+
+describe('a project question (asked on the project, no card)', () => {
+  beforeEach(() => {
+    mockGet.mockReset();
+    mockPost.mockReset();
+    toastSuccess.mockReset();
+    toastError.mockReset();
+    toastApiError.mockReset();
+  });
+
+  it('shows with no card link and is answered on the project', async () => {
+    mockGet.mockResolvedValue({ questions: [projectQ], total: 1 });
+    mockPost.mockResolvedValue({ released_task_ids: [], handed_to_dox: false });
+    renderTab();
+    await screen.findByText('Do orders ship from our stock or from the printer?');
+    const item = screen.getByTestId('project-question');
+    expect(item).toHaveTextContent('On the project, no card yet');
+    expect(item).toHaveTextContent('Asked by Sabeen');
+    expect(item).not.toHaveTextContent('Holds no cards');
+    expect(screen.queryByText(/^Card:/)).toBeNull();
+    fireEvent.click(screen.getByText('Other answer'));
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'From the printer' } });
+    fireEvent.click(screen.getByText('Send answer'));
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/projects/proj-1/questions/q3/answer', { text: 'From the printer', version: '2026-11-15T10:00:00.000Z' }));
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith('Answer saved.'));
+  });
+
+  it('has no ask button unless the viewer may ask', async () => {
+    mockGet.mockResolvedValue({ questions: [], total: 0 });
+    renderTab();
+    await screen.findByText('No open questions');
+    expect(screen.queryByTestId('project-question-ask')).toBeNull();
+  });
+
+  it('asks a question from the tab, on an empty project too, and reads the list again', async () => {
+    mockGet.mockResolvedValue({ questions: [], total: 0 });
+    mockPost.mockResolvedValue({ id: 'q9' });
+    renderAskTab();
+    await screen.findByText('No open questions');
+    fireEvent.click(screen.getByTestId('project-question-ask'));
+    // nothing is sent while a part is missing
+    fireEvent.click(screen.getByText('Add question'));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Write the question.');
+    expect(mockPost).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText('The question'), { target: { value: DRAFT.question } });
+    fireEvent.change(screen.getByLabelText('What it is about'), { target: { value: DRAFT.what_it_is } });
+    fireEvent.change(screen.getByLabelText('What you checked'), { target: { value: DRAFT.checked } });
+    fireEvent.change(screen.getByLabelText('What is still unknown'), { target: { value: DRAFT.unknown } });
+    fireEvent.change(screen.getByLabelText('What happens if nobody decides'), { target: { value: DRAFT.if_nobody } });
+    fireEvent.click(screen.getByText('Add question'));
+    await waitFor(() => expect(mockPost).toHaveBeenCalledTimes(1));
+    const [path, body] = mockPost.mock.calls[0];
+    expect(path).toBe('/projects/proj-1/questions');
+    expect(body).toMatchObject({ ...DRAFT, if_nobody_action: 'wait', sources: [{ who: 'Sabeen', said: DRAFT.what_it_is }] });
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith('Question added.'));
+    await waitFor(() => expect(mockGet).toHaveBeenCalledTimes(2));
+    // the form closes once the question is saved
+    await waitFor(() => expect(screen.queryByTestId('project-question-form')).toBeNull());
+  });
+
+  it('keeps the form open and shows the server\'s reason when the question is refused', async () => {
+    mockGet.mockResolvedValue({ questions: [], total: 0 });
+    mockPost.mockRejectedValue(new Error('That question is already on this project.'));
+    renderAskTab();
+    await screen.findByText('No open questions');
+    fireEvent.click(screen.getByTestId('project-question-ask'));
+    fireEvent.change(screen.getByLabelText('The question'), { target: { value: DRAFT.question } });
+    fireEvent.change(screen.getByLabelText('What it is about'), { target: { value: DRAFT.what_it_is } });
+    fireEvent.change(screen.getByLabelText('What you checked'), { target: { value: DRAFT.checked } });
+    fireEvent.change(screen.getByLabelText('What is still unknown'), { target: { value: DRAFT.unknown } });
+    fireEvent.change(screen.getByLabelText('What happens if nobody decides'), { target: { value: DRAFT.if_nobody } });
+    fireEvent.click(screen.getByText('Add question'));
+    await waitFor(() => expect(toastApiError).toHaveBeenCalled());
+    expect(screen.getByTestId('project-question-form')).toBeInTheDocument();
+    expect(toastSuccess).not.toHaveBeenCalled();
+  });
+});
+
+describe('the ask form rules', () => {
+  it('names the first thing missing, and passes a whole draft', () => {
+    expect(projectQuestionProblem({ ...DRAFT, question: '' })).toBe('Write the question.');
+    expect(projectQuestionProblem({ ...DRAFT, question: 'Ship from our stock' })).toBe('The question ends in a question mark.');
+    expect(projectQuestionProblem({ ...DRAFT, checked: 'no' })).toBe('What you checked needs a real sentence.');
+    expect(projectQuestionProblem(DRAFT)).toBeNull();
+  });
+
+  it('builds the body with the asker as the source and wait as the default', () => {
+    const body = projectQuestionBody({ ...DRAFT, question: `  ${DRAFT.question} ` }, '', '2026-11-23');
+    expect(body.question).toBe(DRAFT.question);
+    expect(body.sources).toEqual([{ who: 'Staff', said: DRAFT.what_it_is, at: '2026-11-23' }]);
+    expect(body.if_nobody_action).toBe('wait');
+  });
+});
 
 describe('ProjectQuestionsTab', () => {
   beforeEach(() => {

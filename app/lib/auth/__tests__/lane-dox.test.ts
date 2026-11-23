@@ -82,6 +82,11 @@ const ALLOWED: [string, string][] = [
   // the client email loop (2026-11-19): answers with a source, question edits, the kind of his own Triage card, meeting links, routing reads
   ['POST', '/api/tasks/7f1c/questions/9a/answer'],
   ['PATCH', '/api/tasks/7f1c/questions/9a'],
+  // project questions (Mike, 2026-11-23): asked on the project itself, on a live project (lib/dox/guard.ts guardDoxProjectQuestion)
+  ['GET', '/api/projects/7f1c/questions'],
+  ['POST', '/api/projects/7f1c/questions'],
+  ['PATCH', '/api/projects/7f1c/questions/9a'],
+  ['POST', '/api/projects/7f1c/questions/9a/answer'],
   ['PATCH', '/api/tasks/7f1c/triage'],
   ['POST', '/api/meetings/7f1c/projects'],
   ['GET', '/api/contacts/resolve'],
@@ -177,7 +182,7 @@ describe('lane dox', () => {
 
   it('no allowed route is a DELETE, and no write reaches an approval, outbox, portal, billing or credential path', () => {
     // The two writes that name an answer or Triage are body-checked in lib/dox/guard.ts (guardDoxAnswer, guardDoxTriagePatch).
-    const narrowed = ['/api/tasks/:id/questions/:qid/answer', '/api/tasks/:id/triage'];
+    const narrowed = ['/api/tasks/:id/questions/:qid/answer', '/api/projects/:id/questions/:qid/answer', '/api/tasks/:id/triage'];
     for (const r of LANE_ROUTES.dox) {
       expect(r.method).not.toBe('DELETE');
       if (r.method === 'PUT') expect(['/api/tasks/:id/plan/:section', '/api/oracle/projects/:id/next-step/write']).toContain(r.pattern); // the plan and the next-step line are the two PUTs Dox has

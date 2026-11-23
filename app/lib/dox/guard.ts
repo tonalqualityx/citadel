@@ -627,6 +627,16 @@ export async function guardDoxAnswer(auth: LaneAuth, headers: Hdrs, task: DoxQue
 }
 
 /**
+ * A project question as Dox (POST /api/projects/:id/questions, its answer and its PATCH): on a live project only (ready, in progress or review), with
+ * no header or pass, the same reach a card question has (a dry pass open on the project still writes nothing). What he may change on a question
+ * he did not ask is decided in lib/projects/project-questions.ts.
+ */
+export async function guardDoxProjectQuestion(auth: LaneAuth, projectId: string, db: Db = prisma): Promise<void> {
+  if (!isDoxLane(auth)) return;
+  await requireLiveProject(projectId, db);
+}
+
+/**
  * PATCH /api/tasks/:id/questions/:qid as Dox. Withdraw a question nobody needs answered any more: on a task of a live project or a client's standalone task
  * that is not held for Mike. Change a question's Context: only a question he asked himself. On a Triage card: only a question he asked himself.
  */

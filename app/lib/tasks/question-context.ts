@@ -227,7 +227,9 @@ export function optionOf(options: unknown, id: string | null | undefined): Quest
 /** A question as the routes return it and the screens read it (the JSON of GET /api/tasks/:id/questions). Client-safe: no server imports. */
 export interface QuestionView {
   id: string;
-  task_id: string;
+  /** Null for a project question (asked on the project itself, with no card). */
+  task_id: string | null;
+  project_id?: string | null;
   position: number;
   question: string;
   what_it_is: string;

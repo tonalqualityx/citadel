@@ -1204,7 +1204,7 @@ export default function ProjectDetailPage() {
 
         {isPmOrAdmin && (
           <TabsContent value="questions" className="mt-4">
-            <ProjectQuestionsTab projectId={project.id} canAnswer={user?.id === MIKE_USER_ID} />
+            <ProjectQuestionsTab projectId={project.id} canAnswer={user?.id === MIKE_USER_ID} canAsk={isPmOrAdmin} askerName={user?.name ?? ''} />
           </TabsContent>
         )}
 

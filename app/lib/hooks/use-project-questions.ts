@@ -14,7 +14,9 @@ export interface ProjectQuestion extends QuestionView {
   created_at: string;
   asked_by_lane: string | null;
   asked_by: { id: string; name: string } | null;
-  task: { id: string; title: string; status: string; project_id: string | null; project: { id: string; name: string } | null };
+  /** The question's card. Null for a project question (asked on the project itself). */
+  task: { id: string; title: string; status: string; project_id: string | null; project: { id: string; name: string } | null } | null;
+  project?: { id: string; name: string } | null;
 }
 
 export interface ProjectQuestionsResponse {
@@ -52,7 +54,9 @@ export function useAnswerProjectQuestion(projectId: string) {
     async (q: Pick<ProjectQuestion, 'id' | 'task_id'>, body: QuestionAnswerBody): Promise<boolean> => {
       let released = 0;
       try {
-        const out = await apiClient.post<{ released_task_ids?: string[] }>(`/tasks/${q.task_id}/questions/${q.id}/answer`, body);
+        // A card question is answered on its card; a project question (no card) on the project.
+        const path = q.task_id ? `/tasks/${q.task_id}/questions/${q.id}/answer` : `/projects/${projectId}/questions/${q.id}/answer`;
+        const out = await apiClient.post<{ released_task_ids?: string[] }>(path, body);
         released = out?.released_task_ids?.length ?? 0;
       } catch (e) {
         if (e instanceof Error && e.message === QUESTION_CHANGED_MESSAGE) {
@@ -68,8 +72,10 @@ export function useAnswerProjectQuestion(projectId: string) {
       await queryClient.invalidateQueries({ queryKey: projectKeys.questions(projectId) });
       queryClient.invalidateQueries({ queryKey: projectKeys.detail(projectId) });
       queryClient.invalidateQueries({ queryKey: projectKeys.communication(projectId) });
-      queryClient.invalidateQueries({ queryKey: questionKeys.task(q.task_id) });
-      queryClient.invalidateQueries({ queryKey: taskKeys.detail(q.task_id) });
+      if (q.task_id) {
+        queryClient.invalidateQueries({ queryKey: questionKeys.task(q.task_id) });
+        queryClient.invalidateQueries({ queryKey: taskKeys.detail(q.task_id) });
+      }
       queryClient.invalidateQueries({ queryKey: taskKeys.byProject(projectId) });
       queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
       try {
@@ -80,5 +86,50 @@ export function useAnswerProjectQuestion(projectId: string) {
       return true;
     },
     [queryClient, projectId],
+  );
+}
+
+/** What the "Ask a question" form collects: the question and the Context parts the server requires of every question. */
+export interface ProjectQuestionDraft {
+  question: string;
+  what_it_is: string;
+  checked: string;
+  unknown: string;
+  if_nobody: string;
+}
+
+/** The body the project question route takes for a question a person typed: their own words are the source, and it waits for its answer. */
+export function projectQuestionBody(draft: ProjectQuestionDraft, askerName: string, today: string) {
+  return {
+    question: draft.question.trim(),
+    what_it_is: draft.what_it_is.trim(),
+    sources: [{ who: askerName.trim() || 'Staff', said: draft.what_it_is.trim().slice(0, 1000), at: today }],
+    checked: draft.checked.trim(),
+    unknown: draft.unknown.trim(),
+    if_nobody: draft.if_nobody.trim(),
+    if_nobody_action: 'wait' as const,
+  };
+}
+
+/**
+ * `(draft) => Promise<boolean>`: asks a question on the project itself (no card), then refreshes the project's questions. The server's own
+ * message is shown when it refuses the question (a part too short, the same question already open, ten already open).
+ */
+export function useAskProjectQuestion(projectId: string, askerName: string) {
+  const queryClient = useQueryClient();
+  return useCallback(
+    async (draft: ProjectQuestionDraft): Promise<boolean> => {
+      try {
+        await apiClient.post(`/projects/${projectId}/questions`, projectQuestionBody(draft, askerName, new Date().toISOString().slice(0, 10)));
+      } catch (e) {
+        showToast.apiError(e, 'The question could not be saved');
+        return false;
+      }
+      showToast.success('Question added.');
+      await queryClient.invalidateQueries({ queryKey: projectKeys.questions(projectId) });
+      queryClient.invalidateQueries({ queryKey: projectKeys.communication(projectId) });
+      return true;
+    },
+    [queryClient, projectId, askerName],
   );
 }

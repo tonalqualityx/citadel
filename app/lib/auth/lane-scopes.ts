@@ -428,6 +428,11 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('POST', '/api/tasks/:id/questions'),
     r('PATCH', '/api/tasks/:id/questions/:qid'),
     r('POST', '/api/tasks/:id/questions/:qid/answer'),
+    // Project questions (asked on the project itself, no card): read, ask, edit or withdraw, and record Mike's answer in his own words
+    r('GET', '/api/projects/:id/questions'),
+    r('POST', '/api/projects/:id/questions'),
+    r('PATCH', '/api/projects/:id/questions/:qid'),
+    r('POST', '/api/projects/:id/questions/:qid/answer'),
     // Triage tab: read a Triage card, set its kind and project (PATCH), and draft the project's phases and sitemap before release (PUT shape). Mike's session or this lane only.
     r('GET', '/api/tasks/:id/triage'),
     r('PATCH', '/api/tasks/:id/triage'),
@@ -515,6 +520,11 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     // guardDoxTaskWrite), which is also the hand-off to the change-request lane: a standalone task on the client's site, assigned to Bast.
     r('POST', '/api/tasks/:id/questions/:qid/answer'),
     r('PATCH', '/api/tasks/:id/questions/:qid'),
+    // Project questions (Mike, 2026-11-23): a question whose answer decides which cards get made goes on the project itself, on a live project
+    r('GET', '/api/projects/:id/questions'),
+    r('POST', '/api/projects/:id/questions'),
+    r('PATCH', '/api/projects/:id/questions/:qid'),
+    r('POST', '/api/projects/:id/questions/:qid/answer'),
     r('PATCH', '/api/tasks/:id/triage'),
     r('POST', '/api/meetings/:id/projects'),
     // Reads for routing an email to its project: contacts, clients, sites, meetings and email asks. Every secret key is removed from these answers

@@ -58,8 +58,9 @@ export interface SnapshotWait {
 
 export interface SnapshotQuestion {
   id: string;
-  task_id: string;
-  task_title: string;
+  /** Null for a project question (asked on the project itself, with no card). */
+  task_id: string | null;
+  task_title: string | null;
   question: string;
   cause_key: string | null;
   asked_by_lane: string | null;
@@ -84,6 +85,21 @@ export interface ProjectSnapshot {
   tasks_truncated: boolean;
   waits: SnapshotWait[];
   questions: SnapshotQuestion[];
+  /** The project's own questions (no card), newest first, with the answer once there is one: how Dox reads an answer to a question he asked on the project. */
+  project_questions: SnapshotProjectQuestion[];
+}
+
+export interface SnapshotProjectQuestion {
+  id: string;
+  question: string;
+  state: string;
+  cause_key: string | null;
+  asked_by_lane: string | null;
+  created_at: string;
+  answer_text: string | null;
+  answered_at: string | null;
+  /** The row's updated_at: send it back as `version` when answering. */
+  version: string;
 }
 
 const OPEN_WAIT_STATES = ['waiting', 'needs_human', 'paused', 'blocked_by_switch'] as const;
@@ -116,7 +132,7 @@ export async function buildProjectSnapshot(db: PrismaClient, projectId: string, 
   const tasks = truncated ? rows.slice(0, SNAPSHOT_TASK_CAP) : rows;
   const taskIds = tasks.map((t) => t.id);
 
-  const [lastComments, live, waitRows, questionRows] = await Promise.all([
+  const [lastComments, live, waitRows, questionRows, projectQuestionRows] = await Promise.all([
     taskIds.length
       ? db.comment.groupBy({ by: ['task_id'], where: { task_id: { in: taskIds }, is_deleted: false }, _max: { created_at: true } })
       : Promise.resolve([] as { task_id: string; _max: { created_at: Date | null } }[]),
@@ -127,10 +143,16 @@ export async function buildProjectSnapshot(db: PrismaClient, projectId: string, 
       take: 200,
     }),
     db.taskQuestion.findMany({
-      where: { state: 'open', task: { project_id: projectId, is_deleted: false } },
+      where: { state: 'open', OR: [{ task: { project_id: projectId, is_deleted: false } }, { project_id: projectId, task_id: null }] },
       orderBy: { created_at: 'asc' },
       take: 200,
       select: { id: true, task_id: true, question: true, cause_key: true, asked_by_lane: true, created_at: true, task: { select: { title: true } } },
+    }),
+    db.taskQuestion.findMany({
+      where: { project_id: projectId, task_id: null, state: { not: 'withdrawn' } },
+      orderBy: { created_at: 'desc' },
+      take: 50,
+      select: { id: true, question: true, state: true, cause_key: true, asked_by_lane: true, created_at: true, answer_text: true, answered_at: true, updated_at: true },
     }),
   ]);
   const lastBy = new Map(lastComments.map((c) => [c.task_id, c._max.created_at]));
@@ -195,11 +217,22 @@ export async function buildProjectSnapshot(db: PrismaClient, projectId: string, 
     questions: questionRows.map((q) => ({
       id: q.id,
       task_id: q.task_id,
-      task_title: q.task.title,
+      task_title: q.task ? q.task.title : null,
       question: q.question,
       cause_key: q.cause_key,
       asked_by_lane: q.asked_by_lane,
       created_at: q.created_at.toISOString(),
+    })),
+    project_questions: projectQuestionRows.map((q) => ({
+      id: q.id,
+      question: q.question,
+      state: q.state,
+      cause_key: q.cause_key,
+      asked_by_lane: q.asked_by_lane,
+      created_at: q.created_at.toISOString(),
+      answer_text: q.answer_text,
+      answered_at: q.answered_at ? q.answered_at.toISOString() : null,
+      version: q.updated_at.toISOString(),
     })),
   };
 }

@@ -466,10 +466,10 @@ export const taskEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'GET',
-        summary: 'Card questions across cards, oldest first, with the card and project, who it was for, the email that carried it and the cards it blocks. No question on a Triage card, unless include_triage=1 comes from Mike\'s own session or the chat lane (ignored for anyone else). state: open (default), answered, defaulted, withdrawn or all. for: client, mike or all (default). project_id. limit 1 to 500 (default 100). include_triage: 1 or true.',
+        summary: 'Card questions across cards and project questions (asked on a project itself, with no card: task and task_id are null, project_id is set), oldest first, with the card and project, who it was for, the email that carried it and the cards it blocks. No question on a Triage card, unless include_triage=1 comes from Mike\'s own session or the chat lane (ignored for anyone else). state: open (default), answered, defaulted, withdrawn or all. for: client, mike or all (default). project_id. limit 1 to 500 (default 100). include_triage: 1 or true.',
         auth: 'required',
         responseExample: { questions: [{ id: 'uuid', question: 'string', state: 'open', asked_of_contact: { id: 'uuid', name: 'string|null', email: 'string' }, sent: { account: 'string', message_id: 'string', thread_id: 'string|null', at: 'string|null' }, nudge_drafted_at: 'string|null', blocks: [{ id: 'uuid', title: 'string', status: 'string' }], task: { id: 'uuid', title: 'string', status: 'string', project_id: 'uuid|null', project: { id: 'uuid', name: 'string' } }, asked_by: { id: 'uuid', name: 'string' } }], total: 'number' },
-        responseNotes: 'pm and admin only (403 otherwise). asked_by is null when the asker is not recorded (asked_by_lane may still name the agent lane). The project screen\'s Questions tab reads this with state=open and project_id, and answers through POST /api/tasks/:id/questions/:qid/answer.',
+        responseNotes: 'pm and admin only (403 otherwise). asked_by is null when the asker is not recorded (asked_by_lane may still name the agent lane). The project screen\'s Questions tab reads this with state=open and project_id, and answers a card question through POST /api/tasks/:id/questions/:qid/answer and a project question (task is null) through POST /api/projects/:id/questions/:qid/answer. Each row also carries `project` ({ id, name } or null): the card\'s project, or the project question\'s own.',
       },
     ],
   },

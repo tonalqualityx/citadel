@@ -345,6 +345,74 @@ export const projectEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/projects/:id/questions',
+    group: 'projects',
+    methods: [
+      {
+        method: 'GET',
+        summary: "The project's own questions: asked on the project itself, with no card (Mike, 2026-11-23: the answer sometimes decides which cards get made). Every state, each in the shape a card question has.",
+        auth: 'required',
+        responseExample: { questions: [{ id: 'uuid', task_id: 'null', project_id: 'uuid', question: 'string', state: 'open|answered|withdrawn', what_it_is: 'string', sources: [{ who: 'string', said: 'string', at: 'string|null', url: 'string|null' }], checked: 'string', unknown: 'string', if_nobody: 'string', if_nobody_action: 'wait', answer_text: 'string|null', answered_at: 'string|null', citation: 'string|null', version: 'ISO-8601' }], open_count: 'number' },
+        responseNotes: 'pm, admin, Mike, the chat lane and bot keys (404 otherwise). GET /api/questions?project_id= lists these together with the questions on the project\'s cards.',
+      },
+      {
+        method: 'POST',
+        summary: 'Ask one question on the project itself. Carries every Context part a card question does (question, what_it_is, sources, checked, unknown, if_nobody, optional options with recommended_option_id and recommend_why) and always waits for its answer: if_nobody_action must be wait. Optional cause_key.',
+        auth: 'required',
+        bodySchema: [
+          { name: 'question', type: 'string', required: true, description: 'One line, at most 200 characters, ending in a question mark' },
+          { name: 'what_it_is', type: 'string', required: true, description: 'What the question is about, in a real sentence' },
+          { name: 'sources', type: 'object', required: true, description: '[{ who, said, at?, url? }]: who said what, one to ten' },
+          { name: 'checked', type: 'string', required: true, description: 'What was checked' },
+          { name: 'unknown', type: 'string', required: true, description: 'What is still unknown' },
+          { name: 'if_nobody', type: 'string', required: true, description: 'What happens if nobody decides' },
+          { name: 'if_nobody_action', type: 'string', required: true, description: 'Always wait: a project question never goes with a recommendation on its own' },
+          { name: 'options', type: 'object', required: false, description: 'None, or two to four { id, label, consequence }, with recommended_option_id and recommend_why' },
+          { name: 'cause_key', type: 'string', required: false, description: '3 to 120 characters: one live question per cause across the project and its cards' },
+        ],
+        responseExample: { id: 'uuid', task_id: 'null', project_id: 'uuid', question: 'string', state: 'open', version: 'ISO-8601', deduped: 'boolean?' },
+        responseNotes: '201 for a new question. 200 with deduped true when cause_key names a question that already exists on the project or one of its cards and was not withdrawn (nothing is created). 409 too_many_open past 10 open on the project, 409 duplicate_question for the same wording, 400 project_question_waits for go_with_recommendation. It blocks no cards and is never sent to a client. Dox: a live project only.',
+      },
+    ],
+  },
+  {
+    path: '/api/projects/:id/questions/:qid',
+    group: 'projects',
+    methods: [
+      {
+        method: 'PATCH',
+        summary: 'Change the Context of an open project question, or withdraw it ({ withdraw: true, reason? }). Mike, the chat lane, bot keys and the asker. Dox withdraws any and changes the wording of his own only.',
+        auth: 'required',
+        bodySchema: [
+          { name: 'withdraw', type: 'boolean', required: false, description: 'true withdraws the question' },
+          { name: 'reason', type: 'string', required: false, description: 'Why it was withdrawn' },
+          { name: 'question', type: 'string', required: false, description: 'Any Context part (question, what_it_is, sources, checked, unknown, options, if_nobody) to change it' },
+        ],
+        responseExample: { id: 'uuid', project_id: 'uuid', state: 'open|withdrawn', version: 'ISO-8601' },
+        responseNotes: '404 for a question that is not this project\'s own or not the caller\'s to change. 409 withdrawn or not_open.',
+      },
+    ],
+  },
+  {
+    path: '/api/projects/:id/questions/:qid/answer',
+    group: 'projects',
+    methods: [
+      {
+        method: 'POST',
+        summary: "Mike's answer to a project question (his own session, or the chat lane relaying his words). Dox records an answer someone else gave, with source { who, said, at, url? }; never Mike's word.",
+        auth: 'required',
+        bodySchema: [
+          { name: 'version', type: 'string', required: true, description: 'The question\'s version as read' },
+          { name: 'option_id', type: 'string', required: false, description: 'One of the question\'s options' },
+          { name: 'text', type: 'string', required: false, description: 'The answer in words (required when no option is picked)' },
+          { name: 'source', type: 'object', required: false, description: 'Dox only, required: { who, said, at, url? }' },
+        ],
+        responseExample: { question: { id: 'uuid', project_id: 'uuid', state: 'answered', answer_text: 'string', answered_at: 'ISO-8601', citation: 'string|null' }, released_task_ids: [], handed_to_dox: 'boolean' },
+        responseNotes: 'version is the question\'s version as read (409 question_changed otherwise). No comment is written: there is no card. handed_to_dox is true when Dox asked the question and someone else answered: the project\'s refresh request is stamped, so his next pass reads the answer from the engagement snapshot (project_questions). 403 not_mike for anyone else.',
+      },
+    ],
+  },
+  {
     path: '/api/projects/:id/communication',
     group: 'projects',
     methods: [
@@ -368,7 +436,7 @@ export const projectEndpoints: ApiEndpoint[] = [
           }],
           counts: { email: 'number', question: 'number', meeting: 'number' },
         },
-        responseNotes: 'Emails: email_asks filed to the project or to one of its cards, the mike@ and bast@ copies of one message shown once, href is the Gmail thread (external true). Questions: task_questions on the project\'s cards, never withdrawn, never on a Triage card, href is the card; at is when it was sent, else when it was logged; state is set on questions only. Meetings: linked to the project, or the meeting a project card came from; href is the meeting. card is null when an email has no card and on meetings. pm/admin only (client mail).',
+        responseNotes: 'Emails: email_asks filed to the project or to one of its cards, the mike@ and bast@ copies of one message shown once, href is the Gmail thread (external true). Questions: task_questions on the project\'s cards and the project\'s own questions (card null, href the project), never withdrawn, never on a Triage card, href is the card; at is when it was sent, else when it was logged; state is set on questions only. Meetings: linked to the project, or the meeting a project card came from; href is the meeting. card is null when an email has no card and on meetings. pm/admin only (client mail).',
       },
     ],
   },

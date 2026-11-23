@@ -66,7 +66,9 @@ export interface QuestionRow {
   asked_of_contact: { name: string | null; email: string } | null;
   asked_by: { name: string } | null;
   asked_by_lane: string | null;
-  task: CommunicationCard;
+  /** Null for a project question (asked on the project itself): it opens on the project's Questions tab. */
+  task: CommunicationCard | null;
+  project_id?: string | null;
 }
 
 export interface MeetingRow {
@@ -130,7 +132,7 @@ export function buildCommunicationTimeline(rows: { emails: EmailRow[]; questions
     title: q.question,
     detail: questionDetail(q),
     from: q.asked_by?.name ?? q.asked_by_lane ?? null,
-    href: `/tasks/${q.task.id}`,
+    href: q.task ? `/tasks/${q.task.id}` : `/projects/${q.project_id ?? ''}`,
     external: false,
     card: q.task,
     state: q.state,
@@ -182,7 +184,7 @@ export async function loadProjectCommunication(projectId: string): Promise<Commu
       },
     }),
     prisma.taskQuestion.findMany({
-      where: { state: { not: 'withdrawn' }, task: { project_id: projectId, is_deleted: false, status: { not: 'triage' } } },
+      where: { state: { not: 'withdrawn' }, OR: [{ task: { project_id: projectId, is_deleted: false, status: { not: 'triage' } } }, { project_id: projectId, task_id: null }] },
       select: {
         id: true,
         question: true,
@@ -193,6 +195,7 @@ export async function loadProjectCommunication(projectId: string): Promise<Commu
         asked_by_user_id: true,
         asked_by_lane: true,
         asked_of_contact: { select: { name: true, email: true } },
+        project_id: true,
         task: { select: CARD_SELECT },
       },
     }),

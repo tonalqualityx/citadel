@@ -9,12 +9,17 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { Spinner } from '@/components/ui/spinner';
 import { QuestionList } from '@/components/domain/tasks/questions/QuestionList';
 import { askedDate } from '@/components/domain/tasks/questions/question-copy';
-import { useAnswerProjectQuestion, useProjectQuestions, type ProjectQuestion } from '@/lib/hooks/use-project-questions';
+import { useAnswerProjectQuestion, useAskProjectQuestion, useProjectQuestions, type ProjectQuestion } from '@/lib/hooks/use-project-questions';
+import { ProjectQuestionForm } from './project-question-form';
 
 interface ProjectQuestionsTabProps {
   projectId: string;
   /** Only Mike answers (the answer route refuses everyone else); everyone else reads. */
   canAnswer: boolean;
+  /** A pm or admin may ask a question on the project itself (no card). Left out, the tab only lists and answers. */
+  canAsk?: boolean;
+  /** The signed-in person's name: recorded as the source of a question they ask. */
+  askerName?: string;
 }
 
 /** Who the question waits on: the client contact we sent it to, or Mike. */
@@ -40,10 +45,14 @@ function Meta({ q }: { q: ProjectQuestion }) {
       </Badge>
       <span>Asked by {questionAsker(q)}</span>
       <span>{askedDate(q.created_at)}</span>
-      <Link href={`/tasks/${q.task.id}`} className="hover:underline">
-        Card: {q.task.title}
-      </Link>
-      {blocks.length > 0 ? (
+      {q.task ? (
+        <Link href={`/tasks/${q.task.id}`} className="hover:underline">
+          Card: {q.task.title}
+        </Link>
+      ) : (
+        <span data-testid="project-question-on-project">On the project, no card yet</span>
+      )}
+      {!q.task ? null : blocks.length > 0 ? (
         <span>
           Holds:{' '}
           {blocks.map((b, i) => (
@@ -62,10 +71,15 @@ function Meta({ q }: { q: ProjectQuestion }) {
   );
 }
 
-/** Every open question on the project and its cards, oldest first, each answerable in place with the card screen's own answer form. */
-export function ProjectQuestionsTab({ projectId, canAnswer }: ProjectQuestionsTabProps) {
+/**
+ * Every open question on the project and its cards, oldest first, each answerable in place with the card screen's own answer form. A pm or
+ * admin can also ask a question on the project itself, for when no card exists yet because the answer decides which cards get made.
+ */
+export function ProjectQuestionsTab({ projectId, canAnswer, canAsk = false, askerName = '' }: ProjectQuestionsTabProps) {
   const { data, isLoading, isError } = useProjectQuestions(projectId);
   const answer = useAnswerProjectQuestion(projectId);
+  const ask = useAskProjectQuestion(projectId, askerName);
+  const askForm = canAsk ? <ProjectQuestionForm onAsk={ask} /> : null;
 
   if (isLoading) {
     return (
@@ -82,16 +96,20 @@ export function ProjectQuestionsTab({ projectId, canAnswer }: ProjectQuestionsTa
   const questions = data.questions;
   if (questions.length === 0) {
     return (
-      <EmptyState
-        icon={<HelpCircle className="h-10 w-10" />}
-        title="No open questions"
-        description="Questions waiting on Mike or a client, logged on this project's cards, show here."
-      />
+      <div className="space-y-3">
+        {askForm}
+        <EmptyState
+          icon={<HelpCircle className="h-10 w-10" />}
+          title="No open questions"
+          description="Questions waiting on Mike or a client, logged on this project or its cards, show here."
+        />
+      </div>
     );
   }
 
   return (
     <div className="space-y-3" data-testid="project-questions">
+      {askForm}
       <p className="text-sm text-text-sub">
         {data.total} open {data.total === 1 ? 'question' : 'questions'}, oldest first.
         {data.total > questions.length ? ` Showing the first ${questions.length}.` : ''}

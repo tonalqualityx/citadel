@@ -1064,6 +1064,8 @@ model Project {
   design_tracks DesignTrack[]
   design_notes  DesignNote[]
 
+  // Questions asked on the project itself, with no card (lib/projects/project-questions.ts)
+  project_questions TaskQuestion[] @relation("ProjectQuestions")
   @@index([client_id])
   @@index([recipe_id])
   @@index([site_id])
@@ -5957,8 +5959,12 @@ enum TaskQuestionAction {
 /// answer and the recommendation went ahead: it is never his words. Every answer also stays as an internal comment on the task.
 model TaskQuestion {
   id                    String             @id @default(uuid()) @db.Uuid
-  task_id               String             @db.Uuid
-  task                  Task               @relation(fields: [task_id], references: [id], onDelete: Cascade)
+  // A card question has task_id; a PROJECT question (Mike, 2026-11-23: its answer decides which cards get made, so no card exists to hold it) has
+  // project_id and no task. Exactly one of the two is set (database check task_questions_one_home).
+  task_id               String?            @db.Uuid
+  task                  Task?              @relation(fields: [task_id], references: [id], onDelete: Cascade)
+  project_id            String?            @db.Uuid
+  project               Project?           @relation("ProjectQuestions", fields: [project_id], references: [id], onDelete: Cascade)
   position              Int                @default(0)
   question              String             @db.VarChar(200)
   // Context parts
@@ -6006,6 +6012,7 @@ model TaskQuestion {
 
   // Uniqueness of (task_id, question) among non-withdrawn rows is enforced in code inside the task-locked transaction (Prisma cannot express a partial unique index without drift).
   @@index([task_id, state])
+  @@index([project_id, state])
   @@index([cause_key, state])
   @@index([state, default_at])
   @@index([asked_of_contact_id])

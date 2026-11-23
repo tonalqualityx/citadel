@@ -45,7 +45,7 @@ export async function openQuestionRows(db: Pick<Db, 'taskQuestion'>, taskIds: st
   const out = new Map<string, { id: string; if_nobody_action: string }[]>();
   if (taskIds.length === 0) return out;
   const rows = await db.taskQuestion.findMany({ where: { task_id: { in: taskIds }, state: 'open' }, select: { id: true, task_id: true, if_nobody_action: true }, orderBy: { id: 'asc' } });
-  for (const r of rows) out.set(r.task_id, [...(out.get(r.task_id) ?? []), { id: r.id, if_nobody_action: r.if_nobody_action }]);
+  for (const r of rows) if (r.task_id) out.set(r.task_id, [...(out.get(r.task_id) ?? []), { id: r.id, if_nobody_action: r.if_nobody_action }]);
   return out;
 }
 

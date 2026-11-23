@@ -55,13 +55,13 @@ describe('GET /api/projects/:id/communication', () => {
     expect(body.counts).toEqual({ email: 1, question: 1, meeting: 1 });
   });
 
-  it('reads emails filed to the project or its cards, questions on its non-triage cards, and meetings linked either way', async () => {
+  it('reads emails filed to the project or its cards, questions on its non-triage cards and on the project itself, and meetings linked either way', async () => {
     await GET(req(), { params });
     expect(prisma.emailAsk.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { OR: [{ project_id: 'proj-1' }, { task: { project_id: 'proj-1', is_deleted: false } }] },
     }));
     expect(prisma.taskQuestion.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { state: { not: 'withdrawn' }, task: { project_id: 'proj-1', is_deleted: false, status: { not: 'triage' } } },
+      where: { state: { not: 'withdrawn' }, OR: [{ task: { project_id: 'proj-1', is_deleted: false, status: { not: 'triage' } } }, { project_id: 'proj-1', task_id: null }] },
     }));
     expect(prisma.meeting.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: {

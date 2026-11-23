@@ -123,7 +123,10 @@ function isOwnerish(auth: Auth, row: Pick<QuestionRow, 'asked_by_user_id'>): boo
 
 export interface QuestionOut {
   id: string;
-  task_id: string;
+  /** The card the question is on. Null for a project question (project_id is set instead). */
+  task_id: string | null;
+  /** Set only on a project question: one asked on the project itself, with no card. */
+  project_id: string | null;
   position: number;
   question: string;
   what_it_is: string;
@@ -171,6 +174,7 @@ export function formatQuestion(q: QuestionRowFull): QuestionOut {
   return {
     id: q.id,
     task_id: q.task_id,
+    project_id: q.project_id,
     position: q.position,
     question: q.question,
     what_it_is: q.what_it_is,
@@ -281,7 +285,7 @@ export async function addQuestion(
       if (cause.scope === 'project') await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"dox-cause:" + cause.key}))`;
       const where: Prisma.TaskQuestionWhereInput =
         cause.scope === 'project' && home?.project_id
-          ? { cause_key: cause.key, state: { not: 'withdrawn' }, task: { project_id: home.project_id, is_deleted: false } }
+          ? { cause_key: cause.key, state: { not: 'withdrawn' }, OR: [{ task: { project_id: home.project_id, is_deleted: false } }, { project_id: home.project_id }] }
           : { cause_key: cause.key, state: { not: 'withdrawn' }, task_id: task.id };
       const existing = await tx.taskQuestion.findFirst({ where, orderBy: { created_at: 'asc' }, include: QUESTION_INCLUDE });
       if (existing) return { ...formatQuestion(existing), deduped: true };
@@ -436,12 +440,12 @@ export interface AnswerResult {
 
 /** Mike's answer. Answering again replaces the answer (the newer one wins); every answer stays as its own comment. */
 /** The Dox lane's own enforced key (lib/dox/guard.ts narrows where it may answer). */
-function isDoxAnswer(auth: Auth): boolean {
+export function isDoxAnswer(auth: Auth): boolean {
   return auth.via === 'api_key' && auth.laneEnforced === true && isDoxLaneValue(auth.lane);
 }
 
 /** Any way of naming Mike in an answer's source: Dox never records his word (it comes from his session or the chat). */
-const MIKE_NAMES_RE = /\b(mike|michael|dion|reshi)\b/i;
+export const MIKE_NAMES_RE = /\b(mike|michael|dion|reshi)\b/i;
 
 export const ANSWER_SOURCE_MESSAGE = 'Dox records an answer with its source: who gave it, their words and the date (source: { who, said, at, url? }).';
 
@@ -548,7 +552,7 @@ export async function openQuestionCounts(db: Pick<typeof prisma, 'taskQuestion'>
   const out = new Map<string, number>();
   if (taskIds.length === 0) return out;
   const rows = await db.taskQuestion.groupBy({ by: ['task_id'], where: { task_id: { in: taskIds }, state: 'open' }, _count: { _all: true } });
-  for (const r of rows) out.set(r.task_id, r._count._all);
+  for (const r of rows) if (r.task_id) out.set(r.task_id, r._count._all);
   return out;
 }
 
@@ -601,7 +605,10 @@ export const QUESTION_FOR = ['client', 'mike', 'all'] as const;
 export const QUESTION_STATES = ['open', 'answered', 'defaulted', 'withdrawn', 'all'] as const;
 
 export interface QuestionListOut extends QuestionOut {
-  task: { id: string; title: string; status: string; project_id: string | null; project: { id: string; name: string } | null };
+  /** The question's card. Null for a project question. */
+  task: { id: string; title: string; status: string; project_id: string | null; project: { id: string; name: string } | null } | null;
+  /** The project the question belongs to: its card's project, or its own for a project question. Null for a card with no project. */
+  project: { id: string; name: string } | null;
   /** Who asked it, by name. Null when the asker is not recorded or no longer exists (asked_by_lane may still say which agent lane filed it). */
   asked_by: { id: string; name: string } | null;
 }
@@ -621,14 +628,18 @@ export async function listAllQuestions(
   const where: Prisma.TaskQuestionWhereInput = {
     ...(q.state === 'all' ? {} : { state: q.state }),
     ...(q.for === 'client' ? { asked_of_contact_id: { not: null } } : q.for === 'mike' ? { asked_of_contact_id: null } : {}),
-    task: { is_deleted: false, ...(withTriage ? {} : { status: { not: 'triage' as const } }), ...(q.project_id ? { project_id: q.project_id } : {}) },
+    // A card question (never on a deleted card, and on a Triage card only for Mike), or a project question (asked on the project itself).
+    OR: [
+      { task: { is_deleted: false, ...(withTriage ? {} : { status: { not: 'triage' as const } }), ...(q.project_id ? { project_id: q.project_id } : {}) } },
+      { task_id: null, project: { is_deleted: false }, ...(q.project_id ? { project_id: q.project_id } : {}) },
+    ],
   };
   const [rows, total] = await Promise.all([
     prisma.taskQuestion.findMany({
       where,
       orderBy: [{ created_at: 'asc' }],
       take: q.limit,
-      include: { ...QUESTION_INCLUDE, task: { select: { id: true, title: true, status: true, project_id: true, project: { select: { id: true, name: true } } } } },
+      include: { ...QUESTION_INCLUDE, project: { select: { id: true, name: true } }, task: { select: { id: true, title: true, status: true, project_id: true, project: { select: { id: true, name: true } } } } },
     }),
     prisma.taskQuestion.count({ where }),
   ]);
@@ -639,7 +650,8 @@ export async function listAllQuestions(
   return {
     questions: rows.map((r) => ({
       ...formatQuestion(r),
-      task: { id: r.task.id, title: r.task.title, status: r.task.status, project_id: r.task.project_id, project: r.task.project },
+      task: r.task ? { id: r.task.id, title: r.task.title, status: r.task.status, project_id: r.task.project_id, project: r.task.project } : null,
+      project: r.task ? r.task.project : r.project,
       asked_by: (r.asked_by_user_id && askerById.get(r.asked_by_user_id)) || null,
     })),
     total,
@@ -671,18 +683,20 @@ export async function defaultDueQuestions(now: Date = new Date()): Promise<{ def
   const defaulted: string[] = [];
   const released: string[] = [];
   for (const q of due) {
+    const homeId = q.task_id;
+    if (!homeId) continue; // a project question never carries a go-ahead date
     const flipped = await prisma.$transaction(async (tx) => {
       const n = await tx.taskQuestion.updateMany({ where: { id: q.id, state: 'open' }, data: { state: 'defaulted', defaulted_at: now } });
       if (n.count !== 1) return false;
       const rec = q.recommended_option_id ? optionOf(q.options, q.recommended_option_id) : null;
       const content = defaultReleaseComment(q.question, q.default_at ?? now, rec ? rec.label : null, q.if_nobody);
-      const cards = Array.from(new Set([q.task_id, ...q.blocks.map((b) => b.id)]));
+      const cards = Array.from(new Set([homeId, ...q.blocks.map((b) => b.id)]));
       for (const taskId of cards) {
         await tx.comment.create({
           data: { task_id: taskId, user_id: BAST_USER_ID, content, mentioned_user_ids: [], is_internal: true, client_visible: false, client_question: false, chat_meta: { question: { id: q.id } } },
         });
       }
-      await releaseHoldIfLast(tx, q.task_id);
+      await releaseHoldIfLast(tx, homeId);
       return true;
     });
     if (!flipped) continue;
