@@ -267,6 +267,19 @@ describe.skipIf(!SCRATCH)('Dox escape attempts (real database)', () => {
       expect((await taskRow(bare)).tags).toContain('needs-pm-release');
       expect((await taskRow(released)).tags).toEqual(['from-triage']);
     });
+
+    it('Dox sets one model tier on a task of the project in play, and never Fable', async () => {
+      const t = await fx.mkTask('Sized by Dox', { project_id: P, status: 'not_started', tags: ['from-dox', 'tier:standard'] });
+      as(dox());
+      expect((await patchTask(call(P, { tags_add: ['tier:grunt'] }, 'PATCH'), idParams(t))).status).toBe(200);
+      expect((await taskRow(t)).tags).toEqual(['from-dox', 'tier:grunt']);
+      expect((await json(await patchTask(call(P, { tags_add: ['tier:frontier'] }, 'PATCH'), idParams(t)))).body.code).toBe('dox_tag_closed');
+      expect((await json(await patchTask(call(P, { tags_add: ['needs-mike'] }, 'PATCH'), idParams(t)))).body.code).toBe('dox_tag_closed');
+      expect((await patchTask(call(P, { tags_remove: ['tier:grunt'] }, 'PATCH'), idParams(t))).status).toBe(200);
+      expect((await taskRow(t)).tags).toEqual(['from-dox']);
+      const made = await json(await createTask(call(P, { title: `${fx.tag} tiered`, project_id: P, tags: ['tier:reasoning'] })));
+      expect(made.status, JSON.stringify(made.body)).toBe(201);
+    });
   });
 
   describe('assignees', () => {

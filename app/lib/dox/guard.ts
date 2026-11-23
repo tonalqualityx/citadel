@@ -51,6 +51,13 @@ export const DOX_ADDABLE_TAGS = [LOOKS_DONE_TAG] as const;
 export const FROM_DOX_TAG = 'from-dox';
 export const DOX_MARK_TAGS = ['billing', 'project-report'] as const;
 export const SETUP_TAG_PREFIX = 'setup:';
+/**
+ * The model tier of a card, read by the worker's model policy: Opus (standard), Sonnet (reasoning) or Haiku (grunt). Dox sets one when he makes
+ * or sizes a card (Mike, 2026-11-23, asked "Should the worker's model be picked per card instead of Opus for everything?", with the
+ * recommendation to let Dox set it: "Yes too all of those."). `tier:frontier` is not here: choosing Fable is Mike's call.
+ */
+export const DOX_TIER_TAGS = ['tier:standard', 'tier:reasoning', 'tier:grunt'] as const;
+const isTierTag = (t: unknown): boolean => (DOX_TIER_TAGS as readonly unknown[]).includes(t);
 /** A project is live (writable) in these statuses. */
 export const DOX_LIVE_PROJECT_STATUSES = ['ready', 'in_progress', 'review'] as const;
 /** An open pass older than this no longer counts: a pass someone forgot to close does not keep the door open for ever. */
@@ -298,10 +305,11 @@ export function checkCreateTags(tags: unknown): string[] {
   if (!Array.isArray(tags) || !tags.every((t) => typeof t === 'string')) return badBody('tags is a list of strings.');
   const out: string[] = [];
   for (const t of tags as string[]) {
-    const ok = t === FROM_DOX_TAG || (DOX_MARK_TAGS as readonly string[]).includes(t) || (t.startsWith(SETUP_TAG_PREFIX) && UUID_RE.test(t.slice(SETUP_TAG_PREFIX.length)));
-    if (!ok) return refuse(`Dox cannot put the tag "${t}" on a new task: only ${FROM_DOX_TAG}, ${DOX_MARK_TAGS.join(', ')} and ${SETUP_TAG_PREFIX}<card id>.`, 'dox_tag_closed');
+    const ok = t === FROM_DOX_TAG || isTierTag(t) || (DOX_MARK_TAGS as readonly string[]).includes(t) || (t.startsWith(SETUP_TAG_PREFIX) && UUID_RE.test(t.slice(SETUP_TAG_PREFIX.length)));
+    if (!ok) return refuse(`Dox cannot put the tag "${t}" on a new task: only ${FROM_DOX_TAG}, ${DOX_MARK_TAGS.join(', ')}, ${SETUP_TAG_PREFIX}<card id> and one of ${DOX_TIER_TAGS.join(', ')}.`, 'dox_tag_closed');
     if (!out.includes(t)) out.push(t);
   }
+  if (out.filter(isTierTag).length > 1) return refuse('A task carries one tier tag.', 'dox_tag_closed');
   return out;
 }
 
@@ -506,7 +514,8 @@ export async function guardDoxTaskPatch(auth: LaneAuth, headers: Hdrs, rawBody: 
     if (!only || add.length === 0 || !add.every((t) => t === LOOKS_DONE_TAG)) refuse('On a Triage card Dox can only mark it looks-done.', 'dox_triage_closed');
     return { tags: [...new Set([...existing.tags, LOOKS_DONE_TAG])] };
   }
-  if (add.length > 0) refuse('Dox adds the looks-done tag to Triage cards only.', 'dox_tag_closed');
+  // Off a Triage card the only tag Dox adds is a card's model tier: one, and it replaces any tier the card had.
+  if (add.length > 0 && !(add.length === 1 && isTierTag(add[0]))) refuse('Dox adds one tier tag to a task (tier:standard, tier:reasoning or tier:grunt), and the looks-done tag to Triage cards only.', 'dox_tag_closed');
   // A task a client can see today: nothing the portal or a client email renders may change through this lane (its status, or a tag the portal reads).
   // The text fields (title, description, checklist, client title) and the routing fields are not on this lane's patch list at all (dox_field_closed above).
   if (isShownInPortal(existing)) {
@@ -515,7 +524,7 @@ export async function guardDoxTaskPatch(auth: LaneAuth, headers: Hdrs, rawBody: 
     if (touched.length > 0) refuse(`A client can see this task, so Dox does not change what the portal shows of it (${touched.join(', ')}).`, 'dox_client_closed');
   }
   for (const t of remove) {
-    if (!(DOX_REMOVABLE_TAGS as readonly unknown[]).includes(t)) refuse('Dox can take off only a dead session hold (cockpit-owned) or needs-pm-release.', 'dox_tag_closed');
+    if (!(DOX_REMOVABLE_TAGS as readonly unknown[]).includes(t) && !isTierTag(t)) refuse('Dox can take off only a dead session hold (cockpit-owned), needs-pm-release or a tier tag he may set.', 'dox_tag_closed');
   }
   // needs-pm-release comes off only a card the owner released from Triage (tag from-triage): Dox is picking it up.
   if (remove.includes(PM_RELEASE_TAG) && !existing.tags.includes(FROM_TRIAGE_TAG)) {
@@ -570,6 +579,7 @@ export async function guardDoxTaskPatch(auth: LaneAuth, headers: Hdrs, rawBody: 
   delete out.tags_remove;
   let tags = existing.tags;
   if (remove.length > 0) tags = tags.filter((t) => !remove.includes(t));
+  if (add.length === 1) tags = [...tags.filter((t) => !isTierTag(t) && t !== add[0]), add[0] as string];
   if (assignToBast && !tags.includes(FROM_DOX_TAG)) tags = [...tags, FROM_DOX_TAG];
   if (tags !== existing.tags) out.tags = tags;
   return out;

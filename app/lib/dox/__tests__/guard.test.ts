@@ -87,6 +87,11 @@ describe('Dox guard: pure checks', () => {
       expect(status(() => checkCreateTags(['from-dox', bad])), bad).toEqual({ status: 403, code: 'dox_tag_closed' });
     }
     expect(status(() => checkCreateTags('kickoff'))?.status).toBe(400);
+    // one model tier, never Fable's
+    expect(checkCreateTags(['from-dox', 'tier:grunt'])).toEqual(['from-dox', 'tier:grunt']);
+    expect(checkCreateTags(['tier:reasoning'])).toEqual(['tier:reasoning']);
+    expect(status(() => checkCreateTags(['tier:frontier']))).toEqual({ status: 403, code: 'dox_tag_closed' });
+    expect(status(() => checkCreateTags(['tier:grunt', 'tier:standard']))).toEqual({ status: 403, code: 'dox_tag_closed' });
   });
   it('a comment is internal; a client-visible one or a client question is refused', () => {
     expect(guardDoxComment({ lane: 'dox' }, {})).toEqual({ is_internal: true });
