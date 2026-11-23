@@ -34,6 +34,7 @@ import { CHAT_LANE } from '@/lib/bast-chat/task-filter';
 import { createNotification } from '@/lib/services/notifications';
 import { CHAT_ANSWER_PREFIX } from './checklist-answers';
 import { isDoxLaneValue } from '@/lib/dox/identity';
+import { flagAnswerForDox } from '@/lib/dox/ask';
 import {
   OPEN_QUESTIONS_MAX,
   QUESTION_CHANGED_MESSAGE,
@@ -511,7 +512,7 @@ export async function answerQuestion(task: TaskHead, qid: string, auth: Auth, bo
     const released = holdsForMike ? false : await releaseHoldIfLast(tx, task.id);
     const actor = await actorOf(auth, tx as never);
     await recordTriageChange(tx, task.id, 'question', `Question answered by ${actor.by}`, actor);
-    return { updated, commentId: comment.id, released, askerId: row.asked_by_user_id };
+    return { updated, commentId: comment.id, released, askerId: row.asked_by_user_id, askerLane: row.asked_by_lane };
   });
 
   const asker = out.askerId;
@@ -529,6 +530,12 @@ export async function answerQuestion(task: TaskHead, qid: string, auth: Auth, bo
     } catch {
       // the answer is saved; a missed notice is not a failed answer
     }
+  }
+  // An answer to a question Dox asked is handed to Dox (the card is marked asked-dox, so his next pass on the project reads it).
+  try {
+    await flagAnswerForDox(prisma, task.id, { asked_by_user_id: out.askerId, asked_by_lane: out.askerLane }, { userId: auth.userId, lane: auth.lane });
+  } catch {
+    // the answer is saved; a missed hand-off is not a failed answer (the scheduled sweep still reads the card)
   }
   // An answer releases the cards the question blocked (Mike, 2026-11-19): each whose other blockers are satisfied moves back to not_started.
   const releasedTasks = await releaseQuestionDependents(out.updated.id);

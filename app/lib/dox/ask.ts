@@ -36,3 +36,27 @@ export async function markAskedDox(
   }
   return true;
 }
+
+/**
+ * Someone answered a question Dox asked. Dox has no inbox: without this the answer sat on the card until the next scheduled sweep, and on a
+ * card that is already closed (a setup card after setup) nothing would ever bring him back to it. The card is marked `asked-dox` and the
+ * project's refresh is stamped, the same signal a mention sends, so his next pass on the project is an event sweep with this card named.
+ * A card still in Triage, or with no project, is left alone.
+ */
+export async function flagAnswerForDox(
+  db: PrismaClient,
+  taskId: string,
+  question: { asked_by_user_id: string | null; asked_by_lane: string | null },
+  answerer: { userId: string; lane?: string | null },
+  now: Date = new Date(),
+): Promise<boolean> {
+  const askedByDox = question.asked_by_user_id === DOX_USER_ID || isDoxLaneValue(question.asked_by_lane);
+  if (!askedByDox) return false;
+  if (answerer.userId === DOX_USER_ID || isDoxLaneValue(answerer.lane)) return false;
+  const task = await db.task.findUnique({ where: { id: taskId }, select: { id: true, status: true, project_id: true, tags: true } });
+  if (!task || task.status === 'triage' || !task.project_id) return false;
+  const tags = task.tags;
+  await db.task.update({ where: { id: task.id }, data: tags.includes(ASKED_DOX_TAG) ? { updated_at: now } : { tags: [...tags, ASKED_DOX_TAG], updated_at: now } });
+  await db.project.updateMany({ where: { id: task.project_id, is_deleted: false }, data: { next_step_refresh_requested_at: now } });
+  return true;
+}

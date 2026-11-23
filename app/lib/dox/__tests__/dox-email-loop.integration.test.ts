@@ -227,6 +227,28 @@ describe.skipIf(!SCRATCH)('Dox and the client email loop (real database)', () =>
       expect((await prisma.taskQuestion.findUniqueOrThrow({ where: { id: mq.body.id } })).answer_text).toBe('Kue does.');
     });
 
+    it('hands Dox the answer to a question he asked, on a closed card too, and stays quiet for anyone else\'s question', async () => {
+      const closed = await fx.mkTask('Setup card, closed', { project_id: LIVE, status: 'done', tags: ['from-triage'] });
+      const other = await fx.mkTask('Mike asked here', { project_id: LIVE, status: 'not_started' });
+      as(dox());
+      const dq = await json(await addQ(call({ ...CONTEXT, question: 'Is the launch date still December 4?' }), idParams(closed)));
+      expect(dq.status, JSON.stringify(dq.body)).toBe(201);
+      as(mikeSession());
+      const mq = await json(await addQ(call({ ...CONTEXT, question: 'Who signs off on the copy?' }), idParams(other)));
+      await prisma.project.update({ where: { id: LIVE }, data: { next_step_refresh_requested_at: null } });
+      const before = (await prisma.task.findUniqueOrThrow({ where: { id: closed } })).updated_at;
+      expect((await json(await answerQ(call({ version: mq.body.version, text: 'Kue does.' }), qParams(other, mq.body.id)))).status).toBe(200);
+      expect((await prisma.task.findUniqueOrThrow({ where: { id: other } })).tags).not.toContain('asked-dox');
+      expect((await prisma.project.findUniqueOrThrow({ where: { id: LIVE } })).next_step_refresh_requested_at).toBeNull();
+      const ans = await json(await answerQ(call({ version: dq.body.version, text: 'Yes, December 4 stands.' }), qParams(closed, dq.body.id)));
+      expect(ans.status, JSON.stringify(ans.body)).toBe(200);
+      const after = await prisma.task.findUniqueOrThrow({ where: { id: closed } });
+      expect(after.tags).toContain('asked-dox');
+      expect(after.status).toBe('done');
+      expect(after.updated_at.getTime()).toBeGreaterThanOrEqual(before.getTime());
+      expect((await prisma.project.findUniqueOrThrow({ where: { id: LIVE } })).next_step_refresh_requested_at).not.toBeNull();
+    });
+
     it('leaves a task held for Mike alone: no answer, no withdrawal, the hold stays', async () => {
       const tags = ['held-for-questions', 'held-for-questions:needs-mike', 'needs-mike'];
       const t = await fx.mkTask('Held for Mike', { project_id: LIVE, status: 'blocked', tags });
