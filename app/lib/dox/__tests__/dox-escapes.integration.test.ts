@@ -237,6 +237,25 @@ describe.skipIf(!SCRATCH)('Dox escape attempts (real database)', () => {
       expect((await json(await createTask(call(P, { title: `${fx.tag} bad setup`, project_id: P, tags: [`setup:${foreign}`] })))).body.code).toBe('dox_tag_closed');
     });
 
+    it('Dox closes the setup card of the project in play (released from Triage, assigned to Dox) and no other task of it', async () => {
+      const setupCard = await fx.mkTask('Own setup card', { project_id: P, status: 'not_started', tags: ['from-triage'], assignee_id: DOX_USER_ID });
+      const notHis = await fx.mkTask('Released, a person holds it', { project_id: P, status: 'not_started', tags: ['from-triage'], assignee_id: staff });
+      const notReleased = await fx.mkTask('His, never released', { project_id: P, status: 'not_started', assignee_id: DOX_USER_ID });
+      const noPass = await fx.mkTask('Own setup card, no pass', { project_id: NOPASS, status: 'not_started', tags: ['from-triage'], assignee_id: DOX_USER_ID });
+      const inReview = await fx.mkTask('Own setup card in review', { project_id: P, status: 'review', tags: ['from-triage'], assignee_id: DOX_USER_ID });
+      as(dox());
+      for (const [name, id] of [['a person holds it', notHis], ['never released', notReleased], ['in review', inReview]] as const) {
+        const r = await json(await patchTask(call(P, { status: 'done' }, 'PATCH'), idParams(id)));
+        expect([r.status, r.body.code], name).toEqual([403, 'dox_status_closed']);
+      }
+      expect((await json(await patchTask(call(NOPASS, { status: 'done' }, 'PATCH'), idParams(noPass)))).status).toBe(403);
+      expect((await json(await patchTask(call(L2, { status: 'done' }, 'PATCH'), idParams(setupCard)))).status).toBe(403);
+      expect((await taskRow(setupCard)).status).toBe('not_started');
+      const ok = await json(await patchTask(call(P, { status: 'done' }, 'PATCH'), idParams(setupCard)));
+      expect(ok.status, JSON.stringify(ok.body)).toBe(200);
+      expect((await taskRow(setupCard)).status).toBe('done');
+    });
+
     it('needs-pm-release comes off only a card released from Triage', async () => {
       const bare = await fx.mkTask('Held, not released', { project_id: P, status: 'not_started', tags: ['needs-pm-release'] });
       const released = await fx.mkTask('Held, released', { project_id: P, status: 'not_started', tags: ['needs-pm-release', 'from-triage'] });

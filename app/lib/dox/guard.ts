@@ -550,8 +550,13 @@ export async function guardDoxTaskPatch(auth: LaneAuth, headers: Hdrs, rawBody: 
     }
   }
 
+  // His own setup card: released from Triage, assigned to Dox, and its project is the one in play (the live pass was required above). Setup ends
+  // by closing it (skills/dox/jobs/setup.md, step 11). Before this a card that had its project could never be closed by Dox, so the runner sent
+  // an Opus setup pass at it three times a day for ever.
+  const ownSetupCard = !!existing.project_id && existing.tags.includes(FROM_TRIAGE_TAG) && existing.assignee_id === DOX_USER_ID;
+
   if (body.status === 'done') {
-    if (!cardPass) refuse('Dox marks a card done only through a live card pass on that card (x-dox-card and an open pass).', 'dox_status_closed');
+    if (!cardPass && !ownSetupCard) refuse('Dox marks done only his own released card: one with no project through a live card pass on it (x-dox-card), or the setup card of the project in play (released from Triage and assigned to Dox).', 'dox_status_closed');
     if (!(DOX_CARD_STATUSES as readonly string[]).includes(existing.status)) refuse(`Dox does not close a card that is ${existing.status}.`, 'dox_status_closed');
   } else if (body.status !== undefined) {
     if (body.status !== 'not_started' || existing.status !== 'in_progress') refuse('Dox can only return an in_progress task to not_started.', 'dox_status_closed');
