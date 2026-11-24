@@ -764,8 +764,20 @@ describe.skipIf(!SCRATCH)('brief, board, art direction and track uploads (real d
       expect(jobs[0].payload).toEqual({ reference_id: ref.id, url: CANON, figma: { file_key: 'AbCdEfGhIjKl', node_id: '12:34' } });
       // the same frame with other share parameters is the same card
       const dup = await references.POST(json('POST', '/x', { url: 'https://figma.com/file/AbCdEfGhIjKl/Other?node-id=12%3A34&t=zzz' }), ctx({ id: session.id }));
-      expect(dup.status).toBe(409);
-      expect(await code(dup)).toBe('duplicate_url');
+      expect(dup.status).toBe(201);
+      expect((await dup.json()).reference.id).toBe(ref.id);
+      // the first read is still waiting, so the second paste queues nothing more
+      expect(await prisma.designJob.count({ where: { track_id: track.id, kind: 'capture' } })).toBe(1);
+      // once it has been read, pasting the link again reads it again: same card, queued, one new job
+      await prisma.designJob.updateMany({ where: { track_id: track.id, kind: 'capture' }, data: { status: 'done' } });
+      await prisma.designReference.update({ where: { id: ref.id }, data: { capture_status: 'captured' } });
+      const again = await references.POST(json('POST', '/x', { url: LINK, expect: 'figma' }), ctx({ id: session.id }));
+      expect(again.status).toBe(201);
+      expect((await again.json()).reference).toMatchObject({ id: ref.id, capture_status: 'queued' });
+      const all = await prisma.designJob.findMany({ where: { track_id: track.id, kind: 'capture' }, orderBy: { created_at: 'asc' } });
+      expect(all).toHaveLength(2);
+      expect(all[1].payload).toEqual({ reference_id: ref.id, url: CANON, figma: { file_key: 'AbCdEfGhIjKl', node_id: '12:34' } });
+      expect(await prisma.designReference.count({ where: { track_id: track.id, source: 'designer_figma' } })).toBe(1);
       // a site keeps its own source and role
       const site = (await (await references.POST(json('POST', '/x', { url: 'https://example.org/' }), ctx({ id: session.id }))).json()).reference;
       expect(site).toMatchObject({ source: 'designer_url', role: 'inspiration', figma: null });

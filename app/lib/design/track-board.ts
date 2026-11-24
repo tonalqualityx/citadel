@@ -217,7 +217,8 @@ async function oneReference(trackId: string, id: string, sessionId: string) {
 
 /**
  * POST references: `{url}` (parsed and validated here, one `capture` job queued, status `queued`) or `{upload_asset_ids}`
- * (board uploads of this track become one card of source `designer_upload`). A URL already on the track is 409.
+ * (board uploads of this track become one card of source `designer_upload`). A site already on the track is 409; a
+ * Figma link already on the track is read again (same card, one new `capture` job).
  */
 export async function addDesignerReference(
   trackId: string, sessionId: string, input: { url?: string; upload_asset_ids?: string[]; title?: string; expect?: 'figma' },
@@ -242,7 +243,20 @@ export async function addDesignerReference(
     const last = await tx.designReference.aggregate({ where: { track_id: trackId }, _max: { sort_order: true } });
     const sort_order = (last._max.sort_order ?? -1) + 1;
     if (url) {
-      if (await tx.designReference.findFirst({ where: { track_id: trackId, url }, select: { id: true } })) throw new ApiError('That site is already on the board', 409, 'duplicate_url');
+      const dup = await tx.designReference.findFirst({ where: { track_id: trackId, url }, select: { id: true, source: true } });
+      if (dup && figma && dup.source === 'designer_figma') {
+        // Pasting a Figma link that is already on the board reads it again (Mike, 2026-11-24): the card gets the
+        // frame as it is now, and frames added to that page since come in as new cards (the importer skips the ones
+        // already here). A read still waiting or running is left alone, so a double paste queues nothing twice.
+        const active = await tx.designJob.findMany({ where: { track_id: trackId, kind: 'capture', status: { in: [...ACTIVE_JOB_STATUSES] } }, select: { payload: true } });
+        const reading = active.some((j) => (j.payload as { reference_id?: unknown } | null)?.reference_id === dup.id);
+        if (!reading) {
+          await tx.designReference.update({ where: { id: dup.id }, data: { capture_status: 'queued', capture_error: null } });
+          await queueJob(tx, track, 'capture', { payload: { reference_id: dup.id, url, figma }, taskId: null });
+        }
+        return dup.id;
+      }
+      if (dup) throw new ApiError('That site is already on the board', 409, 'duplicate_url');
       await assertUrlReferenceRoom(tx, trackId, figma ? 'designer_figma' : 'designer_url');
       const title = (input.title?.trim() || (figma ? 'Figma design' : new URL(url).hostname.replace(/^www\./, ''))).slice(0, 200);
       const ref = await tx.designReference.create({ data: { track_id: trackId, source: figma ? 'designer_figma' : 'designer_url', url, title, capture_status: 'queued', sort_order } });

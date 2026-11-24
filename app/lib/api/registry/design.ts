@@ -1319,7 +1319,7 @@ export const designEndpoints: ApiEndpoint[] = [
           { name: 'title', type: 'string', required: false, description: 'At most 200 characters' },
         ],
         responseExample: { reference: referenceExample },
-        responseNotes: '201. 400 bad_url for a non-https, credentialed, IP-literal or local address; 400 not_figma (expect figma with another site); 400 bad_figma_link (a Figma host that is not a design, file or prototype link); 409 duplicate_url (a Figma link is compared in its canonical form); 409 reference_limit (40 sites, 200 Figma frames); 429 references_per_minute and captures_in_flight count sites and Figma links together; 409 upload_in_use; 400 bad_upload_ids.',
+        responseNotes: '201. 400 bad_url for a non-https, credentialed, IP-literal or local address; a Figma link already on the board is read again (same card, 201); 400 not_figma (expect figma with another site); 400 bad_figma_link (a Figma host that is not a design, file or prototype link); 409 duplicate_url (a Figma link is compared in its canonical form); 409 reference_limit (40 sites, 200 Figma frames); 429 references_per_minute and captures_in_flight count sites and Figma links together; 409 upload_in_use; 400 bad_upload_ids.',
       },
     ],
   },
