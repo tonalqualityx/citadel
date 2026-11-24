@@ -366,7 +366,21 @@ export function isSessionStale(s: Pick<SessionRowForProjection, 'status' | 'last
   return !s.last_heartbeat_at || now.getTime() - s.last_heartbeat_at.getTime() > SESSION_STALE_MS;
 }
 
+/**
+ * The preview a session shows. A tracked session opened before the track's first build has no preview of its own:
+ * the outline is adopted onto the track, not the session, so the session row stays empty until the worker's first
+ * deploy for it. Until then the track's preview is the session's preview (Stronghold, 2026-11-24: the designer
+ * opened her session before the outline landed and the frame never loaded).
+ */
+export function sessionPreview(s: Pick<SessionRowForProjection, 'preview_url' | 'preview_sha' | 'head_sha' | 'track'>) {
+  if (!s.preview_url && s.track?.preview_url) {
+    return { preview_url: s.track.preview_url, preview_sha: s.track.preview_sha ?? null, head_sha: s.track.head_sha ?? null };
+  }
+  return { preview_url: s.preview_url, preview_sha: s.preview_sha, head_sha: s.head_sha };
+}
+
 export function projectSession(s: SessionRowForProjection, now: Date = new Date()) {
+  const preview = sessionPreview(s);
   return {
     id: s.id,
     task_id: s.task_id,
@@ -377,10 +391,10 @@ export function projectSession(s: SessionRowForProjection, now: Date = new Date(
     stale: isSessionStale(s, now),
     branch: s.branch,
     preview_alias: s.preview_alias,
-    preview_url: s.preview_url,
-    preview_sha: s.preview_sha,
+    preview_url: preview.preview_url,
+    preview_sha: preview.preview_sha,
     base_sha: s.base_sha,
-    head_sha: s.head_sha,
+    head_sha: preview.head_sha,
     live_text: s.live_text,
     live_action: s.live_action,
     last_seq: s.last_seq,
@@ -536,9 +550,7 @@ export function projectFeed(input: FeedInput) {
     stale: isSessionStale(s, input.now),
     publish,
     timer: { running: !!input.timer?.running, elapsed_s: Math.max(0, Math.floor(input.timer?.elapsed_s ?? 0)) },
-    preview_url: s.preview_url,
-    preview_sha: s.preview_sha,
-    head_sha: s.head_sha,
+    ...sessionPreview(s),
     lib_index_sha: input.libIndexSha ?? null,
     last_heartbeat_at: s.last_heartbeat_at,
     worker_last_heartbeat_at: input.worker?.last_heartbeat_at ?? null,

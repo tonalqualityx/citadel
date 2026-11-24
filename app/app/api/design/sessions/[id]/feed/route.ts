@@ -7,6 +7,7 @@ import { canPublish, mainRoleFor } from '@/lib/design/publish-policy';
 import { latestLibIndex, projectFeed } from '@/lib/design/projections';
 import { onPresence } from '@/lib/design/presence';
 import { authActor, type IdParams } from '@/lib/design/route-kit';
+import { loadSessionTrackView } from '@/lib/design/track-session';
 
 function intParam(raw: string | null, name: string, min: number, max: number): number | undefined {
   if (raw === null || raw === '') return undefined;
@@ -48,8 +49,10 @@ export async function GET(request: NextRequest, { params }: IdParams) {
       : ({ ok: false, code: 'site_not_enabled' } as const);
     const own = running.find((p) => p.session_id === session.id);
 
+    // A tracked session with no preview of its own shows the track's (sessionPreview); only then is the track read.
+    const track = session.preview_url ? null : await loadSessionTrackView(session);
     const projected = projectFeed({
-      session,
+      session: { ...session, track },
       // lib_index events carry the whole index; the UI gets the sha, not the payload.
       events: page.events.filter((e) => e.kind !== 'lib_index'),
       libIndexSha: latestLibIndex(libIndexEvent?.payload)?.sha ?? null,

@@ -96,6 +96,9 @@ export interface SessionTrackView {
   busy_line: string | null;
   preview_alias: string;
   preview_url: string | null;
+  /** The track's own build, shown by a session that has no preview of its own yet (projections.sessionPreview). */
+  preview_sha?: string | null;
+  head_sha?: string | null;
   finish: { green: boolean; finished_at: Date | null } | null;
 }
 
@@ -121,6 +124,8 @@ export async function loadSessionTrackView(
     busy_line: t.busy_job_id ? busyLineFor(job?.kind) ?? 'Bast is building' : null,
     preview_alias: t.preview_alias,
     preview_url: t.preview_url,
+    preview_sha: t.preview_sha,
+    head_sha: t.head_sha,
     finish: t.finish_result !== null ? { green: t.stage === 'done', finished_at: t.finished_at } : null,
   };
 }

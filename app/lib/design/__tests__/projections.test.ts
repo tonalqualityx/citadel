@@ -192,6 +192,17 @@ describe('session projections', () => {
     expect(sorted(out.track!)).toEqual(['busy', 'busy_line', 'finish', 'id', 'preview_alias', 'preview_url', 'stage']);
     expect(findForbiddenKeys(out)).toEqual([]);
   });
+  it('v2: a tracked session with no preview of its own shows the track preview; its own preview wins once it has one', () => {
+    const track = { id: 'trk-1', stage: 'art_direction', busy: false, busy_line: null, preview_alias: 'design-t-abcdefghijklmnop', preview_url: 'https://design-t-abcdefghijklmnop.site.pages.dev', preview_sha: 'b27d0b8', head_sha: 'b27d0b8', finish: null };
+    const empty = projectSession(sessionRow({ preview_url: null, preview_sha: null, head_sha: null, track }), NOW);
+    expect([empty.preview_url, empty.preview_sha, empty.head_sha]).toEqual([track.preview_url, 'b27d0b8', 'b27d0b8']);
+    const own = projectSession(sessionRow({ preview_url: 'https://design-t-abcdefghijklmnop.site.pages.dev', preview_sha: 'aaa1111', head_sha: 'bbb2222', track }), NOW);
+    expect([own.preview_sha, own.head_sha]).toEqual(['aaa1111', 'bbb2222']);
+    const untracked = projectSession(sessionRow({ preview_url: null, preview_sha: null, head_sha: null }), NOW);
+    expect(untracked.preview_url).toBeNull();
+    const feedOut = projectFeed({ session: sessionRow({ preview_url: null, preview_sha: null, head_sha: null, track }), events: [], publishDecision: { ok: false, code: 'gates_not_green' }, mainRole: undefined, now: NOW });
+    expect([feedOut.preview_url, feedOut.preview_sha, feedOut.head_sha]).toEqual([track.preview_url, 'b27d0b8', 'b27d0b8']);
+  });
   it('stale: an active session whose heartbeat is older than 2 minutes', () => {
     expect(projectSession(sessionRow({ status: 'active', last_heartbeat_at: new Date(NOW.getTime() - 121_000) }), NOW).stale).toBe(true);
     expect(projectSession(sessionRow({ status: 'awaiting_input', last_heartbeat_at: null }), NOW).stale).toBe(false);
