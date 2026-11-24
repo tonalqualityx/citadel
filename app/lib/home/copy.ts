@@ -211,6 +211,9 @@ export const ACTION_LABELS: Record<HomeActionId, string> = {
   proposal_no: 'No',
   track_it: 'Track it',
   open_email: 'Open the email',
+  triage_close: 'Close it',
+  triage_reply: "I'll reply",
+  make_task: 'Make it a task',
 };
 
 /** "Approve all 39". */
@@ -408,6 +411,7 @@ export const REST_GROUP_COPY: Record<HomeRestGroupKey, { label: string; owner: s
   bast_stopped: { label: 'Stopped with Bast, waiting on you', owner: 'Bast' },
   hands: { label: "This week's hands", owner: 'You' },
   project_steps: { label: 'Project next steps', owner: 'You' },
+  probably_no_reply: { label: 'Probably no reply needed', owner: 'You' },
   from_sent_mail: { label: 'From your sent mail', owner: 'Bast' },
 };
 
@@ -457,6 +461,8 @@ export const REST_CHECK = {
   stepOneAtATime: 'Shows here one at a time. Bring it forward to see it now.',
   stepHeld: 'Stays here until you bring it forward',
   /** Slice 9a: a card from his sent mail that is not the one in Decisions ready. */
+  /** Triage: a thread that probably needs no reply. */
+  probablyNoReply: 'Close it, or reply yourself. Nothing is sent.',
   sentMailCard: 'Waiting for your tap. Nothing changes until you tap.',
   sentMailOlder: 'From older mail. Bring it forward to see it now.',
 } as const;

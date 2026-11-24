@@ -17,7 +17,7 @@ import { IF_IGNORED, IF_IGNORED_4C, OWED, OWED_SECOND_LINE } from './copy';
 export type OwedRowState = 'queued' | 'drafted' | 'needs_thought' | 'failed';
 export type OwedRequestKind = 'draft' | 'read' | 'go_with_that';
 /** Slice 4c: what the GET may ask of the machine. 'short' and 'auto' are never stored as a tap and only go to a drafter that sent caps. */
-export type OwedWorkRequest = OwedRequestKind | 'short' | 'auto';
+export type OwedWorkRequest = OwedRequestKind | 'short' | 'auto' | 'triage';
 export type OwedState = 'drafting' | 'draft_ready' | 'stale_draft' | 'his_draft' | 'his_draft_older' | 'needs_thought';
 
 /** The columns of home_owed_thread the pure code reads. */
@@ -57,6 +57,13 @@ export interface OwedRow {
   booked_start?: Date | null;
   booked_end?: Date | null;
   book_undo_requested_at?: Date | null;
+  /** Triage: the verdict for the newest ask (triage_for_ask_id), its confidence and reason, and the hold after an Undo of an auto close. */
+  triage?: string | null;
+  triage_confidence?: string | null;
+  triage_reason?: string | null;
+  triage_for_ask_id?: string | null;
+  triaged_at?: Date | null;
+  triage_hold_until?: Date | null;
 }
 
 const HOUR_MS = 3_600_000;

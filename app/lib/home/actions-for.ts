@@ -61,6 +61,8 @@ export interface ActionsInput {
     send?: { full: boolean; short: boolean };
     /** Slice 4d: Book 30 minutes (under More on a needs-thought row), present only while the owner's book_blocks switch is on. */
     book?: boolean;
+    /** Triage: where the thread stands. Absent = owed (the buttons below). */
+    triage?: 'owed' | 'untriaged' | 'task' | 'probably_no_reply';
   };
   /** Slice 6a, a site down row: the mail behind it (deep link) and the site itself. */
   mailUrl?: string | null;
@@ -121,6 +123,27 @@ function own(input: ActionsInput): { primary: HomeItemAction[]; extras: HomeItem
         primary.push(button('keep_lead'), button('let_lead_go'));
         if (input.threadUrl) extras.push(button('open_thread', input.threadUrl));
         extras.push(button('not_lead'));
+        break;
+      }
+      if (input.owedThread?.triage === 'task') {
+        // They asked for work, not an answer: file it as a task, or just reply. No draft is written until he picks Just reply.
+        primary.push(button('make_task'), button('triage_reply', null, 'Just reply'));
+        if (input.threadUrl) extras.push(button('open_thread', input.threadUrl));
+        extras.push(button('no_reply_needed'));
+        break;
+      }
+      if (input.owedThread?.triage === 'probably_no_reply') {
+        primary.push(button('triage_close'), button('triage_reply'));
+        if (input.threadUrl) extras.push(button('open_thread', input.threadUrl));
+        break;
+      }
+      if (input.owedThread?.triage === 'untriaged') {
+        // Nobody has said a reply is needed yet: look at it, or close it. Draft it now stays under More as his own tap.
+        if (input.draftUrl) primary.push(button('open_draft', input.draftUrl));
+        else if (input.threadUrl) primary.push(button('open_thread', input.threadUrl));
+        extras.push(button('no_reply_needed'));
+        if (!input.draftUrl) extras.push(button('draft_now'));
+        if (input.owedThread.lead) extras.push(button('not_lead'));
         break;
       }
       if (input.owedThread && !input.owedThread.state?.startsWith('his_draft')) {

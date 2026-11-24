@@ -140,3 +140,34 @@ export function repliedFromWords(from: string): string {
 export function repliedElsewhereLine(name: string, from: string, weekday: string): string {
   return `${name.trim() || 'Someone'} got a reply from ${repliedFromWords(from)} on ${weekday}. Taken off your list.`;
 }
+
+// ============================================================================
+// Triage: a thread is owed only after a verdict says a reply from him is needed
+// ============================================================================
+
+export const TRIAGE_COPY = {
+  thingThanks: 'thank-you',
+  thingAck: 'acknowledgment',
+  thingNotice: 'notice',
+  thingFyi: 'update',
+  thingClosing: 'closing note',
+  thingBooking: 'booking note',
+  thingMessage: 'message',
+  /** Handled for you: one line per thread the keeper closed. */
+  closed: (name: string, thing: string, meeting: boolean): string =>
+    `Closed ${name}'s ${thing}. ${meeting ? 'The meeting is on your calendar.' : 'No reply was needed.'}`,
+  /** The row of a thread that asked for work: "Ken Duffy asked for something: remove the blurb from the page". */
+  asked: (name: string, reason: string): string => `${name} asked for something: ${reason.replace(/[.\s]+$/, '')}`,
+  /** The why line of a row nobody has triaged yet: age only, no pressure. */
+  untriagedWhy: (since: string): string => `A client wrote ${since} ago.`,
+  taskWhy: 'They asked for work, not an answer.',
+  probablyWhy: 'This probably needs no reply.',
+  closeFailed: 'That one is not open any more.',
+  closedToast: 'Marked no reply needed.',
+  replyToast: 'Kept as a reply. Bast can draft it.',
+  taskMade: 'Made a task.',
+  mikeReply: 'You chose to reply.',
+} as const;
+
+/** Triage constants. The drafter may triage up to this many threads in a run, beyond its draft items. */
+export const TRIAGE_PER_RUN = 20;

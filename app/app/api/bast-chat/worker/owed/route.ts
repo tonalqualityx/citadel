@@ -5,6 +5,7 @@ import { requireChatWorker, chatWorkerBody } from '@/lib/bast-chat/worker-kit';
 import { chatError, chatJson, workerOwnerId } from '@/lib/bast-chat/route-helpers';
 import { listOwedWork, parseCaps, saveOwedResults, type OwedResultItem } from '@/lib/home/owed/store';
 import { OWED } from '@/lib/home/owed/copy';
+import { TRIAGE_REASON_MAX } from '@/lib/home/owed/triage';
 import { itemKeySchema } from '@/lib/home/item-key';
 
 /** The most items one POST carries. */
@@ -36,6 +37,17 @@ const item = z.discriminatedUnion('outcome', [
     .object({ ...base, outcome: z.literal('short_drafted'), short_draft_id: z.string().min(1).max(64), short_draft_text: z.string().min(1).max(2000), model, cost_usd: cost })
     .strict(),
   z.object({ ...base, outcome: z.literal('replied_elsewhere'), replied_from: z.string().min(1).max(320), replied_at: z.string().datetime({ offset: true }) }).strict(),
+  z
+    .object({
+      ...base,
+      outcome: z.literal('triaged'),
+      verdict: z.enum(['reply', 'no_reply', 'task', 'meeting_set']),
+      confidence: z.enum(['high', 'medium']),
+      reason: z.string().min(1).max(TRIAGE_REASON_MAX),
+      model,
+      cost_usd: cost,
+    })
+    .strict(),
 ]);
 
 const postBody = z.object({ items: z.array(item).max(OWED_POST_MAX_ITEMS), dry: z.boolean().optional() }).strict();
@@ -68,7 +80,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
  * `{thread_key, newest_ask_id, outcome: "drafted", draft_id, draft_message_id, draft_text, model, cost_usd?}`,
  * `{..., outcome: "needs_thought", read, suggested_answer | null, needs_commitment, model, cost_usd?}`,
  * `{..., outcome: "mike_edited"}`, `{..., outcome: "failed", error}`, `{..., outcome: "short_drafted", short_draft_id, short_draft_text, model, cost_usd?}`
- * or `{..., outcome: "replied_elsewhere", replied_from, replied_at}`; any item may carry `joins: [{account, thread_id}]`. The commitment
+ * `{..., outcome: "replied_elsewhere", replied_from, replied_at}` or `{..., outcome: "triaged", verdict: reply|no_reply|task|meeting_set, confidence: high|medium, reason, model, cost_usd?}`
+ * (reason: one plain line, at most 200 characters, no dash, banned word or link; no_reply or meeting_set with high confidence closes the thread's open asks as No reply needed
+ * and writes one Handled line with Undo, at most 15 a day, and meeting_set only when his calendar shows the meeting); any item may carry `joins: [{account, thread_id}]`. The commitment
  * checks run again here (a short draft: at most 2 sentences and 40 words, a last line that is only "Mike" not counted).
  * `"dry": true` (top level, beside `items`): every validation runs and the same `{saved, refused}` says what WOULD happen; nothing is written
  * (no row, no failed attempt, no run row, no keeper line). A real result refused for its content (draft_*, short_*, read_*, suggested_*) on a

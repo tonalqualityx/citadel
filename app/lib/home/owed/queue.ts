@@ -13,7 +13,8 @@
 import type { RawThread } from '../types';
 import { threadKey } from '../item-key';
 import { threadStatus } from '../select';
-import { OWED } from './copy';
+import { OWED, TRIAGE_PER_RUN } from './copy';
+import { triageView } from './triage';
 import { autoDraftDue, isLeadNow, owedClock, wokeByNewMessage } from './clock';
 import { repliedElsewhere, type JoinRow } from './join';
 import type { OwedRequestKind, OwedRow, OwedWorkRequest } from './state';
@@ -35,9 +36,11 @@ export interface OwedSel {
 export interface OwedCaps {
   short: boolean;
   auto: boolean;
+  /** The caller can triage: untriaged threads are offered first with request "triage". */
+  triage?: boolean;
 }
 
-export type OwedReason = 'request' | 'redraft' | 'clock' | 'lead' | 'oldest' | 'auto' | 'short';
+export type OwedReason = 'triage' | 'request' | 'redraft' | 'clock' | 'lead' | 'oldest' | 'auto' | 'short';
 
 export interface OwedQueueEntry {
   thread: RawThread;
@@ -78,9 +81,11 @@ export function owedQueue(
   now: Date,
   limit: number = OWED.perRun,
   caps: OwedCaps = { short: false, auto: false },
+  triageLimit: number = TRIAGE_PER_RUN,
 ): OwedQueueEntry[] {
   const rows = new Map(owedRows.map((r) => [r.thread_key, r]));
   const out: OwedQueueEntry[] = [];
+  const triageOut: OwedQueueEntry[] = [];
 
   for (const thread of threads) {
     const newest = thread.asks[0];
@@ -98,6 +103,14 @@ export function owedQueue(
     if (failedRecently(row, now)) continue;
 
     const request = (row?.request_kind as OwedRequestKind | null | undefined) ?? null;
+    // Triage first: a thread is owed (clock, draft) only after a verdict says a reply from him is needed. His own tap is always served.
+    const view = triageView(row, newest.id);
+    if (!request && view !== 'owed') {
+      if (view === 'untriaged' && caps.triage) {
+        triageOut.push({ thread, thread_key: key, row, reason: 'triage', request: 'triage', lead, joined });
+      }
+      continue;
+    }
     const bast = !!row?.draft_id;
     // His own draft (not Bast's) means hands off.
     if (thread.asks.some((a) => !!a.draft_url) && !bast) continue;
@@ -150,7 +163,7 @@ export function owedQueue(
     out.push({ thread, thread_key: key, row, reason, request: asked, lead, joined });
   }
 
-  const rank: Record<OwedReason, number> = { request: 0, redraft: 1, clock: 2, lead: 3, oldest: 4, auto: 5, short: 6 };
+  const rank: Record<OwedReason, number> = { triage: -1, request: 0, redraft: 1, clock: 2, lead: 3, oldest: 4, auto: 5, short: 6 };
   out.sort((a, b) => {
     if (rank[a.reason] !== rank[b.reason]) return rank[a.reason] - rank[b.reason];
     if (a.reason === 'request') {
@@ -160,5 +173,10 @@ export function owedQueue(
     const d = a.thread.asks[0].received_at.getTime() - b.thread.asks[0].received_at.getTime();
     return d !== 0 ? d : a.thread_key.localeCompare(b.thread_key);
   });
-  return out.slice(0, Math.max(0, limit));
+  const oldestFirst = (a: OwedQueueEntry, b: OwedQueueEntry) => {
+    const d = a.thread.asks[0].received_at.getTime() - b.thread.asks[0].received_at.getTime();
+    return d !== 0 ? d : a.thread_key.localeCompare(b.thread_key);
+  };
+  triageOut.sort(oldestFirst);
+  return [...triageOut.slice(0, Math.max(0, triageLimit)), ...out.slice(0, Math.max(0, limit))];
 }

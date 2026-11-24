@@ -45,6 +45,12 @@ export const OWED_ROW_SELECT = {
   booked_start: true,
   booked_end: true,
   book_undo_requested_at: true,
+  triage: true,
+  triage_confidence: true,
+  triage_reason: true,
+  triage_for_ask_id: true,
+  triaged_at: true,
+  triage_hold_until: true,
 } satisfies Prisma.HomeOwedThreadSelect;
 
 /** The owner's owed rows (all of them; the user id is in the where clause). */

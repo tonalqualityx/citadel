@@ -76,6 +76,8 @@ const KEEPER_ACTIONS: readonly string[] = [
   'keeper_arc_close',
   'keeper_arc_link',
   'keeper_owed_drafts',
+  // Triage: a thread the keeper closed as no reply needed (Undo for 72 hours)
+  'triage_close',
   // Slice 6a: the site check's own lines (no Undo)
   'watch_site_cleared',
   'watch_site_down',

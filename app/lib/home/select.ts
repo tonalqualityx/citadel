@@ -86,6 +86,9 @@ import {
 import { HANDS_ITEM_KEY, HANDS_REST_GROUP, handsRow, isHandsTask, type HandsTask } from './emergency/hands';
 import { matchesNotEmergencyRule, ruleScopesFor } from './emergency/rule';
 import { siteDownItems, siteHostOf, type IncidentRow, type SiteDownItem } from './emergency/site';
+import { TRIAGE_COPY } from './owed/copy';
+import { triageFor, triageView, type TriageView } from './owed/triage';
+import { stripSubjectPrefix } from '@/lib/email-asks';
 import { AUTO_DRAFT_LINE, LEAD_ASK, NEW_MESSAGE_AFTER_DRAFT, SHORT_READY_LINE, WOKE_LINE, IF_IGNORED_4C, leadDueLine, waitingLine } from './owed/copy';
 import { bookLine, bookedLine } from './owed/book-copy';
 import { notSentLine, sendFailureReason, sentLine, sendingLine } from './owed/send-copy';
@@ -215,6 +218,8 @@ export interface Candidate {
   snoozeBack?: boolean;
   /** "Snooze": the quick choices for this card's More list (server only). */
   snoozeChoices?: HomeChoice[];
+  /** Triage: a thread whose verdict says a reply from him is needed. Every consumer that counts owed replies reads this, never the thread alone. */
+  owedReply?: boolean;
   /** Slice 4c: a thread whose Not now ended early (a new message from them, or a lead that came back at its repeat time). */
   unpark?: boolean;
   /** Slice 3: Bast's task, stopped and tagged needs-mike (RawTask.bot_task). Never a Today step, never in the keeper's pool. */
@@ -501,6 +506,9 @@ interface Draft {
     owedShort?: boolean;
     owedSend?: { full: boolean; short: boolean };
     owedBook?: boolean;
+    /** Triage: where the thread stands (owed, untriaged, task, probably_no_reply) and the verdict's reason. */
+    triage?: TriageView;
+    triageReason?: string;
     /** Slice 6a: a site down row's mail link, site link and "If you do nothing" line. */
     mailUrl?: string | null;
     siteUrl?: string | null;
@@ -806,7 +814,7 @@ function buildThread(
   now: Date,
   refs: Refs,
   st: RawItemState | undefined,
-  owed: OwedRow | undefined,
+  owedRaw: OwedRow | undefined,
   drafterFreshAt: Date | null,
   timezone: string,
   sendOn = false,
@@ -814,6 +822,11 @@ function buildThread(
 ): Draft {
   const score = scoreThread(th, now);
   const newest = th.asks[0];
+  // Triage: Bast's reply work (draft, clock, Needs thought) counts only on a thread whose verdict says a reply from him is needed.
+  const view = triageView(owedRaw, newest.id);
+  const tri = triageFor(owedRaw, newest.id);
+  const owedNow = view === 'owed';
+  const owed = owedNow ? owedRaw : undefined;
   const clientRaw = threadClient(th);
   const projectRaw = threadProject(th);
   const client = refOf(clientRaw);
@@ -823,11 +836,11 @@ function buildThread(
   // Slice 4a: Bast's own draft sits in the same Gmail thread, so its link is the thread's link.
   const draftUrl = hisDraftUrl ?? (hasBastDraft(owed) && newest.deep_link ? newest.deep_link : null);
   const owedState = owedStatus(th, owed, now, drafterFreshAt);
-  const lead = isLeadNow(newest.intent, newest.received_at, owed);
-  const clock = owedClock(newest.received_at, lead, owed, now);
-  const leadAsk = lead && status === 'show' && !!clock.lead?.ask;
+  const lead = isLeadNow(newest.intent, newest.received_at, owedRaw);
+  const clock = owedClock(newest.received_at, lead, owedRaw, now);
+  const leadAsk = owedNow && lead && status === 'show' && !!clock.lead?.ask;
   const woke = status === 'show' && wokeByNewMessage(st, newest.received_at, now);
-  const cameBack = status === 'show' && leadResurfacedPastPark(clock.lead, st, now);
+  const cameBack = owedNow && status === 'show' && leadResurfacedPastPark(clock.lead, st, now);
   // His short holding draft is shown only while the full draft it came from still covers the newest message.
   const showShort = !!owed?.short_draft_id && !!owed.short_draft_text && owedState !== 'stale_draft' && owedState !== 'his_draft' && owedState !== 'his_draft_older';
   // Slice 4b: the Send buttons exist only while the owner's switch is on and the draft is Bast's current, untouched one with no blank left in it.
@@ -848,20 +861,45 @@ function buildThread(
   const thought = owedState === 'needs_thought' && owed;
   const autoDrafted = owedState === 'draft_ready' && !!owed?.auto_drafted_at;
   const stateLine = owedState === 'his_draft_older' ? NEW_MESSAGE_AFTER_DRAFT : autoDrafted ? AUTO_DRAFT_LINE : owedSecondLine(owedState);
-  const dueLine = lead && clock.lead && status === 'show' ? leadDueLine(weekdayIn(clock.lead.due, timezone), clock.lead.past) : null;
-  const waitLine = status === 'show' && clock.waiting ? waitingLine(clock.days) : null;
+  const dueLine = owedNow && lead && clock.lead && status === 'show' ? leadDueLine(weekdayIn(clock.lead.due, timezone), clock.lead.past) : null;
+  const waitLine = owedNow && status === 'show' && clock.waiting ? waitingLine(clock.days) : null;
+  // ONE state phrase, by a fixed order (the age is already on the row): a booked block, they wrote again, a short draft, Needs thought,
+  // the draft state, the lead's due day, then how long they have waited. An untriaged or no reply row says nothing beyond its age.
+  const needsThoughtLine = owedState === 'needs_thought' ? stateLine : null;
   const owedLine =
-    [woke || cameBack ? WOKE_LINE : null, dueLine, waitLine, stateLine, showShort ? SHORT_READY_LINE : null, bookedWords].filter(Boolean).join(' · ') || null;
+    view === 'task'
+      ? TRIAGE_COPY.asked(person, displayText(tri?.reason ?? ''))
+      : !owedNow
+        ? null
+        : [bookedWords, woke || cameBack ? WOKE_LINE : null, showShort ? SHORT_READY_LINE : null, needsThoughtLine, stateLine, dueLine, waitLine].find((x) => !!x) ?? null;
+  const subjectText = stripSubjectPrefix(displayText(newest.subject)) || said;
+  const head = client && !sameName(client.name, person) ? `${person}, ${client.name}` : person;
+  const fullTitle = `${head}: ${subjectText}`;
+  const title = fullTitle.length > THREAD_TITLE_MAX ? `${fullTitle.slice(0, THREAD_TITLE_MAX - 1).trimEnd()}\u2026` : fullTitle;
+  const since = waitedFor(newest.received_at, now);
+  const whyLine =
+    view === 'owed'
+      ? leadAsk
+        ? LEAD_ASK
+        : whyThread({ lead, since, draftReady: !!draftUrl })
+      : view === 'task'
+        ? TRIAGE_COPY.taskWhy
+        : view === 'probably_no_reply'
+          ? TRIAGE_COPY.probablyWhy
+          : lead
+            ? `A sales message, ${since} old.`
+            : TRIAGE_COPY.untriagedWhy(since);
   const item: HomeItem = {
     ...emptyItem(),
     key: threadKey(th.account, th.thread_id),
     type: lead ? 'lead' : 'owed_reply',
-    title: `${person}${client && !sameName(client.name, person) ? ` (${client.name})` : ''}: ${said}`,
+    title,
     who: client && !sameName(client.name, person) ? `${person}, ${client.name}` : person,
     age: ageWords(newest.received_at, now, 'arrived'),
-    why_now: leadAsk ? LEAD_ASK : whyThread({ lead, since: waitedFor(newest.received_at, now), draftReady: !!draftUrl }),
+    why_now: whyLine,
     hard_date: null,
-    effort: effortWords(minutes, !!draftUrl),
+    // The state phrase lives in owed_line; a thread row has no second chain of effort words.
+    effort: '',
     minutes,
     opened: {
       summary: newest.gist
@@ -899,7 +937,8 @@ function buildThread(
       minutes,
       group: groupFor(client, project, null, refs),
       arcId: null,
-      clockDue: status === 'show' && (lead ? !!clock.lead?.past : clock.waiting),
+      clockDue: owedNow && status === 'show' && (lead ? !!clock.lead?.past : clock.waiting),
+      owedReply: owedNow && status === 'show',
       unpark: woke || cameBack,
     },
     ctx: {
@@ -915,10 +954,14 @@ function buildThread(
       owedShort: showShort,
       owedSend: sendFull || sendShort ? { full: sendFull, short: sendShort } : undefined,
       owedBook: bookBtn || undefined,
+      triage: view,
+      triageReason: tri?.reason,
       owedIfIgnored:
         status !== 'show'
           ? null
-          : leadAsk
+          : !owedNow
+            ? IF_IGNORED.stays_here
+            : leadAsk
             ? IF_IGNORED_4C.lead_ask
             : ifIgnoredLine(owedState, drafterFreshAt, now, {
                 leadPast: !!clock.lead?.past && !!owed?.drafted_at && owed.drafted_at.getTime() < clock.lead.due.getTime(),
@@ -928,6 +971,8 @@ function buildThread(
     },
   };
 }
+
+const THREAD_TITLE_MAX = 90;
 
 function sameName(a: string, b: string): boolean {
   return a.trim().toLowerCase() === b.trim().toLowerCase();
@@ -1206,7 +1251,7 @@ function finalize(c: Candidate, ctx: FinalizeCtx, filledFirst: boolean): void {
     botTask: c.botTask,
     owedThread:
       c.kind === 'thread' && ctx.thread?.status === 'show'
-        ? { state: ctx.owedState ?? null, suggestion: !!ctx.owedSuggestion, lead: ctx.owedLead, leadAsk: ctx.owedLeadAsk, short: ctx.owedShort, send: ctx.owedSend, book: ctx.owedBook }
+        ? { state: ctx.owedState ?? null, suggestion: !!ctx.owedSuggestion, lead: ctx.owedLead, leadAsk: ctx.owedLeadAsk, short: ctx.owedShort, send: ctx.owedSend, book: ctx.owedBook, triage: ctx.triage }
         : undefined,
     mailUrl: ctx.mailUrl,
     siteUrl: ctx.siteUrl,
@@ -1268,6 +1313,9 @@ function restItemOf(c: Candidate, group: HomeRestGroupKey, ctx: FinalizeCtx, now
     text = onDayCheckText(c.state.on_day);
   } else if ((group === 'scheduled' || group === 'parked') && vw) {
     text = backOnText(vw);
+  } else if (group === 'probably_no_reply') {
+    const why = displayText(ctx.triageReason ?? '').replace(/[.\s]+$/, '');
+    text = why ? `${why}. ${REST_CHECK.probablyNoReply}` : REST_CHECK.probablyNoReply;
   } else if (group === 'older_threads') {
     text = REST_CHECK.olderThread;
   } else if (group === 'bast_stopped') {
@@ -1301,6 +1349,7 @@ function restItemOf(c: Candidate, group: HomeRestGroupKey, ctx: FinalizeCtx, now
     check_at: vw ? vw.toISOString() : null,
     past_check: !!vw && vw.getTime() <= now.getTime(),
     can_bring_forward: BRING_FORWARD_KINDS.includes(c.kind),
+    ...(group === 'probably_no_reply' ? { actions: c.item.actions.filter((a) => a.id === 'triage_close' || a.id === 'triage_reply') } : {}),
   };
 }
 
@@ -1512,6 +1561,8 @@ export function selectHome(input: SelectInput): SelectResult {
       needs.push(c);
     } else if (c.parked) {
       c.restGroup = c.parkedBy === 'keeper' ? 'scheduled' : 'parked';
+    } else if (c.kind === 'thread' && ctx.triage === 'probably_no_reply' && !c.boosted) {
+      c.restGroup = 'probably_no_reply'; // triage: probably no reply needed; not in People, not in Today
     } else if (handsTaskKeys.has(c.key)) {
       c.restGroup = HANDS_REST_GROUP; // Slice 6a: the Monday row holds these; the keeper never gives them a day
     } else if (c.kind === 'crisis' || c.kind === 'site') {
@@ -1758,6 +1809,7 @@ export function selectHome(input: SelectInput): SelectResult {
     bast_stopped: 0,
     hands: 0,
     project_steps: 0,
+    probably_no_reply: 0,
     from_sent_mail: 0,
   };
   for (const c of candidates) if (c.section === 'rest' && c.restGroup) counts[c.restGroup] += 1;
@@ -1774,6 +1826,7 @@ export function selectHome(input: SelectInput): SelectResult {
     bast_stopped: [],
     hands: [],
     project_steps: [],
+    probably_no_reply: [],
     from_sent_mail: [],
   };
   const restCands = candidates.filter((c) => c.section === 'rest' && c.restGroup !== null);
@@ -1833,6 +1886,7 @@ export function selectHome(input: SelectInput): SelectResult {
     'bast_stopped',
     'project_steps',
     'hands',
+    'probably_no_reply',
     'from_sent_mail',
   ];
   const groups: HomeEverythingElseGroup[] = order

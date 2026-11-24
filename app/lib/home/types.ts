@@ -126,6 +126,9 @@ export type HomeActionId =
   | 'treat_as_reply'
   | 'close_lead'
   | 'open_short'
+  | 'triage_close'
+  | 'triage_reply'
+  | 'make_task'
   | 'open_project'
   | 'step_done'
   // Session card: Clear it (a home act; remembers the cleared text on his own row, never touches the session).
@@ -510,6 +513,7 @@ export type HomeRestGroupKey =
   | 'bast_stopped' // Slice 3: tasks Bast stopped on beyond the one that holds a Next slot
   | 'hands' // Slice 6a: tasks tagged hands or credential-rotation (they come as one weekly row, never one by one)
   | 'project_steps' // Slice 8b: project next steps that are his and did not make Next
+  | 'probably_no_reply' // triage: threads whose newest message probably needs no reply (medium verdict, or a close that did not happen)
   | 'from_sent_mail'; // Slice 9a: cards from his sent mail beyond the one in Decisions ready, and every look-back card
 
 /** Slice 2: one row inside an Everything else group. Every row has an owner and a check text. */
@@ -527,6 +531,8 @@ export interface HomeRestItem {
   past_check: boolean;
   /** True when "Bring it forward" works on this row (task, session, wait and thread rows; not crisis or group rows). */
   can_bring_forward: boolean;
+  /** Triage rows only: the buttons (Close it, I'll reply). */
+  actions?: HomeItemAction[];
 }
 
 export interface HomeEverythingElseGroup {
@@ -718,6 +724,9 @@ export type HomeActRequest =
   | { action: 'not_this_week'; item_key: string }
   /** Slice 4c, a lead: Keep it. Restarts the lead clock from now. Undoable. Writes only his home_owed_thread row. */
   | { action: 'keep_lead'; item_key: string }
+  // Triage: Close it (every open ask on the thread goes to No reply needed; Undo reopens them) and I'll reply / Just reply (the thread is owed).
+  | { action: 'triage_close'; item_key: string }
+  | { action: 'triage_reply'; item_key: string }
   /** Slice 4c, a lead: Not a lead, then "Treat as a reply". The thread stops being a lead. Undoable. */
   | { action: 'treat_as_reply'; item_key: string }
   /**
@@ -1314,6 +1323,8 @@ export type KeeperActionKind =
   | 'keeper_arc_close'
   | 'keeper_arc_link'
   | 'keeper_owed_drafts'
+  // Triage: a thread closed as no reply needed (source keeper, Undo for 72 hours)
+  | 'triage_close'
   // Slice 6a: the site-down check's lines (source keeper, no Undo) and the saved-rule line (his own press, Undo for 7 days)
   | 'watch_site_cleared'
   | 'watch_site_down'

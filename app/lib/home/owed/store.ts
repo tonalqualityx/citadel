@@ -9,7 +9,7 @@
 import { createHash } from 'crypto';
 import type { PrismaClient } from '@prisma/client';
 import { DEFAULT_DISPLAY_TIMEZONE } from '@/lib/timezone';
-import { zonedDateString } from '../act';
+import { zonedDateString, zonedToUtc } from '../act';
 import { loadHomeInputs } from '../load';
 import { appendHomeAction, dateOnly, loadItemStates } from '../state';
 import { ownerOnHome } from '../keeper/run';
@@ -17,6 +17,7 @@ import { isItemKey, parseItemKey, threadKey } from '../item-key';
 import { threadClient } from '../score';
 import { checkDraftBody, checkRead, checkShortDraft, checkSuggested } from './checks';
 import { weekdayIn } from './clock';
+import { TRIAGE_ACTION, TRIAGE_CLOSE_PER_DAY, checkTriageReason, closedLine, dismissAsks, holdActive, openAsksOf, undoUntilFrom, type TriageConfidence, type TriageVerdict } from './triage';
 import { draftedLine, OWED, repliedElsewhereLine, shortDraftedLine } from './copy';
 import { mergeJoinedThreads } from './join';
 import { owedQueue, type OwedCaps } from './queue';
@@ -59,12 +60,13 @@ export interface OwedWorkItem {
 /** The ?caps=short,auto,joins list. Without any, the items have the 4a shape and never ask for a short or auto draft. */
 export interface OwedWorkCaps extends OwedCaps {
   joins: boolean;
+  triage: boolean;
 }
-export const NO_CAPS: OwedWorkCaps = { short: false, auto: false, joins: false };
+export const NO_CAPS: OwedWorkCaps = { short: false, auto: false, joins: false, triage: false };
 
 export function parseCaps(raw: string | null | undefined): OwedWorkCaps {
   const set = new Set((raw ?? '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean));
-  return { short: set.has('short'), auto: set.has('auto'), joins: set.has('joins') };
+  return { short: set.has('short'), auto: set.has('auto'), joins: set.has('joins'), triage: set.has('triage') };
 }
 
 /** The owner's drafting queue in order, at most `limit` (6 by default). Writes nothing. */
@@ -140,6 +142,7 @@ export type OwedResultItem = (
   | { thread_key: string; newest_ask_id: string; outcome: 'failed'; error: string }
   | { thread_key: string; newest_ask_id: string; outcome: 'short_drafted'; short_draft_id: string; short_draft_text: string; model: string; cost_usd?: number }
   | { thread_key: string; newest_ask_id: string; outcome: 'replied_elsewhere'; replied_from: string; replied_at: string }
+  | { thread_key: string; newest_ask_id: string; outcome: 'triaged'; verdict: TriageVerdict; confidence: TriageConfidence; reason: string; model: string; cost_usd?: number }
 ) &
   WithJoins;
 
@@ -177,6 +180,10 @@ export function itemRefusal(item: OwedResultItem): string | null {
     const r = checkShortDraft(item.short_draft_text);
     return r.ok ? null : `short_${r.category}`;
   }
+  if (item.outcome === 'triaged') {
+    const r = checkTriageReason(item.reason);
+    return r.ok ? null : 'triage_reason';
+  }
   if (item.outcome === 'needs_thought') {
     const read = checkRead(item.read);
     if (!read.ok) return `read_${read.category}`;
@@ -197,6 +204,8 @@ type Counts = {
   stale: number;
   short_drafted: number;
   replied_elsewhere: number;
+  triaged: number;
+  auto_closed: number;
 };
 
 function addCounts(prior: unknown, add: Counts): Counts {
@@ -211,6 +220,8 @@ function addCounts(prior: unknown, add: Counts): Counts {
     stale: n('stale'),
     short_drafted: n('short_drafted'),
     replied_elsewhere: n('replied_elsewhere'),
+    triaged: n('triaged'),
+    auto_closed: n('auto_closed'),
   };
 }
 
@@ -286,9 +297,34 @@ async function findNewestAsk(tx: JoinTx, parsed: { account: string; thread_id: s
   });
 }
 
+
+/** A meeting already on his calendar answers the message: an ask on the thread with a calendar event, or an event with that sender after it. */
+async function meetingOnCalendar(tx: JoinTx, parsed: { account: string; thread_id: string }, newest: { from_email: string; received_at: Date }): Promise<boolean> {
+  const linked = await tx.emailAsk.findFirst({
+    where: { account: parsed.account, calendar_event_id: { not: null }, OR: [{ thread_id: parsed.thread_id }, { thread_id: null, message_id: parsed.thread_id }] },
+    select: { id: true },
+  });
+  if (linked) return true;
+  const events = await tx.calendarEvent.findMany({ where: { starts_at: { gte: newest.received_at } }, select: { attendees: true }, take: 500 });
+  const who = newest.from_email.toLowerCase();
+  return events.some((e) => Array.isArray(e.attendees) && (e.attendees as unknown[]).some((a) => !!a && typeof a === 'object' && String((a as { email?: unknown }).email ?? '').toLowerCase() === who));
+}
+
+/** The reason line for a verdict made from Bast's own "No reply needed" read. */
+function reasonFromRead(read: string): string {
+  const one = read.replace(/\s+/g, ' ').trim();
+  const cut = one.length > 200 ? one.slice(0, 197).replace(/\s+\S*$/, '') : one;
+  return checkTriageReason(cut).ok && cut.length > 0 ? cut : "Bast's read is that no reply is needed.";
+}
+
+/** A saved no reply read on a reply thread: the drafter's suggested answer starts with "No reply needed". */
+export function readsNoReply(item: { suggested_answer: string | null }): boolean {
+  return /^\s*no reply (?:is )?needed/i.test(item.suggested_answer ?? '');
+}
+
 /** A refusal about the text itself (draft_*, short_*, read_*, suggested_*): the same text will be refused again. */
 export function isContentRefusal(reason: string): boolean {
-  return /^(?:draft|short|read|suggested)_/.test(reason);
+  return /^(?:draft|short|read|suggested|triage)_/.test(reason);
 }
 
 type OwedRowForFailure = { draft_id: string | null; attempts: number } | null;
@@ -335,13 +371,18 @@ export async function saveOwedResults(
     async (tx) => {
       const saved: OwedSaveResult['saved'] = [];
       const refused: OwedRefusal[] = [];
-      const counts: Counts = { drafted: 0, needs_thought: 0, mike_edited: 0, failed: 0, refused: 0, stale: 0, short_drafted: 0, replied_elsewhere: 0 };
+      const counts: Counts = { drafted: 0, needs_thought: 0, mike_edited: 0, failed: 0, refused: 0, stale: 0, short_drafted: 0, replied_elsewhere: 0, triaged: 0, auto_closed: 0 };
       const shortNames: string[] = [];
       const shortKeys: string[] = [];
       const zone = timezone || DEFAULT_DISPLAY_TIMEZONE;
       const draftedNames: string[] = [];
       const draftedKeys: string[] = [];
       const seen = new Set<string>();
+      const dayStart = (() => {
+        const [y, m, d] = zonedDateString(now, zone).split('-').map(Number);
+        return zonedToUtc(y, m, d, 0, 0, zone);
+      })();
+      let closedToday: number | null = null;
 
       for (const item of items) {
         const refuse = (reason: string, status?: number) => {
@@ -385,7 +426,7 @@ export async function saveOwedResults(
         const where = { user_id_thread_key: { user_id: userId, thread_key: item.thread_key } };
         const row = await tx.homeOwedThread.findUnique({
           where,
-          select: { draft_id: true, attempts: true, state: true, request_kind: true, not_lead_at: true, draft_for_ask_id: true, replied_elsewhere_at: true },
+          select: { draft_id: true, attempts: true, state: true, request_kind: true, not_lead_at: true, draft_for_ask_id: true, replied_elsewhere_at: true, triage_hold_until: true },
         });
 
         if (item.outcome === 'mike_edited') {
@@ -474,7 +515,71 @@ export async function saveOwedResults(
               undo_until: now,
             });
           }
+        } else if (item.outcome === 'triaged') {
+          let verdict: TriageVerdict = item.verdict;
+          let confidence: TriageConfidence = item.confidence;
+          let close = false;
+          if (verdict === 'meeting_set' && !(await meetingOnCalendar(tx, parsed, newest))) {
+            // Nothing on his calendar answers it: it is not closed on a guess.
+            verdict = 'no_reply';
+            confidence = 'medium';
+          }
+          if ((verdict === 'no_reply' || verdict === 'meeting_set') && confidence === 'high') {
+            if (closedToday === null) closedToday = await tx.homeAction.count({ where: { user_id: userId, action: TRIAGE_ACTION, source: 'keeper', created_at: { gte: dayStart } } });
+            close = !holdActive(row, now) && closedToday < TRIAGE_CLOSE_PER_DAY;
+          }
+          const data = {
+            triage: verdict,
+            triage_confidence: confidence,
+            triage_reason: item.reason.trim(),
+            triage_for_ask_id: item.newest_ask_id,
+            triaged_at: now,
+            attempts: 0,
+            last_error: null,
+            last_model: item.model.slice(0, 20),
+          };
+          if (!dry) {
+            await tx.homeOwedThread.upsert({ where, create: { user_id: userId, thread_key: item.thread_key, ...data }, update: data });
+            if (close) {
+              const ids = await dismissAsks(tx, (await openAsksOf(tx, parsed.account, parsed.thread_id)).map((a) => a.id));
+              if (ids.length > 0) {
+                closedToday = (closedToday ?? 0) + 1;
+                const line = closedLine(personName(newest), item.reason, verdict);
+                await appendHomeAction(tx, userId, {
+                  item_key: null,
+                  action: TRIAGE_ACTION,
+                  source: 'keeper',
+                  before: { triage_close: { thread_key: item.thread_key, ask_ids: ids } },
+                  after: { line, details: [`${personName(newest)}: ${item.reason.trim()}`], thread_keys: [item.thread_key] },
+                  undo_until: undoUntilFrom(now),
+                });
+                counts.auto_closed += 1;
+              }
+            }
+          } else if (close) {
+            counts.auto_closed += 1;
+          }
+          counts.triaged += 1;
         } else {
+          if (readsNoReply(item)) {
+            // Bast's own read says no reply is needed: that is a medium no_reply verdict, never a Needs thought row.
+            const data = {
+              triage: 'no_reply',
+              triage_confidence: 'medium',
+              triage_reason: reasonFromRead(item.read),
+              triage_for_ask_id: item.newest_ask_id,
+              triaged_at: now,
+              request_kind: null,
+              requested_at: null,
+              attempts: 0,
+              last_error: null,
+              last_model: item.model.slice(0, 20),
+            };
+            if (!dry) await tx.homeOwedThread.upsert({ where, create: { user_id: userId, thread_key: item.thread_key, ...data }, update: data });
+            counts.triaged += 1;
+            saved.push({ thread_key: item.thread_key, outcome: 'triaged' });
+            continue;
+          }
           const data = {
             state: 'needs_thought',
             request_kind: null,

@@ -4986,6 +4986,13 @@ model HomeOwedThread {
   book_undo_requested_at DateTime?
   book_attempts          Int       @default(0)
   book_error             String?   @db.VarChar(300)
+  // Triage (fix/owed-triage): a thread is owed only when the verdict for its newest ask says a reply from him is needed.
+  triage                 String?   @db.VarChar(20)    // reply | no_reply | task | meeting_set (null = not triaged yet)
+  triage_confidence      String?   @db.VarChar(10)    // high | medium
+  triage_reason          String?   @db.VarChar(200)   // one plain line
+  triage_for_ask_id      String?   @db.Uuid           // the newest ask the verdict was made for; a newer message clears it
+  triaged_at             DateTime?
+  triage_hold_until      DateTime?                    // after an Undo of an auto close: no auto close until then
   created_at        DateTime  @default(now())
   updated_at        DateTime  @updatedAt
   @@unique([user_id, thread_key])

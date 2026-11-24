@@ -36,6 +36,7 @@ import { clearOwedRequest, markOwed, OWED_ACTION, requestOwed, undoOwedMark, typ
 import { KEEP_LEAD_MESSAGE, TREAT_AS_REPLY_MESSAGE } from './owed/copy';
 import type { OwedRequestKind } from './owed/state';
 import { requestBook, undoBook } from './owed/book';
+import { TRIAGE_ACTION, readCloseRecord, runTriageClose, runTriageReply, undoClose } from './owed/triage';
 import { BOOK_COPY, bookLine } from './owed/book-copy';
 import { NO_FREE_SLOT } from './owed/slot';
 import { selectHome } from './select';
@@ -138,6 +139,9 @@ export const homeActSchema: z.ZodType<HomeActRequest> = z.discriminatedUnion('ac
   // Slice 4c: a lead's clock. Letting a lead go is the screen's existing "No reply needed" on its asks, not an action here.
   z.object({ action: z.literal('keep_lead'), item_key: itemKeySchema }).strict(),
   z.object({ action: z.literal('treat_as_reply'), item_key: itemKeySchema }).strict(),
+  // Triage: Close it (the thread's open asks go to No reply needed, Undo reopens them) and I'll reply (the thread is owed). Own writers: lib/home/owed/triage.ts.
+  z.object({ action: z.literal('triage_close'), item_key: itemKeySchema }).strict(),
+  z.object({ action: z.literal('triage_reply'), item_key: itemKeySchema }).strict(),
   // Slice 6a: park the Monday hands row. There is deliberately no action here that saves a "Not an emergency" rule: that is
   // POST /api/home/rule (browser session only), so the chat can never reach it.
   z.object({ action: z.literal('not_this_week'), item_key: itemKeySchema }).strict(),
@@ -869,6 +873,11 @@ export function planAct(req: HomeActRequest, ctx: ActContext): ActPlan {
       return { ...base, action: req.action, item_key: req.item_key, stateWrites: [], book: true, message: null };
     }
 
+    case 'triage_close':
+    case 'triage_reply':
+      // Run by runHomeAct through lib/home/owed/triage.ts, never planned here.
+      throw new HomeActError('not_found', 'That is not a home change.');
+
     case 'proposal_yes':
     case 'proposal_no':
       // Run by runHomeAct through lib/home/reconcile/apply.ts, never planned here.
@@ -967,6 +976,8 @@ export async function runHomeAct(
   opts: RunOptions
 ): Promise<HomeActResponse> {
   // Slice 9a: a tap on a card from his sent mail (its own writers; see lib/home/reconcile/apply.ts).
+  if (req.action === 'triage_close') return runTriageClose(db, userId, req.item_key, opts.now);
+  if (req.action === 'triage_reply') return runTriageReply(db, userId, req.item_key, opts.now);
   if (req.action === 'proposal_no') return proposalNo(db, userId, req.item_key, opts.now);
   if (req.action === 'proposal_yes') return proposalYes(db, userId, req.item_key, { now: opts.now, timezone: opts.timezone, allowTime: false, minutes: null });
 
@@ -1369,6 +1380,16 @@ export async function runHomeUndo(
     if (row.action === 'send_draft') throw new HomeActError('not_undoable', 'Undo that on the home screen.');
     // Slice 6a: a saved rule is undone through its own store (it retracts the Decision); the generic undo would leave it confirmed.
     if (row.action === RULE_ACTION) throw new HomeActError('not_undoable', 'A saved rule is removed from its own line under Handled for you.');
+    // Triage: a close (the keeper's, or his press on Close it). Reopens exactly the asks it dismissed and holds the thread for 30 days.
+    if (row.action === TRIAGE_ACTION) {
+      const rec = readCloseRecord(row.before);
+      if (!rec || !row.undo_until) throw new HomeActError('not_undoable');
+      if (row.undo_until.getTime() < now.getTime()) throw new HomeActError('undo_expired');
+      const marked = await markHomeActionUndone(tx, userId, actionId, now);
+      if (!marked) throw new HomeActError('undo_used');
+      await undoClose(tx, userId, rec, now);
+      return { ok: true as const, action_id: actionId, item_key: row.item_key };
+    }
     const before = asSide(row.before);
     const after = asSide(row.after);
     if (row.action === 'record' || !row.undo_until || !before) throw new HomeActError('not_undoable');

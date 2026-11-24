@@ -327,7 +327,7 @@ export type OpLine =
   | { op: 'home_act'; action: 'not_now'; title: string; until: Date | null }
   | { op: 'home_act'; action: 'not_emergency'; title: string; security?: boolean }
   | { op: 'home_act'; action: 'bring_forward' | 'matters_more' | 'pin' | 'stop' | 'done_pin' | 'arc_add' | 'arc_remove'; title: string }
-  | { op: 'home_act'; action: 'draft_now' | 'needs_thought' | 'go_with_that' | 'keep_lead' | 'treat_as_reply' | 'book_block'; who: string }
+  | { op: 'home_act'; action: 'draft_now' | 'needs_thought' | 'go_with_that' | 'keep_lead' | 'treat_as_reply' | 'book_block' | 'triage_close' | 'triage_reply'; who: string }
   | { op: 'home_act'; action: 'arc_reorder' | 'lighter' | 'not_this_week' }
   | { op: 'home_act'; action: 'swap'; title: string }
   | { op: 'home_act'; action: 'step_done'; title: string }
@@ -387,6 +387,12 @@ export function opSummary(o: OpLine, now: Date = new Date()): string {
           break;
         case 'book_block':
           s = `Bast will put 30 minutes on your calendar to answer ${o.who}.`;
+          break;
+        case 'triage_close':
+          s = `Closed ${o.who}'s message as no reply needed.`;
+          break;
+        case 'triage_reply':
+          s = `${o.who}'s message is now kept as a reply.`;
           break;
         case 'keep_lead':
           s = `Kept ${o.who}'s lead. The reply clock starts again.`;
