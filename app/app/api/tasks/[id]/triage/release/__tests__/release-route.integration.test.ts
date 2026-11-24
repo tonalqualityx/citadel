@@ -171,8 +171,33 @@ describe.skipIf(!SCRATCH)('front session release on Mike\'s words (real database
     const kept = await comments(id);
     expect(kept).toHaveLength(1);
     expect(kept[0].content).toContain(`"${WORDS.mike_words}"`);
-    expect(kept[0].content).toContain('that request failed (error)');
+    expect(kept[0].content).toContain('that request returned an error (error)');
+    expect(kept[0].content).toContain('this request or another release moved it');
     expect(kept[0].content).not.toContain('Released from Triage');
+  });
+
+  it('when the final rewording of the comment fails, what stays on the card is the request wording, which is still true', async () => {
+    const failFinish = async () => {
+      throw new Error('comment update failed');
+    };
+    // the release went through, the rewording to "Released" failed
+    const ok = await mk('finish fails after release');
+    const res = await releaseOnMikesWords(prisma, front(), ok, WORDS, new Date(), { finish: failFinish });
+    actionIds.push(res.release.action_id);
+    expect((await row(ok)).status).toBe('not_started');
+    const [a] = await comments(ok);
+    expect(a.content.startsWith("The front session asked to release this card from Triage on Mike's words.")).toBe(true);
+    expect(a.content).toContain(`"${WORDS.mike_words}"`);
+    // the release failed after a move, and the rewording to the failed text also failed
+    const moved = await mk('finish fails after failed release');
+    const movesThenFails = async () => {
+      await prisma.task.update({ where: { id: moved }, data: { status: 'not_started' } });
+      throw new Error('later write failed');
+    };
+    await expect(releaseOnMikesWords(prisma, front(), moved, WORDS, new Date(), { release: movesThenFails as never, finish: failFinish })).rejects.toThrow('later write failed');
+    const [b] = await comments(moved);
+    expect(b.content.startsWith("The front session asked to release this card from Triage on Mike's words.")).toBe(true);
+    expect(b.content).not.toContain('Released from Triage');
   });
 
   it('two releases of the same card at once: one wins, and only the winner leaves a release record', async () => {
@@ -186,7 +211,7 @@ describe.skipIf(!SCRATCH)('front session release on Mike\'s words (real database
     const all = await comments(id);
     expect(all.filter((c) => c.content.startsWith('Released from Triage'))).toHaveLength(1);
     // the loser's words are either gone (it failed before or while still in Triage) or kept as a failed request
-    for (const c of all.filter((x) => !x.content.startsWith('Released from Triage'))) expect(c.content).toContain('that request failed');
+    for (const c of all.filter((x) => !x.content.startsWith('Released from Triage'))) expect(c.content).toContain('that request returned an error');
   });
 
   it('a release that fails with the card still in Triage takes the record back out', async () => {
@@ -202,16 +227,22 @@ describe.skipIf(!SCRATCH)('front session release on Mike\'s words (real database
   it('the record is already on the card when the release runs', async () => {
     const id = await mk('record first');
     let seenStatus: string | null = null;
+    let seenContent: string | null = null;
     const spy = async (db: typeof prisma, taskId: string, auth: AuthPayload, input: Parameters<typeof recordWords>[3]) => {
       const c = await recordWords(db, taskId, auth, input);
       seenStatus = (await row(taskId)).status;
+      seenContent = (await comments(taskId))[0].content;
       return c;
     };
     const res = await releaseOnMikesWords(prisma, front(), id, WORDS, new Date(), { record: spy });
     actionIds.push(res.release.action_id);
     expect(seenStatus).toBe('triage');
+    // before the move it reads as a request; after the confirmed move, as the release
+    expect(seenContent).toMatch(/^The front session asked to release this card/);
     expect((await row(id)).status).toBe('not_started');
-    expect((await comments(id)).map((c) => c.id)).toEqual([res.comment_id]);
+    const after = await comments(id);
+    expect(after.map((c) => c.id)).toEqual([res.comment_id]);
+    expect(after[0].content).toMatch(/^Released from Triage by the front session/);
   });
 
   it('the front-session key still cannot move a card out of Triage through the task PATCH path', async () => {

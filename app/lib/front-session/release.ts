@@ -8,8 +8,9 @@
  * relay counts as his yes only when it quotes him and names where and when). Citadel:
  *   1. releases the card exactly as his Release tap does (releaseCard in lib/tasks/triage.ts, run as Mike, so the 72 hour Undo on
  *      his home screen covers it and the release_version check refuses a card that changed since the session read it);
- *   2. records his words on the card: an internal comment quoting him with where and when (written first, so a card never leaves Triage
- *      without it, and taken back out if the release is refused), and after the release a change line naming the front session.
+ *   2. records his words on the card: an internal comment quoting him with where and when, written first as a request (so a card never
+ *      leaves Triage without it), reworded as the release once the move is confirmed, taken back out if the card never moved, and reworded
+ *      as a failed request if the call failed with the card out of Triage; after the release a change line names the front session.
  * A request without the words, from any other caller, or for a card that is not in Triage changes nothing.
  * mayLeaveTriage (lib/services/task-patch.ts) is unchanged: this lane can never move a status through PATCH /api/tasks/:id.
  */
@@ -55,14 +56,22 @@ export const releaseOnWordsSchema = z
 
 export type ReleaseOnWords = z.infer<typeof releaseOnWordsSchema>;
 
-/** The comment a release leaves on the card. Plain text; his words are quoted as sent. */
-export function wordsComment(input: Pick<ReleaseOnWords, 'mike_words' | 'said_where' | 'said_at'>): string {
-  return `Released from Triage by the front session on Mike's words.\n\nMike, ${input.said_where}, ${new Date(input.said_at).toISOString()}:\n"${input.mike_words}"`;
+const quoteBlock = (input: Pick<ReleaseOnWords, 'mike_words' | 'said_where' | 'said_at'>) =>
+  `Mike, ${input.said_where}, ${new Date(input.said_at).toISOString()}:\n"${input.mike_words}"`;
+
+/** The comment as first written, before the card moves: a request on his words, never a claim that anything was released. */
+export function requestedWordsComment(input: Pick<ReleaseOnWords, 'mike_words' | 'said_where' | 'said_at'>): string {
+  return `The front session asked to release this card from Triage on Mike's words.\n\n${quoteBlock(input)}`;
 }
 
-/** What the comment becomes when the release it was written for failed after the card had already left Triage: still his words, never a claim of release. */
+/** The comment once the release went through. */
+export function wordsComment(input: Pick<ReleaseOnWords, 'mike_words' | 'said_where' | 'said_at'>): string {
+  return `Released from Triage by the front session on Mike's words.\n\n${quoteBlock(input)}`;
+}
+
+/** The comment when the release returned an error and the card is out of Triage anyway: who moved it is not known, so it says so. */
 export function failedWordsComment(input: Pick<ReleaseOnWords, 'mike_words' | 'said_where' | 'said_at'>, code: string): string {
-  return `The front session asked to release this card on Mike's words, and that request failed (${code}). If the card is out of Triage, another release moved it.\n\nMike, ${input.said_where}, ${new Date(input.said_at).toISOString()}:\n"${input.mike_words}"`;
+  return `The front session asked to release this card from Triage on Mike's words, and that request returned an error (${code}). The card is out of Triage: this request or another release moved it.\n\n${quoteBlock(input)}`;
 }
 
 export interface ReleaseOnWordsResult {
@@ -70,10 +79,10 @@ export interface ReleaseOnWordsResult {
   comment_id: string;
 }
 
-/** The record of Mike's words on the card: an internal comment quoting him with where and when. Written BEFORE the card moves. */
+/** The record of Mike's words on the card: an internal comment quoting him with where and when, worded as a request. Written BEFORE the card moves. */
 export async function recordWords(db: PrismaClient, taskId: string, auth: AuthPayload, input: ReleaseOnWords): Promise<{ id: string }> {
   return db.comment.create({
-    data: { task_id: taskId, user_id: auth.userId, content: wordsComment(input), is_internal: true, client_visible: false, actor_lane: FRONT_SESSION_LANE },
+    data: { task_id: taskId, user_id: auth.userId, content: requestedWordsComment(input), is_internal: true, client_visible: false, actor_lane: FRONT_SESSION_LANE },
     select: { id: true },
   });
 }
@@ -84,7 +93,7 @@ export async function releaseOnMikesWords(
   taskId: string,
   body: unknown,
   now: Date = new Date(),
-  opts: { record?: typeof recordWords; release?: typeof releaseCard } = {},
+  opts: { record?: typeof recordWords; release?: typeof releaseCard; finish?: (commentId: string, content: string | null) => Promise<unknown> } = {},
 ): Promise<ReleaseOnWordsResult> {
   if (!isFrontSessionCaller(auth)) throw new ApiError(FRONT_SESSION_ONLY, 403, 'front_session_only');
   const input = releaseOnWordsSchema.parse(body);
@@ -92,27 +101,35 @@ export async function releaseOnMikesWords(
   const [card] = await loadCards(db, [taskId]);
   if (!card) throw new ApiError('That card is not in Triage.', 404, 'not_in_triage');
   const version = input.release_version ?? card.release_version;
-  // Order matters: his words go on the card first, so no card is ever out of Triage without them (releaseCard writes through the one task
-  // patch path, outside any transaction, so the two cannot share one). If the release is then refused or fails and the card is still in
-  // Triage, the record is taken back out (it described a release that did not happen) and the error stands. A comment does not change release_version.
+  // Order matters: his words go on the card first, worded as a request, so no card is ever out of Triage without them (releaseCard writes
+  // through the one task patch path, outside any transaction, so the two cannot share one). Only after the move is confirmed does the
+  // comment say "Released"; if that rewording fails, the card still carries an accurate request. A comment does not change release_version.
+  // The final write: new content for the comment, or null to take it back out.
+  const finish =
+    opts.finish ??
+    ((id: string, content: string | null) => (content === null ? db.comment.delete({ where: { id } }) : db.comment.update({ where: { id }, data: { content } })));
   const comment = await (opts.record ?? recordWords)(db, taskId, auth, input);
   let release: HomeActResponse;
   try {
     // Run as Mike, the same call his Release tap makes; it refuses an unsorted card, a quote project and a card changed since `version`.
     release = await (opts.release ?? releaseCard)(db, MIKE_USER_ID, taskId, version, now);
   } catch (error) {
-    // Still in Triage: nothing moved, so the record is taken back out. Out of Triage (this release failed after its move, or a concurrent
-    // release won) or unreadable: his words stay on the card, reworded so they never read as a release this request made.
+    // Still in Triage: nothing moved, so the request is taken back out. Out of Triage (this release failed after its move, or a concurrent
+    // release won): his words stay, reworded to say the request returned an error and the card moved, by whom unknown.
+    // If this write fails, the comment keeps its request wording, which is still true.
     const still = await db.task.findUnique({ where: { id: taskId }, select: { status: true } }).catch(() => null);
     const code = error instanceof ApiError && error.code ? error.code : 'error';
-    const undo =
-      still?.status === 'triage'
-        ? db.comment.delete({ where: { id: comment.id } })
-        : db.comment.update({ where: { id: comment.id }, data: { content: failedWordsComment(input, code) } });
-    await undo.catch((e) => console.error('[front-session] could not correct the record of a release that failed', { taskId, comment_id: comment.id, e }));
+    // Status unreadable: leave the request wording, which is true whatever happened.
+    if (still) {
+      await finish(comment.id, still.status === 'triage' ? null : failedWordsComment(input, code)).catch((e) =>
+        console.error('[front-session] could not correct the record of a release that failed', { taskId, comment_id: comment.id, e }),
+      );
+    }
     throw error;
   }
-  // The change line on the card ("Released by the front session on Mike's words"). The comment is the record; a failed line is logged, not fatal.
+  // The move is confirmed: the request becomes the release record. A failed rewording leaves the accurate request wording, logged, not fatal.
+  await finish(comment.id, wordsComment(input)).catch((e) => console.error('[front-session] release went through but its comment still reads as a request', { taskId, comment_id: comment.id, e }));
+  // The change line on the card ("Released by the front session on Mike's words"); logged, not fatal.
   try {
     const actor = await actorOf(auth, db);
     await recordTriageChange(db, taskId, 'release', `Released by ${actor.by} on Mike's words`, actor, `"${input.mike_words}" (${input.said_where})`);
