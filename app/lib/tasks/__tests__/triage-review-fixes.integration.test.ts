@@ -320,7 +320,7 @@ describe.skipIf(!SCRATCH)('triage review fixes (real database)', () => {
               if (added.length) bad(`unclaimed tags added: ${added.join(',')}`);
               const removed = before.tags.filter((t) => !after.tags.includes(t));
               if (removed.length) bad(`tags removed: ${removed.join(',')}`);
-              const readyClaim = /^Starts the project:/.test(line);
+              const readyClaim = /^Starts the project:/.test(line) || /Starts .+, which was waiting in the queue\./.test(line);
               if (readyClaim && after.project_status !== 'ready') bad('project not ready');
               if (!readyClaim && after.project_status !== before.project_status) bad('project status changed unclaimed');
               if (after.client_id !== before.client_id) bad('client changed');

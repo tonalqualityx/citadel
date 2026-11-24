@@ -144,12 +144,27 @@ describe.skipIf(!SCRATCH)('release by kind (real database)', () => {
     expect((await row(id)).assignee_id).toBe(techId);
   });
 
-  it('project_addition on a queue project stays on that project and leaves it in the queue', async () => {
-    const project = await mkProject('queue');
-    const id = await mk('addition', { triage_kind: 'project_addition', project_id: project });
+  it('project_addition and task on a queue project stay on that project and start it; Undo puts it back in the queue', async () => {
+    for (const kind of ['project_addition', 'task'] as const) {
+      const project = await mkProject('queue');
+      const id = await mk(`${kind} queued`, { triage_kind: kind, project_id: project });
+      expect((await card(id)).release_line).toContain('which was waiting in the queue.');
+      const res = await release(id);
+      expect((await row(id)).project_id).toBe(project);
+      expect((await row(id)).status).toBe('not_started');
+      expect((await prisma.project.findUniqueOrThrow({ where: { id: project } })).status).toBe('ready');
+      await undo(res.action_id);
+      expect((await row(id)).status).toBe('triage');
+      expect((await prisma.project.findUniqueOrThrow({ where: { id: project } })).status).toBe('queue');
+    }
+  });
+
+  it('a task on a project already under way leaves the project as it is', async () => {
+    const project = await mkProject('ready');
+    const id = await mk('task live', { triage_kind: 'task', project_id: project });
+    expect((await card(id)).release_line).not.toContain('Starts');
     await release(id);
-    expect((await row(id)).project_id).toBe(project);
-    expect((await prisma.project.findUniqueOrThrow({ where: { id: project } })).status).toBe('queue');
+    expect((await prisma.project.findUniqueOrThrow({ where: { id: project } })).status).toBe('ready');
   });
 
   it('a task on a quote project is refused (the old rule holds for every kind)', async () => {

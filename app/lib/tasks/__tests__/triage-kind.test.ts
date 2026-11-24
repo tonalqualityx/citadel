@@ -49,11 +49,28 @@ describe('planRelease: the line and the effects come from one function', () => {
   });
 
   it('project_addition names its project; a quote project refuses every non-setup kind', () => {
-    expect(planRelease(base({ kind: 'project_addition', project: P('queue') })).line).toBe('Adds this to Stronghold and hands it to Dox.');
-    expect(planRelease(base({ kind: 'project_addition', project: P('queue'), assignee_id: 'u1', assignee_name: 'Sabeen' })).line).toBe('Adds this to Stronghold and hands it to Sabeen.');
+    expect(planRelease(base({ kind: 'project_addition', project: P('in_progress') })).line).toBe('Adds this to Stronghold and hands it to Dox.');
+    expect(planRelease(base({ kind: 'project_addition', project: P('ready'), assignee_id: 'u1', assignee_name: 'Sabeen' })).line).toBe('Adds this to Stronghold and hands it to Sabeen.');
+    expect(planRelease(base({ kind: 'project_addition', project: P('queue') })).line).toBe('Adds this to Stronghold and hands it to Dox. Starts Stronghold, which was waiting in the queue.');
     for (const kind of ['task', 'project_addition', 'reusable_tool', 'rule_proposal'] as const) {
       expect(planRelease(base({ kind, project: P('quote') }))).toMatchObject({ ready: false, block: 'still_quote' });
     }
+  });
+
+  it('every non-setup kind on a queued project starts that project, so Dox can write to it (the Herba admin speed card, 2026-11-24)', () => {
+    for (const kind of ['task', 'project_addition', 'reusable_tool', 'rule_proposal'] as const) {
+      const r = planRelease(base({ kind, project: P('queue') }));
+      expect(r.effects, kind).toMatchObject({ to_status: 'not_started', project_to_ready: true, starts_project: true, starts_project_name: 'Stronghold' });
+      expect(r.line, kind).toContain('Starts Stronghold, which was waiting in the queue.');
+      expect(r.details, kind).toContain('Stronghold goes from queue to ready');
+      for (const status of ['ready', 'in_progress', 'review']) {
+        const live = planRelease(base({ kind, project: P(status) }));
+        expect(live.effects, `${kind} ${status}`).toMatchObject({ project_to_ready: false, starts_project: false, starts_project_name: null });
+        expect(live.line, `${kind} ${status}`).not.toContain('Starts');
+      }
+    }
+    // a closed card never starts anything
+    expect(planRelease(base({ kind: 'question_only', project: P('queue') })).effects).toMatchObject({ project_to_ready: false, starts_project: false });
   });
 
   it('question_only closes the card and says the questions and answers stay', () => {
@@ -139,7 +156,11 @@ describe('planRelease: every effect has its phrase, present exactly when the eff
       expect(has(/Closes this card/), label).toBe(fx.closes_card);
       expect(has(/The questions and your answers stay on it/), label).toBe(fx.closes_card);
       // project made ready / set up by Dox
-      expect(has(/^Starts the project:/), label).toBe(fx.project_to_ready);
+      expect(has(/^Starts the project:/), label).toBe(fx.kind === 'project_setup' && fx.project_to_ready);
+      expect(has(/Starts Stronghold, which was waiting in the queue\./), label).toBe(fx.kind !== 'project_setup' && fx.project_to_ready);
+      // a queued project starts whenever the card goes on to be worked; a closed card starts nothing
+      expect(fx.project_to_ready, label).toBe(!fx.closes_card && input.project?.status === 'queue');
+      expect(fx.starts_project, label).toBe(fx.project_to_ready);
       expect(has(/to Dox to set up/), label).toBe(fx.kind === 'project_setup');
       // lands on Dox: the card is handed to him, no hold tag, and the old hold sentence is gone
       expect(fx.add_tags, label).not.toContain(PM_RELEASE_TAG);

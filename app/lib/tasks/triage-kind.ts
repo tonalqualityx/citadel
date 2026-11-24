@@ -6,7 +6,8 @@
  * "On release" line can never promise something the action does not do. Pure: no database, no React.
  *
  *   project_setup (a project card)                    project queue -> ready, card -> not_started, assigned to Dox, tags kickoff + from-triage
- *   task | project_addition | reusable_tool | rule_proposal   card -> not_started, assigned to Dox when nobody is (or Bast is), tag from-triage
+ *   task | project_addition | reusable_tool | rule_proposal   card -> not_started, assigned to Dox when nobody is (or Bast is), tag from-triage;
+ *                                                     a linked project still in queue goes to ready (Mike's release of the card starts its work)
  *   question_only                                     card closed as done; its questions and answers stay on it
  *   null (not sorted yet)                             nothing: release is refused
  */
@@ -54,8 +55,14 @@ export interface ReleaseEffects {
   lands_on_dox: boolean;
   /** The project the card belongs to (setup, or an addition). Null otherwise. */
   project_name: string | null;
-  /** Project card (kind project_setup) only: the project is made ready and handed to the office manager (Dox) to set up, who creates and assigns every task. */
+  /**
+   * The card's queued project is made ready. A project card (kind project_setup) is also handed to the office manager (Dox) to set up, who creates
+   * and assigns every task. Any other kind on a queued project starts it too: Dox writes only to a live project, so a released card left on a
+   * queued one could never be worked (2026-11-24, the Herba admin speed card).
+   */
   starts_project: boolean;
+  /** The project starts_project makes ready, by name. Null when nothing is started. */
+  starts_project_name: string | null;
   /** The card is closed as done, its questions and answers kept. */
   closes_card: boolean;
   /** rule_proposal: releasing is the owner approving the wording on the card (no other change). */
@@ -112,6 +119,7 @@ export function describeRelease(fx: ReleaseEffects): string {
     const to = fx.lands_on_dox ? PM_NAME : (fx.lands_on ?? 'its assignee');
     if (fx.project_name) parts.push(`Adds this to ${fx.project_name} and hands it to ${to}.`);
     else parts.push(`Hands this to ${to}.`);
+    if (fx.starts_project && fx.starts_project_name) parts.push(`Starts ${fx.starts_project_name}, which was waiting in the queue.`);
   }
   if (fx.approves_wording) parts.push('Releasing approves the wording on this card.');
   if (fx.site_name) parts.push(`The work is on ${fx.site_name}.`);
@@ -156,7 +164,7 @@ export function planRelease(input: ReleaseInput): ReleasePlan {
     details: detailsOf(effects, project),
     effects,
   });
-  const common = { kind, approves_wording: false, starts_project: false, project_name: null, site_name: input.site?.name ?? null };
+  const common = { kind, approves_wording: false, starts_project: false, starts_project_name: null, project_name: null, site_name: input.site?.name ?? null };
 
   if (kind === 'question_only') {
     return finish({
@@ -188,6 +196,7 @@ export function planRelease(input: ReleaseInput): ReleasePlan {
       lands_on_dox: true,
       project_name: project.name,
       starts_project: toReady,
+      starts_project_name: toReady ? project.name : null,
       closes_card: false,
       questions: { go, wait, stay: 0 },
     });
@@ -196,12 +205,16 @@ export function planRelease(input: ReleaseInput): ReleasePlan {
   // task, project_addition, reusable_tool, rule_proposal: the old rule holds, a task on a quote project is never released.
   if (project?.status === 'quote') return blocked('still_quote', `${project.name} is still a quote, so release is refused.`);
   const assignDox = input.assignee_id === null || input.assignee_id === input.bast_id;
+  // A released card on a queued project starts that project: Dox writes only to a live one, so leaving it in queue strands the card.
+  const startsQueued = project?.status === 'queue';
   return finish({
     ...common,
     to_status: 'not_started',
     assign_dox: assignDox,
     add_tags: [FROM_TRIAGE_TAG],
-    project_to_ready: false,
+    project_to_ready: startsQueued,
+    starts_project: startsQueued,
+    starts_project_name: startsQueued && project ? project.name : null,
     lands_on: assignDox ? PM_NAME : (input.assignee_name ?? 'its assignee'),
     lands_on_dox: assignDox,
     project_name: kind === 'project_addition' && project ? project.name : null,
