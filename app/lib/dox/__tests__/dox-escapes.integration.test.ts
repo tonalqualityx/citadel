@@ -276,6 +276,14 @@ describe.skipIf(!SCRATCH)('Dox escape attempts (real database)', () => {
       expect((await json(await patchTask(call(P, { tags_add: ['tier:frontier'] }, 'PATCH'), idParams(t)))).body.code).toBe('dox_tag_closed');
       expect((await json(await patchTask(call(P, { tags_add: ['needs-mike'] }, 'PATCH'), idParams(t)))).body.code).toBe('dox_tag_closed');
       expect((await patchTask(call(P, { tags_remove: ['tier:grunt'] }, 'PATCH'), idParams(t))).status).toBe(200);
+      // a card Mike tagged for Fable keeps its tier
+      const f = await fx.mkTask('Fable by Mike', { project_id: P, status: 'not_started', tags: ['tier:frontier'] });
+      expect((await json(await patchTask(call(P, { tags_add: ['tier:grunt'] }, 'PATCH'), idParams(f)))).body.code).toBe('dox_tag_closed');
+      expect((await taskRow(f)).tags).toEqual(['tier:frontier']);
+      const ft = await fx.mkTask('Fable by Mike, in Triage', { project_id: P, status: 'triage', tags: ['tier:frontier'] });
+      expect((await json(await patchTask(call(P, { tags_add: ['tier:grunt'] }, 'PATCH'), idParams(ft)))).body.code).toBe('dox_tag_closed');
+      expect((await json(await patchTask(call(P, { tags_add: ['tier:frontier'] }, 'PATCH'), idParams(ft)))).body.code).toBe('dox_tag_closed');
+      expect((await taskRow(ft)).tags).toEqual(['tier:frontier']);
       expect((await taskRow(t)).tags).toEqual(['from-dox']);
       const made = await json(await createTask(call(P, { title: `${fx.tag} tiered`, project_id: P, tags: ['tier:reasoning'] })));
       expect(made.status, JSON.stringify(made.body)).toBe(201);

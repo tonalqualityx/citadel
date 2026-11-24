@@ -517,6 +517,8 @@ export async function guardDoxTaskPatch(auth: LaneAuth, headers: Hdrs, rawBody: 
   const add = Array.isArray(body.tags_add) ? (body.tags_add as unknown[]) : [];
   const remove = Array.isArray(body.tags_remove) ? (body.tags_remove as unknown[]) : [];
 
+  // A card Mike tagged for Fable keeps that tier: choosing Fable is his call, so on any card, Triage included, Dox neither replaces it nor sits a second tier beside it.
+  if (add.some((t) => typeof t === 'string' && t.startsWith('tier:')) && existing.tags.includes('tier:frontier')) refuse('This card carries tier:frontier, which Mike set. Dox does not change its tier.', 'dox_tag_closed');
   // A Triage card: the looks-done mark and nothing else, on any card (it is how Dox says "this looks finished").
   if (existing.status === 'triage') {
     const only = Object.keys(body).every((k) => k === 'tags_add');
