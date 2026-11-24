@@ -16,7 +16,7 @@ import { Prisma } from '@prisma/client';
 import type { DesignJob, DesignJobKind } from '@prisma/client';
 import { ApiError } from '@/lib/api/errors';
 import {
-  ACTIVE_JOB_STATUSES, ADOPT_KINDS, BRIEF_DELAY_MINUTES, JOB_ATTEMPT_LIMIT, JOB_LEASE_SECONDS, NEEDS_MIKE_TAG,
+  ACTIVE_JOB_STATUSES, ADOPT_KINDS, BRIEF_DELAY_MINUTES, BUILD_KINDS, JOB_ATTEMPT_LIMIT, JOB_LEASE_SECONDS, NEEDS_MIKE_TAG,
   addInternalComment, addTaskTag, clearBusy, completeStageTask, errorTail, loadTrack, lockTrack, queueJob, removeTaskTag, trackTx, type TrackScope,
 } from './track-core';
 
@@ -44,6 +44,7 @@ export function jobView(j: DesignJob) {
 async function park(scope: TrackScope, job: DesignJob, error: string, actorId: string): Promise<void> {
   const { tx } = scope;
   await clearBusy(tx, job.track_id, job.id);
+  if (BUILD_KINDS.includes(job.kind)) scope.freed?.add(job.track_id);
   if (!job.task_id) return;
   await addTaskTag(tx, job.task_id, NEEDS_MIKE_TAG);
   await addInternalComment(tx, job.task_id, actorId, `The ${job.kind.replace(/_/g, ' ')} job failed after ${job.attempts} attempts and needs Mike.\n\n${errorTail(error)}`);

@@ -14,6 +14,7 @@ import { ApiError } from '@/lib/api/errors';
 import { CLEAR_CLAIM_DATA } from '@/lib/tasks/claims';
 import { unblockEligibleDependents } from '@/lib/services/dependencies';
 import { closeAsksForTask } from '@/lib/work/ask-closure';
+import { appendWorkerEvents } from './events';
 
 export type Tx = Prisma.TransactionClient;
 
@@ -21,6 +22,8 @@ export type Tx = Prisma.TransactionClient;
 export interface TrackScope {
   tx: Tx;
   done: Set<string>;
+  /** Tracks whose build failed for good in this transaction: the open page is told after the commit (see `recordTrackFreed`). */
+  freed?: Set<string>;
 }
 
 export const JOB_ATTEMPT_LIMIT = 2;
@@ -37,9 +40,28 @@ export const ACTIVE_JOB_STATUSES = ['queued', 'claimed', 'running'] as const;
 /** Run `fn` in one transaction; after it commits, unblock the dependants of every task it completed. */
 export async function trackTx<T>(fn: (scope: TrackScope) => Promise<T>, db: PrismaClient = prisma): Promise<T> {
   const done = new Set<string>();
-  const out = await db.$transaction((tx) => fn({ tx, done }), { timeout: 30_000, maxWait: 10_000 });
+  const freed = new Set<string>();
+  const out = await db.$transaction((tx) => fn({ tx, done, freed }), { timeout: 30_000, maxWait: 10_000 });
   for (const id of done) await unblockEligibleDependents(id);
+  for (const id of freed) await recordTrackFreed(id, db);
   return out;
+}
+
+/**
+ * A build that fails for good clears busy but moves no stage, and the open page reloads the track only on a
+ * track_stage feed line. Without one the designer's page keeps saying a build is running, so "Revise direction"
+ * never appears until she reloads (Sabeen on Jack Gaughan, 2026-11-24). Best effort, after the commit.
+ */
+export async function recordTrackFreed(trackId: string, db: PrismaClient = prisma): Promise<void> {
+  try {
+    const track = await db.designTrack.findUnique({ where: { id: trackId }, select: { stage: true, busy_job_id: true } });
+    if (!track || track.busy_job_id !== null) return;
+    const live = await db.designSession.findFirst({ where: { track_id: trackId, status: { notIn: ['closed', 'abandoned'] } }, select: { id: true } });
+    if (!live) return;
+    await appendWorkerEvents(live.id, { events: [{ role: 'system', kind: 'track_stage', payload: { stage: track.stage, busy: false, line: 'The build did not finish' } as never }] }, db);
+  } catch (e) {
+    console.error('track_stage event failed', e);
+  }
 }
 
 /** Serialise everything that moves one track. */
