@@ -17,7 +17,7 @@ import { z } from 'zod';
 import type { PrismaClient } from '@prisma/client';
 import { ApiError } from '@/lib/api/errors';
 import type { AuthPayload } from '@/lib/auth/middleware';
-import { MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
+import { BAST_USER_ID, MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import { releaseCard } from '@/lib/tasks/triage';
 import { loadCards } from '@/lib/tasks/triage-card';
 import { actorOf, recordTriageChange } from '@/lib/tasks/triage-rev';
@@ -27,9 +27,10 @@ export const FRONT_SESSION_LANE = 'front-session';
 export const FRONT_SESSION_ONLY = "Only the front session's key releases a card this way.";
 const FUTURE_SKEW_MS = 5 * 60 * 1000;
 
-/** True for an enforced API key that carries the front-session lane (a stored lane value may be a comma list). */
-export function isFrontSessionCaller(auth: Pick<AuthPayload, 'via' | 'lane' | 'laneEnforced'>): boolean {
-  if (auth.via !== 'api_key' || auth.laneEnforced !== true) return false;
+/** True for an enforced API key of the Bast user that carries the front-session lane (a stored lane value may be a comma list). */
+export function isFrontSessionCaller(auth: Pick<AuthPayload, 'userId' | 'via' | 'lane' | 'laneEnforced'>): boolean {
+  // The lane is minted for Bast (LANE_IDENTITY); the same scope on any other user's key releases nothing.
+  if (auth.via !== 'api_key' || auth.laneEnforced !== true || auth.userId !== BAST_USER_ID) return false;
   return (auth.lane ?? '').split(',').some((l) => l.trim() === FRONT_SESSION_LANE);
 }
 
@@ -57,6 +58,11 @@ export type ReleaseOnWords = z.infer<typeof releaseOnWordsSchema>;
 /** The comment a release leaves on the card. Plain text; his words are quoted as sent. */
 export function wordsComment(input: Pick<ReleaseOnWords, 'mike_words' | 'said_where' | 'said_at'>): string {
   return `Released from Triage by the front session on Mike's words.\n\nMike, ${input.said_where}, ${new Date(input.said_at).toISOString()}:\n"${input.mike_words}"`;
+}
+
+/** What the comment becomes when the release it was written for failed after the card had already left Triage: still his words, never a claim of release. */
+export function failedWordsComment(input: Pick<ReleaseOnWords, 'mike_words' | 'said_where' | 'said_at'>, code: string): string {
+  return `The front session asked to release this card on Mike's words, and that request failed (${code}). If the card is out of Triage, another release moved it.\n\nMike, ${input.said_where}, ${new Date(input.said_at).toISOString()}:\n"${input.mike_words}"`;
 }
 
 export interface ReleaseOnWordsResult {
@@ -95,12 +101,15 @@ export async function releaseOnMikesWords(
     // Run as Mike, the same call his Release tap makes; it refuses an unsorted card, a quote project and a card changed since `version`.
     release = await (opts.release ?? releaseCard)(db, MIKE_USER_ID, taskId, version, now);
   } catch (error) {
-    // releaseCard can fail after the card has already moved (a later write in the same release). The record is taken back only when the card
-    // is provably still in Triage; if it moved, or its status cannot be read, the record stays.
+    // Still in Triage: nothing moved, so the record is taken back out. Out of Triage (this release failed after its move, or a concurrent
+    // release won) or unreadable: his words stay on the card, reworded so they never read as a release this request made.
     const still = await db.task.findUnique({ where: { id: taskId }, select: { status: true } }).catch(() => null);
-    if (still?.status === 'triage') {
-      await db.comment.delete({ where: { id: comment.id } }).catch((e) => console.error('[front-session] could not take back the record of a release that failed', { taskId, comment_id: comment.id, e }));
-    }
+    const code = error instanceof ApiError && error.code ? error.code : 'error';
+    const undo =
+      still?.status === 'triage'
+        ? db.comment.delete({ where: { id: comment.id } })
+        : db.comment.update({ where: { id: comment.id }, data: { content: failedWordsComment(input, code) } });
+    await undo.catch((e) => console.error('[front-session] could not correct the record of a release that failed', { taskId, comment_id: comment.id, e }));
     throw error;
   }
   // The change line on the card ("Released by the front session on Mike's words"). The comment is the record; a failed line is logged, not fatal.

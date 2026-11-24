@@ -123,6 +123,9 @@ describe.skipIf(!SCRATCH)('front session release on Mike\'s words (real database
       { userId: BAST_USER_ID, role: 'pm', email: 'bast@test', via: 'api_key', apiKeyId: 'k6', lane: 'front-session', laneEnforced: false },
       { userId: BAST_USER_ID, role: 'pm', email: 'bast@test', via: 'session', lane: 'front-session', laneEnforced: true },
       { userId: otherId, role: 'admin', email: 'o@test', via: 'session' },
+      // the same enforced scope on a key that is not Bast's (the lane is minted for Bast only)
+      { userId: otherId, role: 'admin', email: 'o@test', via: 'api_key', apiKeyId: 'k7', lane: 'front-session', laneEnforced: true },
+      { userId: MIKE_USER_ID, role: 'admin', email: 'mike@test', via: 'api_key', apiKeyId: 'k8', lane: 'front-session', laneEnforced: true },
     ];
     for (const a of others) {
       authMock.mockResolvedValue(a);
@@ -157,7 +160,7 @@ describe.skipIf(!SCRATCH)('front session release on Mike\'s words (real database
     expect((await post(id, WORDS)).status).toBe(200);
   });
 
-  it('a release that fails after the card moved keeps the record on the card', async () => {
+  it('a release that fails after the card moved keeps his words on the card, worded as a failed request, never as a release', async () => {
     const id = await mk('fails after move');
     const movesThenFails = async () => {
       await prisma.task.update({ where: { id }, data: { status: 'not_started' } });
@@ -168,6 +171,22 @@ describe.skipIf(!SCRATCH)('front session release on Mike\'s words (real database
     const kept = await comments(id);
     expect(kept).toHaveLength(1);
     expect(kept[0].content).toContain(`"${WORDS.mike_words}"`);
+    expect(kept[0].content).toContain('that request failed (error)');
+    expect(kept[0].content).not.toContain('Released from Triage');
+  });
+
+  it('two releases of the same card at once: one wins, and only the winner leaves a release record', async () => {
+    const id = await mk('race');
+    authMock.mockResolvedValue(front());
+    const results = await Promise.all([post(id, WORDS), post(id, { ...WORDS, mike_words: 'Release that one too' })]);
+    const statuses = results.map((r) => r.status).sort();
+    expect(statuses[0]).toBe(200);
+    expect(statuses[1]).not.toBe(200);
+    expect((await row(id)).status).toBe('not_started');
+    const all = await comments(id);
+    expect(all.filter((c) => c.content.startsWith('Released from Triage'))).toHaveLength(1);
+    // the loser's words are either gone (it failed before or while still in Triage) or kept as a failed request
+    for (const c of all.filter((x) => !x.content.startsWith('Released from Triage'))) expect(c.content).toContain('that request failed');
   });
 
   it('a release that fails with the card still in Triage takes the record back out', async () => {
