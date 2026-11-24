@@ -14,7 +14,7 @@ type Db = PrismaClient | Prisma.TransactionClient;
 type ActorAuth = Pick<AuthPayload, 'userId' | 'via' | 'lane' | 'laneEnforced'>;
 
 export interface Actor {
-  /** How the line names who did it: "Mike", "the chat", "Dox", "a session", or a name. */
+  /** How the line names who did it: "Mike", "the chat", "Dox", "a session", "the front session", or a name. */
   by: string;
   userId: string | null;
   lane: string | null;
@@ -34,6 +34,7 @@ export async function actorOf(auth: ActorAuth, db: Pick<PrismaClient, 'user'> = 
     if (names.includes('bast-chat')) return { ...base, by: 'the chat' };
     if (names.includes('dox')) return { ...base, by: 'Dox' };
     if (names.includes('triage-desk')) return { ...base, by: 'a session' };
+    if (names.includes('front-session')) return { ...base, by: 'the front session' };
     if (names.includes('bast')) return { ...base, by: 'a worker session' };
     return { ...base, by: `the ${names[0]} lane`.slice(0, 60) };
   }

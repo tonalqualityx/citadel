@@ -525,6 +525,25 @@ export const taskEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/tasks/:id/triage/release',
+    group: 'tasks',
+    methods: [
+      {
+        method: 'POST',
+        summary: "The front session releases a Triage card on Mike's words: the same release as his Release tap, run as Mike (72 hour Undo on his home screen), with his quoted words, where and when recorded on the card.",
+        auth: 'required',
+        bodySchema: [
+          { name: 'mike_words', type: 'string', required: true, description: "Mike's own words, quoted as he typed them (1..2000 after trimming)." },
+          { name: 'said_where', type: 'string', required: true, description: 'Where he said them, e.g. "Claude app, front session" (1..200).' },
+          { name: 'said_at', type: 'string', required: true, description: 'When he said them, ISO 8601 with a zone; at most five minutes ahead of the server clock, for clock skew (400 said_at_future beyond that).' },
+          { name: 'release_version', type: 'string', required: false, description: 'The card release_version as the session read it (409 card_changed if the card moved since); left out, the card as it stands now.' },
+        ],
+        responseExample: { release: { ok: 'true', action_id: 'uuid', undo_until: 'iso', item_key: 'null', message: 'string' }, comment_id: 'uuid' },
+        responseNotes: "The enforced front-session lane only. No credentials: 401 from the auth middleware. Any other lane key (the chat lane included) is refused by the middleware's lane check with its own 403 before the handler runs; a caller without a lane (Mike's session, his own key, any other user) gets 403 front_session_only from the handler. The front-session lane reaches no other route. 400 for missing or empty words, place or time; 404 not_in_triage; 409 not_sorted, still_a_quote or card_changed exactly as the Release tap answers. His words are written to the card before it moves, so a card never leaves Triage without them; if the release is then refused with the card still in Triage, that record is taken back out (a release that fails after the card moved keeps it). Records an internal comment quoting Mike with where and when (actor_lane front-session) and a change line \"Released by the front session on Mike's words\".",
+      },
+    ],
+  },
+  {
     path: '/api/tasks/:id/triage/shape',
     group: 'tasks',
     methods: [
