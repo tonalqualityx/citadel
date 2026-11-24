@@ -21,15 +21,27 @@ const group = (over: Partial<HomeTriageGroup> = {}): HomeTriageGroup => {
 const triage = (groups: HomeTriageGroup[]): HomeTriage => ({ count: groups.reduce((n, g) => n + g.count, 0), open_questions: groups.reduce((n, g) => n + g.open_questions, 0), groups });
 
 describe('TriageCard', () => {
-  it('shows the count, each group with its count and three titles, and expands to all', () => {
-    render(<TriageCard triage={triage([group()])} onAct={vi.fn()} onTalk={vi.fn()} />);
+  it('shows the count, and every idea as its own row with a link to its card, a summary, an age and its own actions', () => {
+    const t = tasks(5).map((x, i) => ({ ...x, summary: `Wanted ${i + 1}`, created_at: '2026-11-01T00:00:00Z' }));
+    render(<TriageCard triage={triage([group({ tasks: t, titles: t.slice(0, 3).map((x) => x.title) })])} onAct={vi.fn()} onTalk={vi.fn()} />);
     expect(screen.getByRole('heading', { level: 2 }).textContent).toContain('5 ideas wait');
-    const g = screen.getByTestId('triage-group');
-    expect(within(g).getByText('Idea 3')).toBeTruthy();
-    expect(within(g).queryByText('Idea 4')).toBeNull();
-    fireEvent.click(within(g).getByRole('button', { name: 'Show all 5' }));
-    expect(within(g).getByText('Idea 5')).toBeTruthy();
-    expect(within(g).getAllByRole('button', { name: 'Release' })).toHaveLength(5);
+    const rows = screen.getAllByTestId('triage-row');
+    expect(rows).toHaveLength(5);
+    const first = within(rows[0]);
+    expect(first.getByRole('link').getAttribute('href')).toBe('/tasks/0');
+    expect(first.getByText('Wanted 1')).toBeTruthy();
+    expect(first.getByText(/days old|weeks old|months old/)).toBeTruthy();
+    expect(first.getByRole('button', { name: 'Release' })).toBeTruthy();
+    expect(first.getByRole('button', { name: 'Drop' })).toBeTruthy();
+    expect(first.getByRole('button', { name: 'Talk about this' })).toBeTruthy();
+  });
+
+  it('a long group shows five ideas and the rest behind Show all', () => {
+    const t = tasks(8);
+    render(<TriageCard triage={triage([group({ count: 8, tasks: t })])} onAct={vi.fn()} onTalk={vi.fn()} />);
+    expect(screen.getAllByTestId('triage-row')).toHaveLength(5);
+    fireEvent.click(screen.getByRole('button', { name: 'Show all 8' }));
+    expect(screen.getAllByTestId('triage-row')).toHaveLength(8);
   });
 
   it('Release plan, Drop all and Release post the triage acts', async () => {
@@ -40,9 +52,23 @@ describe('TriageCard', () => {
     await waitFor(() => expect(onAct).toHaveBeenCalledWith({ action: 'triage_release_plan', group_key: `project:${P}` }));
     fireEvent.click(screen.getByRole('button', { name: 'Drop all 5' }));
     await waitFor(() => expect(onAct).toHaveBeenCalledWith({ action: 'triage_drop', task_ids: g.tasks.map((t) => t.task_id) }));
-    fireEvent.click(screen.getByRole('button', { name: 'Show all 5' }));
     fireEvent.click(screen.getAllByRole('button', { name: 'Release' })[0]);
     await waitFor(() => expect(onAct).toHaveBeenCalledWith({ action: 'triage_release', task_ids: [g.tasks[0].task_id] }));
+  });
+
+  it('ideas with no project are not a plan: no Release plan, no Drop all, each idea has its own buttons', () => {
+    const t = tasks(2, 'x');
+    const none = group({ key: 'none', kind: 'none', label: 'No project', count: 2, tasks: t, titles: t.map((x) => x.title), project_id: null });
+    render(<TriageCard triage={triage([none])} onAct={vi.fn()} onTalk={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: 'Release plan' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Drop all/ })).toBeNull();
+    const rows = screen.getAllByTestId('triage-row');
+    expect(rows).toHaveLength(2);
+    for (const r of rows) {
+      expect(within(r).getByRole('button', { name: 'Release' })).toBeTruthy();
+      expect(within(r).getByRole('button', { name: 'Drop' })).toBeTruthy();
+      expect(within(r).getByRole('link')).toBeTruthy();
+    }
   });
 
   it('Release plan on a quote project says it is still a quote and sends nothing', () => {
@@ -56,9 +82,9 @@ describe('TriageCard', () => {
   it('Talk about this hands the chat the group, then the one idea', () => {
     const onTalk = vi.fn();
     render(<TriageCard triage={triage([group()])} onAct={vi.fn()} onTalk={onTalk} />);
-    fireEvent.click(screen.getAllByRole('button', { name: 'Talk about this' })[0]);
+    const talks = screen.getAllByRole('button', { name: 'Talk about this' });
+    fireEvent.click(talks[talks.length - 1]);
     expect(onTalk).toHaveBeenLastCalledWith({ key: P, title: 'Triage: Stronghold (5 ideas)', tile: 'triage' });
-    fireEvent.click(screen.getByRole('button', { name: 'Show all 5' }));
     fireEvent.click(screen.getAllByRole('button', { name: 'Talk about this' })[0]);
     expect(onTalk.mock.calls.at(-1)![0]).toMatchObject({ type: 'task', title: 'Idea 1' });
   });
@@ -150,5 +176,47 @@ describe('questions on the Triage row', () => {
     render(<TriageCard triage={triage([group()])} onAct={vi.fn()} onTalk={vi.fn()} />);
     expect(screen.getByRole('heading', { level: 2 }).textContent).not.toContain('question');
     expect(screen.queryByRole('button', { name: /^Questions/ })).toBeNull();
+  });
+});
+
+describe('Looks done group', () => {
+  const ld = (over = {}) => ({ task_id: '7aa4a01a-1111-4222-8333-944445550001', title: 'Fix the footer', href: '/tasks/7aa4a01a-1111-4222-8333-944445550001', project_name: null, evidence: 'Shipped in abc1234, see https://example.test/page. Done.', open_questions: 0, summary: 'Make it work.', created_at: '2026-11-10T00:00:00Z', ...over });
+  const withLd = (looks = [ld()]) => ({ count: 1 + looks.length, looks_done: looks, open_questions: 0, groups: [group({ count: 1, tasks: tasks(1), titles: ['Idea 1'], kind: 'none', key: 'none', label: 'No project', project_id: null })] }) as HomeTriage;
+
+  it('comes first under its own heading, the count line says how many look done, and links in the evidence are clickable', () => {
+    render(<TriageCard triage={withLd()} onAct={vi.fn()} onTalk={vi.fn()} />);
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toContain('2 ideas wait for you, 1 looks done');
+    const g = screen.getByTestId('looks-done-group');
+    expect(within(g).getByRole('heading', { level: 3 }).textContent).toContain('Looks done');
+    expect(g.compareDocumentPosition(screen.getByTestId('triage-group')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const ev = screen.getByTestId('looks-done-evidence');
+    expect(ev.textContent).toBe('Shipped in abc1234, see https://example.test/page. Done.');
+    const link = within(ev).getByRole('link');
+    expect(link.getAttribute('href')).toBe('https://example.test/page');
+    expect(link.getAttribute('rel')).toContain('noopener');
+  });
+
+  it('Close as done and Not done post their acts for that card; Talk about this opens its own conversation', async () => {
+    const onAct = vi.fn().mockResolvedValue({});
+    const onTalk = vi.fn();
+    render(<TriageCard triage={withLd()} onAct={onAct} onTalk={onTalk} />);
+    const row = within(screen.getByTestId('looks-done-row'));
+    fireEvent.click(row.getByRole('button', { name: 'Close as done' }));
+    await waitFor(() => expect(onAct).toHaveBeenCalledWith({ action: 'triage_close_done', task_ids: ['7aa4a01a-1111-4222-8333-944445550001'] }));
+    fireEvent.click(row.getByRole('button', { name: 'Not done' }));
+    await waitFor(() => expect(onAct).toHaveBeenCalledWith({ action: 'triage_not_done', task_ids: ['7aa4a01a-1111-4222-8333-944445550001'] }));
+    fireEvent.click(row.getByRole('button', { name: 'Talk about this' }));
+    expect(onTalk.mock.calls[0][0]).toMatchObject({ type: 'task', task_id: '7aa4a01a-1111-4222-8333-944445550001' });
+  });
+
+  it('a marked card with no note says so, and an untrusted address scheme is plain text', () => {
+    render(<TriageCard triage={withLd([ld({ evidence: '' }), ld({ task_id: '7aa4a01a-1111-4222-8333-944445550002', evidence: 'javascript:alert(1) done' })])} onAct={vi.fn()} onTalk={vi.fn()} />);
+    expect(screen.getAllByTestId('looks-done-evidence')[0].textContent).toBe('Marked as done, but no note was left.');
+    expect(within(screen.getAllByTestId('looks-done-evidence')[1]).queryByRole('link')).toBeNull();
+  });
+
+  it('a section with nothing marked shows no Looks done heading', () => {
+    render(<TriageCard triage={triage([group()])} onAct={vi.fn()} onTalk={vi.fn()} />);
+    expect(screen.queryByTestId('looks-done-group')).toBeNull();
   });
 });

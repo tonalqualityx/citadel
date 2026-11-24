@@ -125,7 +125,7 @@ async function evidenceFor(db: HomeDb, taskIds: string[]): Promise<Map<string, {
 async function summariesFor(db: HomeDb, taskIds: string[]): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   if (taskIds.length === 0) return out;
-  const rows = await db.$queryRaw<{ id: string; head: string | null }[]>`SELECT id::text AS id, left(description, ${SUMMARY_HEAD_CHARS}) AS head FROM tasks WHERE id = ANY(${taskIds}::uuid[])`;
+  const rows = await db.$queryRaw<{ id: string; head: string | null }[]>`SELECT id::text AS id, left(description, ${SUMMARY_HEAD_CHARS}::int) AS head FROM tasks WHERE id = ANY(${taskIds}::uuid[])`;
   for (const r of rows) out.set(r.id, summaryFromHead(r.head));
   return out;
 }

@@ -106,8 +106,8 @@ describe.skipIf(!SCRATCH)('triage status (real database)', () => {
       expect((await row(triage)).status).toBe('not_started');
     });
 
-    it('nothing else leaves triage, not even for Mike (no in_progress, done, blocked, review)', async () => {
-      for (const status of ['in_progress', 'done', 'blocked', 'review']) {
+    it('nothing else leaves triage, not even for Mike (no in_progress, blocked, review; done is the Close as done exit, owner only)', async () => {
+      for (const status of ['in_progress', 'blocked', 'review']) {
         await expect(patchTask({ actor: mike(), id: triage, body: { status } })).rejects.toMatchObject({ statusCode: 400 });
       }
       expect((await row(triage)).status).toBe('triage');
