@@ -280,6 +280,19 @@ describe.skipIf(!SCRATCH)('Dox escape attempts (real database)', () => {
       const made = await json(await createTask(call(P, { title: `${fx.tag} tiered`, project_id: P, tags: ['tier:reasoning'] })));
       expect(made.status, JSON.stringify(made.body)).toBe(201);
     });
+
+    it('Dox names the repo of a task: one repo tag, set beside a tier, replaced and taken off', async () => {
+      const t = await fx.mkTask('Repo named by Dox', { project_id: P, status: 'not_started', tags: ['from-dox', 'tier:standard', 'repo:old'] });
+      as(dox());
+      expect((await patchTask(call(P, { tags_add: ['repo:indelible-ops', 'tier:grunt'] }, 'PATCH'), idParams(t))).status).toBe(200);
+      expect((await taskRow(t)).tags).toEqual(['from-dox', 'repo:indelible-ops', 'tier:grunt']);
+      expect((await json(await patchTask(call(P, { tags_add: ['repo:a', 'repo:b'] }, 'PATCH'), idParams(t)))).body.code).toBe('dox_tag_closed');
+      expect((await json(await patchTask(call(P, { tags_add: ['repo:Bad Name'] }, 'PATCH'), idParams(t)))).body.code).toBe('dox_tag_closed');
+      expect((await patchTask(call(P, { tags_remove: ['repo:indelible-ops'] }, 'PATCH'), idParams(t))).status).toBe(200);
+      expect((await taskRow(t)).tags).toEqual(['from-dox', 'tier:grunt']);
+      const made = await json(await createTask(call(P, { title: `${fx.tag} repo`, project_id: P, tags: ['tier:reasoning', 'repo:citadel'] })));
+      expect(made.status, JSON.stringify(made.body)).toBe(201);
+    });
   });
 
   describe('assignees', () => {

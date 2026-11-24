@@ -92,6 +92,12 @@ describe('Dox guard: pure checks', () => {
     expect(checkCreateTags(['tier:reasoning'])).toEqual(['tier:reasoning']);
     expect(status(() => checkCreateTags(['tier:frontier']))).toEqual({ status: 403, code: 'dox_tag_closed' });
     expect(status(() => checkCreateTags(['tier:grunt', 'tier:standard']))).toEqual({ status: 403, code: 'dox_tag_closed' });
+    // one repo, for a card with no site
+    expect(checkCreateTags(['from-dox', 'tier:grunt', 'repo:indelible-ops'])).toEqual(['from-dox', 'tier:grunt', 'repo:indelible-ops']);
+    for (const bad of ['repo:', 'repo:Indelible', 'repo:a b', 'repo:../x', 'repo:-x']) {
+      expect(status(() => checkCreateTags([bad])), bad).toEqual({ status: 403, code: 'dox_tag_closed' });
+    }
+    expect(status(() => checkCreateTags(['repo:a', 'repo:b']))).toEqual({ status: 403, code: 'dox_tag_closed' });
   });
   it('a comment is internal; a client-visible one or a client question is refused', () => {
     expect(guardDoxComment({ lane: 'dox' }, {})).toEqual({ is_internal: true });

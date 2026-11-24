@@ -58,6 +58,14 @@ export const SETUP_TAG_PREFIX = 'setup:';
  */
 export const DOX_TIER_TAGS = ['tier:standard', 'tier:reasoning', 'tier:grunt'] as const;
 const isTierTag = (t: unknown): boolean => (DOX_TIER_TAGS as readonly unknown[]).includes(t);
+/**
+ * The repo a card with no site works in: one tag `repo:<name>`, the repo's GitHub name in lower case. The worker's gate reads it, so two cards
+ * on one repo never run together and a card that names its repo can run beside other work (Mike, 2026-11-23, asked "Should cards with no site be
+ * able to name the repo they touch, so that work can run in parallel too?": "Yes").
+ */
+export const DOX_REPO_TAG_PREFIX = 'repo:';
+const REPO_TAG_RE = /^repo:[a-z0-9][a-z0-9._-]{0,99}$/;
+const isRepoTag = (t: unknown): boolean => typeof t === 'string' && REPO_TAG_RE.test(t);
 /** A project is live (writable) in these statuses. */
 export const DOX_LIVE_PROJECT_STATUSES = ['ready', 'in_progress', 'review'] as const;
 /** An open pass older than this no longer counts: a pass someone forgot to close does not keep the door open for ever. */
@@ -305,11 +313,12 @@ export function checkCreateTags(tags: unknown): string[] {
   if (!Array.isArray(tags) || !tags.every((t) => typeof t === 'string')) return badBody('tags is a list of strings.');
   const out: string[] = [];
   for (const t of tags as string[]) {
-    const ok = t === FROM_DOX_TAG || isTierTag(t) || (DOX_MARK_TAGS as readonly string[]).includes(t) || (t.startsWith(SETUP_TAG_PREFIX) && UUID_RE.test(t.slice(SETUP_TAG_PREFIX.length)));
-    if (!ok) return refuse(`Dox cannot put the tag "${t}" on a new task: only ${FROM_DOX_TAG}, ${DOX_MARK_TAGS.join(', ')}, ${SETUP_TAG_PREFIX}<card id> and one of ${DOX_TIER_TAGS.join(', ')}.`, 'dox_tag_closed');
+    const ok = t === FROM_DOX_TAG || isTierTag(t) || isRepoTag(t) || (DOX_MARK_TAGS as readonly string[]).includes(t) || (t.startsWith(SETUP_TAG_PREFIX) && UUID_RE.test(t.slice(SETUP_TAG_PREFIX.length)));
+    if (!ok) return refuse(`Dox cannot put the tag "${t}" on a new task: only ${FROM_DOX_TAG}, ${DOX_MARK_TAGS.join(', ')}, ${SETUP_TAG_PREFIX}<card id> one of ${DOX_TIER_TAGS.join(', ')} and one ${DOX_REPO_TAG_PREFIX}<name>.`, 'dox_tag_closed');
     if (!out.includes(t)) out.push(t);
   }
   if (out.filter(isTierTag).length > 1) return refuse('A task carries one tier tag.', 'dox_tag_closed');
+  if (out.filter(isRepoTag).length > 1) return refuse('A task carries one repo tag.', 'dox_tag_closed');
   return out;
 }
 
@@ -514,8 +523,10 @@ export async function guardDoxTaskPatch(auth: LaneAuth, headers: Hdrs, rawBody: 
     if (!only || add.length === 0 || !add.every((t) => t === LOOKS_DONE_TAG)) refuse('On a Triage card Dox can only mark it looks-done.', 'dox_triage_closed');
     return { tags: [...new Set([...existing.tags, LOOKS_DONE_TAG])] };
   }
-  // Off a Triage card the only tag Dox adds is a card's model tier: one, and it replaces any tier the card had.
-  if (add.length > 0 && !(add.length === 1 && isTierTag(add[0]))) refuse('Dox adds one tier tag to a task (tier:standard, tier:reasoning or tier:grunt), and the looks-done tag to Triage cards only.', 'dox_tag_closed');
+  // Off a Triage card the only tags Dox adds are a card's model tier and its repo: one of each, and each replaces the one the card had.
+  if (!add.every((t) => isTierTag(t) || isRepoTag(t)) || add.filter(isTierTag).length > 1 || add.filter(isRepoTag).length > 1) {
+    refuse('Dox adds one tier tag to a task (tier:standard, tier:reasoning or tier:grunt), one repo tag (repo:<name>), and the looks-done tag to Triage cards only.', 'dox_tag_closed');
+  }
   // A task a client can see today: nothing the portal or a client email renders may change through this lane (its status, or a tag the portal reads).
   // The text fields (title, description, checklist, client title) and the routing fields are not on this lane's patch list at all (dox_field_closed above).
   if (isShownInPortal(existing)) {
@@ -524,7 +535,7 @@ export async function guardDoxTaskPatch(auth: LaneAuth, headers: Hdrs, rawBody: 
     if (touched.length > 0) refuse(`A client can see this task, so Dox does not change what the portal shows of it (${touched.join(', ')}).`, 'dox_client_closed');
   }
   for (const t of remove) {
-    if (!(DOX_REMOVABLE_TAGS as readonly unknown[]).includes(t) && !isTierTag(t)) refuse('Dox can take off only a dead session hold (cockpit-owned), needs-pm-release or a tier tag he may set.', 'dox_tag_closed');
+    if (!(DOX_REMOVABLE_TAGS as readonly unknown[]).includes(t) && !isTierTag(t) && !isRepoTag(t)) refuse('Dox can take off only a dead session hold (cockpit-owned), needs-pm-release, or a tier or repo tag he may set.', 'dox_tag_closed');
   }
   // needs-pm-release comes off only a card the owner released from Triage (tag from-triage): Dox is picking it up.
   if (remove.includes(PM_RELEASE_TAG) && !existing.tags.includes(FROM_TRIAGE_TAG)) {
@@ -579,7 +590,7 @@ export async function guardDoxTaskPatch(auth: LaneAuth, headers: Hdrs, rawBody: 
   delete out.tags_remove;
   let tags = existing.tags;
   if (remove.length > 0) tags = tags.filter((t) => !remove.includes(t));
-  if (add.length === 1) tags = [...tags.filter((t) => !isTierTag(t) && t !== add[0]), add[0] as string];
+  for (const a of add as string[]) tags = [...tags.filter((t) => !(isTierTag(a) ? isTierTag(t) : isRepoTag(t)) && t !== a), a];
   if (assignToBast && !tags.includes(FROM_DOX_TAG)) tags = [...tags, FROM_DOX_TAG];
   if (tags !== existing.tags) out.tags = tags;
   return out;
