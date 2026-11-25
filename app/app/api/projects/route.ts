@@ -168,7 +168,8 @@ export async function POST(request: NextRequest) {
       ? await prisma.$transaction(async (tx) => {
           const made = await createProject(tx);
           // One project per card: the link only lands on a card that still has no project, otherwise the whole thing rolls back.
-          const linked = await tx.task.updateMany({ where: { id: doxCard.id, project_id: null, is_deleted: false }, data: { project_id: made.id } });
+          // The card becomes the project's setup card (kind project_setup) in the same write, because the plan and its line links look for that kind.
+          const linked = await tx.task.updateMany({ where: { id: doxCard.id, project_id: null, is_deleted: false }, data: { project_id: made.id, triage_kind: 'project_setup' } });
           if (linked.count !== 1) throw new ApiError('That card already belongs to a project: one project per card.', 403, 'dox_card_closed');
           // The card's new project gets its brief at once (dry, default cadence), so the project's own passes can open.
           await ensureProjectBrief(tx as never, made.id, auth.userId);

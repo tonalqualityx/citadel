@@ -25,7 +25,8 @@ import { POST as startBrief } from '@/app/api/projects/[id]/engagement-brief/rou
 import * as waitsRoute from '@/app/api/waits/route';
 import { PATCH as patchWait } from '@/app/api/waits/[id]/route';
 import { DOX_USER_ID } from '../identity';
-import { dox, idParams, makeFixture, BOT_ID, type Fx } from './fixture';
+import { GET as projectPlan } from '@/app/api/projects/[id]/plan/route';
+import { dox, mikeSession, idParams, makeFixture, BOT_ID, type Fx } from './fixture';
 import { BOT_USER_IDS, MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
 
 const authMock = requireAuth as Mock;
@@ -495,10 +496,23 @@ describe.skipIf(!SCRATCH)('Dox escape attempts (real database)', () => {
         const proj = await prisma.project.findUniqueOrThrow({ where: { id: made.body.id } });
         expect([proj.status, proj.type]).toEqual(['ready', type]);
         expect((await taskRow(card)).project_id).toBe(proj.id);
+        expect((await taskRow(card)).triage_kind, `${kind}/${type}`).toBe('project_setup');
       }
       // a client project must be the card's own client even for the widened kinds
       const card = await fx.mkTask('Wrong client', { status: 'not_started', tags: ['from-triage'], client_id: fx.clientId, triage_kind: 'project_setup' });
       expect((await json(await make({ name: `${fx.tag} Wrong`, type: 'project', client_id: '7f1c0000-0000-4000-8000-0000000000dd', status: 'ready' }, card))).body.code).toBe('dox_field_closed');
+    });
+
+    it('a project made from a card of kind task finds its plan on that card (the card became the setup card)', async () => {
+      as(dox());
+      const card = await fx.mkTask('Plan finds me', { status: 'not_started', tags: ['from-triage'], client_id: fx.clientId, assignee_id: DOX_USER_ID, triage_kind: 'task' });
+      await fx.openCardPass(card);
+      const made = await json(await projectsRoute.POST(call(undefined, { name: `${fx.tag} Plan home`, type: 'project', client_id: fx.clientId, status: 'ready' }, 'POST', { 'x-dox-card': card })));
+      expect(made.status, JSON.stringify(made.body)).toBe(201);
+      fx.projectIds.push(made.body.id);
+      as(mikeSession());
+      const plan = await json(await projectPlan(call(undefined, undefined, 'GET'), idParams(made.body.id)));
+      expect([plan.status, plan.body.task_id]).toEqual([200, card]);
     });
 
     it('a project_setup card whose release already made its queued project ready is not blocked and cannot get a second project', async () => {

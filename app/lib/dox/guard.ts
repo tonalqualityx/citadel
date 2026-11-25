@@ -782,8 +782,8 @@ export interface DoxProjectCard {
  * POST /api/projects as Dox: a project of any size for ONE released card. The request names the card (`x-dox-card`): a task tagged from-triage,
  * no longer in Triage, with no project, of ANY kind (task, reusable tool, rule proposal, project setup, project addition, question only, or not
  * sorted). The new project is of any type the plan calls for (project, retainer or internal), for the card's own client or internal, status ready,
- * and nothing else about it is Dox's to set. The route links the card into the new project in the same transaction, so a card makes exactly one
- * project, and the card is the proof (a finished project is never reused: this is always a new one).
+ * and nothing else about it is Dox's to set. The route links the card into the new project in the same transaction and makes it the project's setup card (kind project_setup, so the
+ * project's plan is found on it), so a card makes exactly one project, and the card is the proof (a finished project is never reused: this is always a new one).
  *
  * A project_setup card normally already has its queued project, which the release made ready: that card has a project, so it is refused here
  * ("one project per card") and Dox works on that project through its project binding (x-dox-project and an open pass), which this guard does not touch.
