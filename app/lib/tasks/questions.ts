@@ -10,7 +10,9 @@
  * Who may do what:
  *   read    while the card is in triage: Mike, the chat lane, bot keys, and a question's asker; everyone else gets a 404.
  *           After release: anyone who can see the task (contractors and designers still cannot see triage cards).
- *   answer  Mike's own signed-in session, or the enforced bast-chat lane relaying his words ("From Mike, through the chat: ").
+ *   answer  Mike's own signed-in session, or the enforced bast-chat lane relaying his words ("From Mike, through the chat: "), or the front
+ *           session relaying his words with its enforced front-session lane key or Mike's own API key ("From Mike, through the front
+ *           session: "; Mike, 2026-11-24: "make a quick task for bast to fix that issue in Citadel so we can answer questions from here").
  *           Dox records an answer someone else gave (a client email, most often) with its source: who, their words, when. That answer
  *           is Dox's record, never Mike's word: no citation, and it never lifts a `needs-mike` hold. Nobody else answers.
  *           A `defaulted` question is never his words and never has a citation.
@@ -29,7 +31,8 @@ import type { AuthPayload } from '@/lib/auth/middleware';
 import { actorOf, recordTriageChange } from './triage-rev';
 import { MIKE_USER_ID, BOT_USER_IDS, BAST_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import { releaseQuestionDependents, releaseTasksIfReleasable } from '@/lib/services/dependencies';
-import { mayLeaveTriage } from '@/lib/services/task-patch';
+import { isMikeOwnKey, mayLeaveTriage } from '@/lib/services/task-patch';
+import { isFrontSessionCaller } from '@/lib/front-session/identity';
 import { CHAT_LANE } from '@/lib/bast-chat/task-filter';
 import { createNotification } from '@/lib/services/notifications';
 import { CHAT_ANSWER_PREFIX } from './checklist-answers';
@@ -78,9 +81,20 @@ export function isChatLane(auth: Auth): boolean {
   return auth.via === 'api_key' && auth.lane === CHAT_LANE && auth.laneEnforced === true;
 }
 
-/** Mike's own signed-in session, or the enforced chat lane relaying his words. The same rule as leaving triage. */
+/** The comment prefix on an answer the front session relays (its own lane key, or Mike's own API key, which it files and sorts with). */
+export const FRONT_SESSION_ANSWER_PREFIX = 'From Mike, through the front session: ';
+
+/** The front session relaying Mike's words: its enforced front-session lane key, or Mike's own API key (his user, no lane). */
+export function isFrontSessionAnswer(auth: Auth): boolean {
+  return isFrontSessionCaller(auth) || isMikeOwnKey(auth);
+}
+
+/**
+ * Mike's own signed-in session, or the enforced chat lane relaying his words (the same rule as leaving triage), or the front session relaying
+ * them (Mike, 2026-11-24: "this is going to be my primary method for interacting with the citadel"). Every other key is refused.
+ */
 export function mayAnswerQuestions(auth: Auth): boolean {
-  return mayLeaveTriage(auth);
+  return mayLeaveTriage(auth) || isFrontSessionAnswer(auth);
 }
 
 type TaskHead = { id: string; status: string; tags: string[] };
@@ -459,6 +473,8 @@ export async function answerQuestion(task: TaskHead, qid: string, auth: Auth, bo
   }
   if (!UUID_RE.test(qid)) throw new ApiError(QUESTION_MESSAGES.notFound, 404);
   const machine = isChatLane(auth);
+  // The front session is a relay like the chat: its answer always carries its prefix and is never rewritten as the quiet Bast note.
+  const front = !machine && isFrontSessionAnswer(auth);
   const text = (body.text ?? '').trim();
   const out = await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM tasks WHERE id = ${task.id}::uuid FOR UPDATE`;
@@ -480,14 +496,15 @@ export async function answerQuestion(task: TaskHead, qid: string, auth: Auth, bo
     // so this answer is kept as a Bast-authored note that says it is Mike's; the last answer writes the real, waking comment.
     const othersWaiting = await tx.taskQuestion.count({ where: { task_id: task.id, state: 'open', if_nobody_action: 'wait', id: { not: row.id } } });
     // Dox's own user is a bot user already (the gate never reads it as a human reply), so his answer is never re-written as Bast's.
-    const quiet = othersWaiting > 0 && !machine && !viaDox;
+    const quiet = othersWaiting > 0 && !machine && !front && !viaDox;
     const content = viaDox && body.source
       ? sourcedAnswerComment(row.question, words, body.source)
-      : machine ? `${CHAT_ANSWER_PREFIX}${base}` : quiet ? `${HELD_ANSWER_PREFIX}${base}` : base;
+      : machine ? `${CHAT_ANSWER_PREFIX}${base}` : front ? `${FRONT_SESSION_ANSWER_PREFIX}${base}` : quiet ? `${HELD_ANSWER_PREFIX}${base}` : base;
     const comment = await tx.comment.create({
       data: {
         task_id: task.id,
-        user_id: quiet ? BOT_USER_IDS[0] : auth.userId,
+        // Mike's own key writes as Mike, a human reply that wakes the card, so while another wait question is open it writes as Bast too.
+        user_id: quiet || (front && othersWaiting > 0) ? BOT_USER_IDS[0] : auth.userId,
         content,
         mentioned_user_ids: [],
         is_internal: true,

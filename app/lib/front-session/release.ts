@@ -18,22 +18,16 @@ import { z } from 'zod';
 import type { PrismaClient } from '@prisma/client';
 import { ApiError } from '@/lib/api/errors';
 import type { AuthPayload } from '@/lib/auth/middleware';
-import { BAST_USER_ID, MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
+import { MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import { releaseCard } from '@/lib/tasks/triage';
 import { loadCards } from '@/lib/tasks/triage-card';
 import { actorOf, recordTriageChange } from '@/lib/tasks/triage-rev';
 import type { HomeActResponse } from '@/lib/home/types';
+import { FRONT_SESSION_LANE, isFrontSessionCaller } from './identity';
 
-export const FRONT_SESSION_LANE = 'front-session';
+export { FRONT_SESSION_LANE, isFrontSessionCaller };
 export const FRONT_SESSION_ONLY = "Only the front session's key releases a card this way.";
 const FUTURE_SKEW_MS = 5 * 60 * 1000;
-
-/** True for an enforced API key of the Bast user that carries the front-session lane (a stored lane value may be a comma list). */
-export function isFrontSessionCaller(auth: Pick<AuthPayload, 'userId' | 'via' | 'lane' | 'laneEnforced'>): boolean {
-  // The lane is minted for Bast (LANE_IDENTITY); the same scope on any other user's key releases nothing.
-  if (auth.via !== 'api_key' || auth.laneEnforced !== true || auth.userId !== BAST_USER_ID) return false;
-  return (auth.lane ?? '').split(',').some((l) => l.trim() === FRONT_SESSION_LANE);
-}
 
 const text = (max: number, what: string) =>
   z

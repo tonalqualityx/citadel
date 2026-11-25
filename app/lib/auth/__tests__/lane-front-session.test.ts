@@ -2,8 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Mock } from 'vitest';
 
 // Front-session lane (project 1e374bad; Mike, 2026-11-24: "The bast session will need to be able to release triage cards"): born enforced, acts as
-// Bast, reaches exactly two routes (release a Triage card on Mike's words; record his words on a card as a silent internal comment, Mike,
-// 2026-11-24: "every time you attach a comment from me on a card I get a slack notification. Would love for that to stop.") and is refused
+// Bast, reaches exactly four routes (release a Triage card on Mike's words; record his words on a card as a silent internal comment, Mike,
+// 2026-11-24: "every time you attach a comment from me on a card I get a slack notification. Would love for that to stop."; read a card's
+// questions and answer one with his words, Mike, 2026-11-24: "fix that issue in Citadel so we can answer questions from here") and is refused
 // everywhere else.
 vi.mock('next/headers', () => ({ cookies: vi.fn(), headers: vi.fn() }));
 vi.mock('@/lib/auth/jwt', () => ({ verifyAccessToken: vi.fn() }));
@@ -45,6 +46,8 @@ beforeEach(() => {
 
 const RELEASE = '/api/tasks/7f1c/triage/release';
 const COMMENT = '/api/tasks/7f1c/comments';
+const QUESTIONS = '/api/tasks/7f1c/questions';
+const ANSWER = '/api/tasks/7f1c/questions/9a/answer';
 
 const DENIED: [string, string][] = [
   // every other way to move a card or a task
@@ -70,7 +73,14 @@ const DENIED: [string, string][] = [
   ['DELETE', COMMENT],
   ['PATCH', '/api/comments/c1'],
   ['DELETE', '/api/comments/c1'],
-  ['POST', '/api/tasks/7f1c/questions/9a/answer'],
+  // questions: read and answer only; never ask, edit, withdraw or block
+  ['POST', QUESTIONS],
+  ['PATCH', '/api/tasks/7f1c/questions/9a'],
+  ['GET', ANSWER],
+  ['PATCH', ANSWER],
+  ['POST', '/api/tasks/7f1c/questions/9a/blocks'],
+  ['GET', '/api/questions'],
+  ['POST', '/api/projects/p1/questions/9a/answer'],
   ['PATCH', '/api/tasks/7f1c/plan'],
   ['POST', '/api/tasks/7f1c/live'],
   ['POST', '/api/tasks/7f1c/staged'],
@@ -91,13 +101,17 @@ describe('lane front-session', () => {
     expect(keyScopesSchema.safeParse(['lane:front-session', 'lane:bast-chat', 'scope-mode:enforce']).success).toBe(false);
   });
 
-  it('holds exactly two routes: POST release and POST a comment', () => {
+  it('holds exactly four routes: POST release, POST a comment, GET a card\'s questions and POST an answer', () => {
     expect(LANE_ROUTES['front-session'].map((r) => `${r.method} ${r.pattern}`)).toEqual([
       'POST /api/tasks/:id/triage/release',
       'POST /api/tasks/:id/comments',
+      'GET /api/tasks/:id/questions',
+      'POST /api/tasks/:id/questions/:qid/answer',
     ]);
     expect(laneAllows('front-session', 'POST', RELEASE)).toBe(true);
     expect(laneAllows('front-session', 'POST', COMMENT)).toBe(true);
+    expect(laneAllows('front-session', 'GET', QUESTIONS)).toBe(true);
+    expect(laneAllows('front-session', 'POST', ANSWER)).toBe(true);
   });
 
   it('refuses everything else', () => {
@@ -120,6 +134,15 @@ describe('lane front-session', () => {
   it('an enforced front-session key authenticates with its lane on the comment route', async () => {
     findKey.mockResolvedValue(key(['lane:front-session', 'scope-mode:enforce']));
     request(`POST ${COMMENT}`);
+    const auth = await requireAuth();
+    expect(auth.lane).toBe('front-session');
+    expect(auth.laneEnforced).toBe(true);
+    expect(createViolation).not.toHaveBeenCalled();
+  });
+
+  it('an enforced front-session key authenticates with its lane on the answer route', async () => {
+    findKey.mockResolvedValue(key(['lane:front-session', 'scope-mode:enforce']));
+    request(`POST ${ANSWER}`);
     const auth = await requireAuth();
     expect(auth.lane).toBe('front-session');
     expect(auth.laneEnforced).toBe(true);

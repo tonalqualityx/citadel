@@ -67,7 +67,6 @@ describe.skipIf(!SCRATCH)('card questions (real database)', () => {
   const projectIds: string[] = [];
 
   const mike = (): AuthPayload => ({ userId: MIKE_USER_ID, role: 'admin', email: 'mike@test', via: 'session' });
-  const mikeKey = (): AuthPayload => ({ userId: MIKE_USER_ID, role: 'admin', email: 'mike@test', via: 'api_key', apiKeyId: 'k0' });
   const chat = (): AuthPayload => ({ userId: botId, role: 'pm', email: 'bot@test', via: 'api_key', apiKeyId: 'k3', lane: 'bast-chat', laneEnforced: true });
   const botKey = (): AuthPayload => ({ userId: botId, role: 'pm', email: 'bot@test', via: 'api_key', apiKeyId: 'k4' });
   const asker = (): AuthPayload => ({ userId: askerId, role: 'pm', email: 'a@test', via: 'session' });
@@ -208,10 +207,10 @@ describe.skipIf(!SCRATCH)('card questions (real database)', () => {
       expect((await q(a.id)).answered_by_id).toBe(MIKE_USER_ID);
     });
 
-    it("nobody else can answer: another admin, a bot key, Mike's own API key, the asker, a tech", async () => {
+    it('nobody else can answer: another admin, a bot key, the asker, a tech (Mike\'s own API key answers as the front session)', async () => {
       const t = await mkTask('refuse', { status: 'not_started', assignee_id: techId });
       const a = await ask(t, freeText('Which week does the client want it live?'), asker());
-      for (const who of [stranger(), asker(), botKey(), mikeKey(), tech()]) {
+      for (const who of [stranger(), asker(), botKey(), tech()]) {
         as(who);
         const res = await answer(t, a.id, { text: 'Friday' });
         expect(res.status, who.userId).toBe(403);
