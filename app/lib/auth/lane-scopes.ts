@@ -78,7 +78,7 @@ export const LANE_IDENTITY: Record<Lane, 'bast' | 'troubador' | 'oracle' | 'desi
   'design-notes': 'bast', // the meeting intake's design statements (portal v2, SPEC 8.1); never the design worker
   dox: 'dox', // the office manager (operating model, PLAN-dox-office-manager): his own user, dox@indelible.bot (migration 20261121090000_dox_user), stamped as lane dox
   'triage-desk': 'bast', // a Claude session reading a card's chat and editing the card (PLAN-triage-investigations decision 5): Bast user, stamped as lane triage-desk
-  'front-session': 'bast', // the front session Mike talks to from his phone (project 1e374bad): Bast user, stamped as lane front-session; it releases a Triage card on Mike's quoted words and nothing else
+  'front-session': 'bast', // the front session Mike talks to from his phone (project 1e374bad): Bast user, stamped as lane front-session; it releases a Triage card on Mike's quoted words and records his words on a card as a silent internal comment, nothing else
 };
 
 export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
@@ -567,8 +567,11 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
   // Front session (project "Front session for Bast", 1e374bad; Mike, 2026-11-24: "The bast session will need to be able to release triage cards").
   // Bast user, always enforced. One route: release a Triage card, and only with Mike's quoted words and where and when he said them, which Citadel
   // records on the card (lib/front-session/release.ts). Everything else from this key is refused; the session sorts and files cards with Mike's own key.
+  // Its second route records Mike's words on a card as an internal comment that notifies nobody (lib/front-session/comment.ts; Mike, 2026-11-24:
+  // "every time you attach a comment from me on a card I get a slack notification. Would love for that to stop.").
   'front-session': [
     r('POST', '/api/tasks/:id/triage/release'),
+    r('POST', '/api/tasks/:id/comments'),
   ],
 };
 

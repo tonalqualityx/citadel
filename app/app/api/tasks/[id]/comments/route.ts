@@ -13,6 +13,8 @@ import { guardDeskComment, isTriageDeskLane } from '@/lib/triage-desk/guard';
 import { isDoxLane } from '@/lib/dox/guard';
 import { markAskedDox } from '@/lib/dox/ask';
 import { isChatLane } from '@/lib/tasks/questions';
+import { guardFrontSessionComment } from '@/lib/front-session/comment';
+import { isFrontSessionCaller } from '@/lib/front-session/release';
 import { isChangeLineImitation, CHANGE_LINE_IMITATION_MESSAGE } from '@/lib/tasks/triage-rev';
 
 const createCommentSchema = z.object({
@@ -172,8 +174,11 @@ export async function POST(
     if (doxForce) data.is_internal = true;
     // Triage-desk lane: the same, always an internal note (stamped actor_lane = triage-desk below).
     if (guardDeskComment(auth, data)) data.is_internal = true;
+    // Front-session lane: the same, always an internal note (Mike's words recorded on a card; stamped actor_lane = front-session).
+    if (guardFrontSessionComment(auth, data)) data.is_internal = true;
+    const frontSession = isFrontSessionCaller(auth);
     // A lane's comment can never look like a change line the server wrote (those come from change rows only).
-    if ((isTriageDeskLane(auth) || isDoxLane(auth) || isChatLane(auth)) && isChangeLineImitation(data.content)) {
+    if ((isTriageDeskLane(auth) || isDoxLane(auth) || isChatLane(auth) || frontSession) && isChangeLineImitation(data.content)) {
       throw new ApiError(CHANGE_LINE_IMITATION_MESSAGE, 400, 'comment_imitates_change_line');
     }
     if (data.client_question && !data.client_visible) {
@@ -227,8 +232,9 @@ export async function POST(
     // Mentions are team-only by construction — this route is team-auth (requireAuth), so a
     // client-portal session never reaches here. Clients can comment but cannot tag. Mention
     // suggestions are scoped per task via GET /api/tasks/[id]/mention-suggestions.
-    // The triage desk, and Dox on a card in Triage, notify nobody (a note from a session is not a message to staff).
-    const silent = isTriageDeskLane(auth) || (isDoxLane(auth) && task.status === 'triage');
+    // The triage desk, the front session, and Dox on a card in Triage notify nobody (a note from a session is not a message to staff;
+    // Mike, 2026-11-24: "every time you attach a comment from me on a card I get a slack notification. Would love for that to stop.").
+    const silent = isTriageDeskLane(auth) || frontSession || (isDoxLane(auth) && task.status === 'triage');
     const requestedMentionIds = (silent ? [] : [...new Set(data.mentioned_user_ids ?? [])]).filter(
       (uid) => uid !== auth.userId
     );

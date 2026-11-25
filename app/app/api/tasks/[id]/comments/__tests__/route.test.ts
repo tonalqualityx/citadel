@@ -286,3 +286,54 @@ describe('POST /api/tasks/[id]/comments client_visible (portal phase B slice 2)'
     expect(res.status).toBe(403);
   });
 });
+
+// Mike, 2026-11-24, front session chat: "every time you attach a comment from me on a card I get a slack notification. Would love
+// for that to stop." A comment from the enforced front-session lane is a record: internal, and it notifies nobody.
+describe('POST /api/tasks/[id]/comments from the front-session lane', () => {
+  const BAST = 'ca5335e7-a374-4eff-92dc-fd67ceef2297';
+  const MIKE = '3ecfb7be-20bb-43cb-9b4d-31c44337dc81';
+  const front = { userId: BAST, role: 'pm', via: 'api_key', lane: 'front-session', laneEnforced: true };
+
+  beforeEach(() => {
+    mockRequireAuth.mockResolvedValue(front as never);
+    mockTaskFindUnique.mockResolvedValue({ id: TASK_ID, title: 'A Task', status: 'not_started', project_id: null, assignee_id: MIKE, assignee: { id: MIKE } });
+    mockUserFindMany.mockResolvedValue([{ id: MIKE }]);
+  });
+
+  it('a front-session comment on a task assigned to Mike creates no notification', async () => {
+    const res = await POST(postRequest({ content: 'Mike, Claude app, front session: "add the footer too"' }), ctx);
+    expect(res.status).toBe(201);
+    expect(mockCreateNotification).not.toHaveBeenCalled();
+  });
+
+  it('drops its mentions, so a mention of Mike notifies nobody either', async () => {
+    const res = await POST(postRequest({ content: 'noted', mentioned_user_ids: [MIKE] }), ctx);
+    expect(res.status).toBe(201);
+    expect(mockCreateNotification).not.toHaveBeenCalled();
+    expect(mockCommentCreate.mock.calls[0][0].data).toMatchObject({ mentioned_user_ids: [] });
+  });
+
+  it('is always an internal note, whatever the caller sent', async () => {
+    await POST(postRequest({ content: 'noted', is_internal: false }), ctx);
+    expect(mockCommentCreate.mock.calls[0][0].data).toMatchObject({ is_internal: true, client_visible: false });
+  });
+
+  it('can never show a comment to the client: 403, nothing written', async () => {
+    const res = await POST(postRequest({ content: 'We updated the hours.', client_visible: true }), ctx);
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe('front_session_client_closed');
+    expect(mockCommentCreate).not.toHaveBeenCalled();
+  });
+
+  it('the same Bast user without the lane still notifies the assignee', async () => {
+    mockRequireAuth.mockResolvedValue({ userId: BAST, role: 'pm' } as never);
+    await POST(postRequest({ content: 'plain note' }), ctx);
+    expect(mockCreateNotification).toHaveBeenCalledWith(expect.objectContaining({ userId: MIKE, type: 'comment_added' }));
+  });
+
+  it('the lane on another user\'s key is not the front session, so the comment is not silenced', async () => {
+    mockRequireAuth.mockResolvedValue({ ...front, userId: AUTHOR } as never);
+    await POST(postRequest({ content: 'plain note' }), ctx);
+    expect(mockCreateNotification).toHaveBeenCalledWith(expect.objectContaining({ userId: MIKE, type: 'comment_added' }));
+  });
+});

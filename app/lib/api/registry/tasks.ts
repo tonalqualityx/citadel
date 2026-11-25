@@ -284,7 +284,7 @@ export const taskEndpoints: ApiEndpoint[] = [
       },
       {
         method: 'POST',
-        summary: 'Add a comment to a task. The triage-desk lane (like Dox) always writes an internal note, stamped actor_lane triage-desk and shown as "A session"; a client-visible comment from it is 403 desk_client_closed.',
+        summary: 'Add a comment to a task. The triage-desk lane (like Dox) always writes an internal note, stamped actor_lane triage-desk and shown as "A session"; a client-visible comment from it is 403 desk_client_closed. The front-session lane (the Bast key that records Mike\'s words on a card) is the same: always internal, stamped actor_lane front-session, a client-visible comment is 403 front_session_client_closed; and like the triage desk it notifies nobody (its mentions are dropped and the assignee gets no comment_added notice).',
         auth: 'required',
         bodySchema: [
           { name: 'content', type: 'string', required: true, description: 'Comment text' },
