@@ -14,6 +14,10 @@ datasource db {
 
 model User {
   id                    String    @id @default(uuid()) @db.Uuid
+  // Initiatives (back-relations)
+  initiatives_owned       Initiative[]        @relation("InitiativeOwner")
+  initiatives_created     Initiative[]        @relation("InitiativeCreatedBy")
+  initiative_check_ins    InitiativeCheckIn[] @relation("InitiativeCheckInAuthor")
   email                 String    @unique @db.VarChar(255)
   password_hash         String    @db.VarChar(255)
   name                  String    @db.VarChar(255)
@@ -617,6 +621,8 @@ model DnsProvider {
 
 model Client {
   chat_conversations ChatConversation[]
+  // Initiatives (back-relation)
+  initiatives        Initiative[]
   id                 String             @id @default(uuid()) @db.Uuid
   // Portal phase B slice 2 (back-relation)
   client_reports     ClientReport[]
@@ -1066,6 +1072,12 @@ model Project {
 
   // Questions asked on the project itself, with no card (lib/projects/project-questions.ts)
   project_questions TaskQuestion[] @relation("ProjectQuestions")
+
+  // Initiatives: optional link to one initiative (design.md 2.3); nullable, never required
+  initiative_id String?     @db.Uuid
+  initiative    Initiative? @relation(fields: [initiative_id], references: [id], onDelete: SetNull)
+
+  @@index([initiative_id])
   @@index([client_id])
   @@index([recipe_id])
   @@index([site_id])
@@ -1388,6 +1400,11 @@ model Task {
   // Wait record phase 1 (back-relations)
   waits Wait[]
 
+  // Initiatives: optional link to one initiative (design.md 2.3); a process change is a task
+  initiative_id String?     @db.Uuid
+  initiative    Initiative? @relation(fields: [initiative_id], references: [id], onDelete: SetNull)
+
+  @@index([initiative_id])
   @@index([project_id])
   @@index([client_id])
   @@index([site_id])
@@ -6076,4 +6093,110 @@ model TriageChange {
 
   @@index([task_id, created_at])
   @@map("triage_changes")
+}
+
+
+// ---------------------------------------------------------------------------
+// Initiatives (design.md 2.1 to 2.3). Caps (five active, three numbers) are API rules, not DB constraints.
+// ---------------------------------------------------------------------------
+
+enum InitiativeStatus {
+  proposed // being shaped in the chat; not counted against the cap
+  active   // counted against the cap of five
+  paused   // kept, not counted
+  done     // the bet paid off
+  stopped  // the stop condition was met or Mike called it; a decision, not a failure
+}
+
+enum InitiativeHealth {
+  on_track
+  behind
+  unchecked // no check-in and no fresh reading since the check date passed
+}
+
+model Initiative {
+  id               String           @id @default(uuid()) @db.Uuid
+  name             String           @db.VarChar(120)
+  bet              String           @db.Text
+  nightmare        String?          @db.Text
+  prevention       String?          @db.Text
+  repair           String?          @db.Text
+  cost_of_waiting  String?          @db.Text
+  stop_condition   String?          @db.Text
+  check_date       DateTime?        @db.Date
+  check_every_days Int?
+  next_decision    String?          @db.VarChar(300)
+  status           InitiativeStatus @default(proposed)
+  health           InitiativeHealth @default(unchecked)
+  health_reason    String?          @db.VarChar(200)
+  owner_id         String           @db.Uuid
+  owner            User             @relation("InitiativeOwner", fields: [owner_id], references: [id])
+  client_id        String?          @db.Uuid
+  client           Client?          @relation(fields: [client_id], references: [id])
+  sort_order       Int              @default(0)
+  activated_at     DateTime?
+  closed_at        DateTime?
+  closed_reason    String?          @db.Text
+  created_by_id    String           @db.Uuid
+  created_by       User             @relation("InitiativeCreatedBy", fields: [created_by_id], references: [id])
+  is_deleted       Boolean          @default(false)
+  created_at       DateTime         @default(now())
+  updated_at       DateTime         @updatedAt
+
+  numbers   InitiativeNumber[]
+  check_ins InitiativeCheckIn[]
+  projects  Project[]
+  tasks     Task[]
+
+  @@index([status])
+  @@map("initiatives")
+}
+
+model InitiativeNumber {
+  id             String              @id @default(uuid()) @db.Uuid
+  initiative_id  String              @db.Uuid
+  initiative     Initiative          @relation(fields: [initiative_id], references: [id], onDelete: Cascade)
+  label          String              @db.VarChar(120)
+  unit           String              @db.VarChar(12)
+  direction      String              @db.VarChar(4)
+  baseline_value Decimal?            @db.Decimal(14, 2)
+  baseline_at    DateTime?
+  target_value   Decimal             @db.Decimal(14, 2)
+  target_by      DateTime            @db.Date
+  source         String              @db.VarChar(40)
+  last_value     Decimal?            @db.Decimal(14, 2)
+  last_read_at   DateTime?
+  position       Int                 @default(0)
+  created_at     DateTime            @default(now())
+  updated_at     DateTime            @updatedAt
+  readings       InitiativeReading[]
+
+  @@index([initiative_id])
+  @@map("initiative_numbers")
+}
+
+model InitiativeReading {
+  id        String           @id @default(uuid()) @db.Uuid
+  number_id String           @db.Uuid
+  number    InitiativeNumber @relation(fields: [number_id], references: [id], onDelete: Cascade)
+  value     Decimal          @db.Decimal(14, 2)
+  read_at   DateTime         @default(now())
+  source    String           @db.VarChar(40)
+
+  @@index([number_id, read_at])
+  @@map("initiative_readings")
+}
+
+model InitiativeCheckIn {
+  id            String           @id @default(uuid()) @db.Uuid
+  initiative_id String           @db.Uuid
+  initiative    Initiative       @relation(fields: [initiative_id], references: [id], onDelete: Cascade)
+  health        InitiativeHealth
+  note          String?          @db.VarChar(300)
+  author_id     String           @db.Uuid
+  author        User             @relation("InitiativeCheckInAuthor", fields: [author_id], references: [id])
+  created_at    DateTime         @default(now())
+
+  @@index([initiative_id, created_at])
+  @@map("initiative_check_ins")
 }

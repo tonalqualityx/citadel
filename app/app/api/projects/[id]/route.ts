@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { formatProjectResponse } from '@/lib/api/formatters';
+import { assertInitiativeLinkable } from '@/lib/initiatives/service';
 import { canTransitionProjectStatus } from '@/lib/calculations/status';
 import { healBlockedTasks } from '@/lib/services/dependencies';
 import { guardDoxProjectPatch, isDoxLane } from '@/lib/dox/guard';
@@ -20,6 +21,7 @@ const updateProjectSchema = z.object({
   billing_type: z.enum(['fixed', 'hourly', 'retainer', 'none']).optional().nullable(),
   client_id: z.string().uuid().optional(),
   site_id: z.string().uuid().optional().nullable(),
+  initiative_id: z.string().uuid().optional().nullable(),
   start_date: z.string().datetime().optional().nullable(),
   target_date: z.string().datetime().optional().nullable(),
   completed_date: z.string().datetime().optional().nullable(),
@@ -264,6 +266,8 @@ export async function PATCH(
       }
     }
 
+    if (data.initiative_id) await assertInitiativeLinkable(data.initiative_id);
+
     // Build update data explicitly to avoid Prisma type conflicts with JSON fields
     const updateData: Record<string, any> = {};
     if (data.name !== undefined) updateData.name = data.name;
@@ -274,6 +278,7 @@ export async function PATCH(
     if (data.billing_type !== undefined) updateData.billing_type = data.billing_type;
     if (data.client_id !== undefined) updateData.client_id = data.client_id;
     if (data.site_id !== undefined) updateData.site_id = data.site_id;
+    if (data.initiative_id !== undefined) updateData.initiative_id = data.initiative_id;
     if (data.start_date !== undefined) updateData.start_date = data.start_date ? new Date(data.start_date) : null;
     if (data.target_date !== undefined) updateData.target_date = data.target_date ? new Date(data.target_date) : null;
     if (data.completed_date !== undefined) updateData.completed_date = data.completed_date ? new Date(data.completed_date) : null;

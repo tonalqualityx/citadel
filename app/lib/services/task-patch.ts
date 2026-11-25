@@ -16,6 +16,7 @@ import {
   areBlockersSatisfied,
   wouldCreateCycle,
 } from '@/lib/services/dependencies';
+import { assertInitiativeLinkable } from '@/lib/initiatives/service';
 import { notifyTaskAssigned } from '@/lib/services/notifications';
 import { onTaskProgress } from '@/lib/portal/waits';
 import { clearPreviewClaims } from '@/lib/sends/claims';
@@ -76,6 +77,8 @@ const updateTaskSchema = z.object({
   // Clarity Phase 4b — the update schema predates arcs; present+non-null validates the arc
   // exists (404 if not) and attaches it, explicit null detaches, absent leaves untouched.
   arc_id: z.string().uuid().optional().nullable(),
+  // Initiatives: the optional link to one initiative; null clears it, a deleted or missing initiative is refused (404).
+  initiative_id: z.string().uuid().optional().nullable(),
   phase: z.string().max(100).optional().nullable(),
   sort_order: z.number().optional(),
   assignee_id: z.string().uuid().optional().nullable(),
@@ -642,6 +645,8 @@ export async function patchTask(input: PatchTaskInput) {
     }
   }
 
+  if (data.initiative_id) await assertInitiativeLinkable(data.initiative_id);
+
   // project-record-citadel-changes.md addendum (ruling 32) — dependency connect/disconnect.
   // Validate connect ids exist, reject a cycle with 422, and note whether the connect
   // introduces an unsatisfied blocker (forces status to `blocked` below, mirroring the
@@ -706,6 +711,7 @@ export async function patchTask(input: PatchTaskInput) {
   if (clientIdUpdate !== undefined) updateData.client_id = clientIdUpdate;
   if (data.site_id !== undefined) updateData.site_id = data.site_id;
   if (arcIdUpdate !== undefined) updateData.arc_id = arcIdUpdate;
+  if (data.initiative_id !== undefined) updateData.initiative_id = data.initiative_id;
   if (data.phase !== undefined) updateData.phase = data.phase;
   if (data.sort_order !== undefined) updateData.sort_order = data.sort_order;
   if (data.assignee_id !== undefined) updateData.assignee_id = data.assignee_id;

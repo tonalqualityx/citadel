@@ -6,6 +6,7 @@ import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { ensureProjectBrief } from '@/lib/engagement/ensure-brief';
 import { formatProjectResponse } from '@/lib/api/formatters';
+import { assertInitiativeLinkable } from '@/lib/initiatives/service';
 
 const createProjectSchema = z.object({
   name: z.string().min(1).max(255),
@@ -17,6 +18,7 @@ const createProjectSchema = z.object({
   billing_type: z.enum(['fixed', 'hourly', 'retainer', 'none']).optional().nullable(),
   client_id: z.string().uuid(),
   site_id: z.string().uuid().optional().nullable(),
+  initiative_id: z.string().uuid().optional().nullable(),
   start_date: z.string().datetime().optional().nullable(),
   target_date: z.string().datetime().optional().nullable(),
   budget_amount: z.number().min(0).optional().nullable(),
@@ -135,6 +137,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    if (data.initiative_id) await assertInitiativeLinkable(data.initiative_id);
+
     const createProject = (db: Pick<typeof prisma, 'project'>) => db.project.create({
       data: {
         name: data.name,
@@ -144,6 +148,7 @@ export async function POST(request: NextRequest) {
         billing_type: data.billing_type,
         client_id: data.client_id,
         site_id: data.site_id,
+        initiative_id: data.initiative_id,
         start_date: data.start_date ? new Date(data.start_date) : null,
         target_date: data.target_date ? new Date(data.target_date) : null,
         budget_amount: data.budget_amount,

@@ -64,6 +64,7 @@ export const projectEndpoints: ApiEndpoint[] = [
           { name: 'status', type: 'string', required: false, description: 'Initial status' },
           { name: 'type', type: 'string', required: false, description: 'project, retainer, internal' },
           { name: 'site_id', type: 'uuid', required: false, description: 'Associated site' },
+          { name: 'initiative_id', type: 'uuid', required: false, description: 'Link to one initiative (404 if it does not exist or is deleted); pass null to clear; omit to leave untouched.' },
           { name: 'recipe_id', type: 'uuid', required: false, description: 'Recipe template to use' },
           { name: 'start_date', type: 'ISO-8601', required: false, description: 'Start date' },
           { name: 'target_date', type: 'ISO-8601', required: false, description: 'Target completion date' },
@@ -143,6 +144,7 @@ export const projectEndpoints: ApiEndpoint[] = [
         roles: ['pm', 'admin'],
         bodySchema: [
           { name: 'plan_folder', type: 'string', required: false, description: 'Local plan folder path (max 500 chars); null or empty string clears it. Other project fields are also accepted.' },
+          { name: 'initiative_id', type: 'uuid', required: false, description: 'Link to one initiative (404 if it does not exist or is deleted); pass null to clear; omit to leave untouched.' },
           { name: 'portal_visibility', type: 'string', required: false, description: 'Client portal visibility: inherit | restricted | hidden.' },
         ],
         responseExample: {

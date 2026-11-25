@@ -1,5 +1,6 @@
 import { rockStatus, rockDecisionLine, type RockProject } from '@/lib/milestones/rock';
 import { normalizeGmailDeepLink } from '@/lib/email-asks';
+import type { Initiative, InitiativeNumber, InitiativeCheckIn } from '@prisma/client';
 
 export function formatClientContactResponse(contact: any) {
   return {
@@ -208,6 +209,7 @@ export function formatProjectResponse(project: any) {
     client: project.client
       ? { id: project.client.id, name: project.client.name, status: project.client.status }
       : null,
+    initiative_id: project.initiative_id ?? null,
     site_id: project.site_id,
     site: project.site
       ? { id: project.site.id, name: project.site.name, url: project.site.url }
@@ -1074,6 +1076,7 @@ export function formatTaskResponse(task: any) {
     invoiced_at: task.invoiced_at,
     invoiced_by_id: task.invoiced_by_id,
     // Clarity Phase 1: session-originated quests + arc grouping
+    initiative_id: task.initiative_id ?? null,
     arc_id: task.arc_id ?? null,
     arc: task.arc ? { id: task.arc.id, name: task.arc.name } : null,
     source_session_external_id: task.source_session_external_id ?? null,
@@ -1365,5 +1368,73 @@ export function formatScheduledInvoiceResponse(row: any) {
     notes: row.notes,
     created_at: row.created_at,
     updated_at: row.updated_at,
+  };
+}
+
+
+type InitiativeWithRelations = Initiative & { numbers?: InitiativeNumber[]; check_ins?: InitiativeCheckIn[] };
+
+const decimalOrNull = (v: unknown) => (v === null || v === undefined ? null : Number(v));
+
+export function formatInitiativeNumberResponse(n: InitiativeNumber) {
+  return {
+    id: n.id,
+    initiative_id: n.initiative_id,
+    label: n.label,
+    unit: n.unit,
+    direction: n.direction,
+    baseline_value: decimalOrNull(n.baseline_value),
+    baseline_at: n.baseline_at ?? null,
+    target_value: decimalOrNull(n.target_value),
+    target_by: n.target_by,
+    source: n.source,
+    last_value: decimalOrNull(n.last_value),
+    last_read_at: n.last_read_at ?? null,
+    position: n.position ?? 0,
+    created_at: n.created_at,
+    updated_at: n.updated_at,
+  };
+}
+
+export function formatInitiativeCheckInResponse(c: InitiativeCheckIn) {
+  return {
+    id: c.id,
+    initiative_id: c.initiative_id,
+    health: c.health,
+    note: c.note ?? null,
+    author_id: c.author_id,
+    created_at: c.created_at,
+  };
+}
+
+export function formatInitiativeResponse(i: InitiativeWithRelations) {
+  const numbers = [...(i.numbers ?? [])].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+  const latest = (i.check_ins ?? [])[0] ?? null;
+  return {
+    id: i.id,
+    name: i.name,
+    bet: i.bet,
+    nightmare: i.nightmare ?? null,
+    prevention: i.prevention ?? null,
+    repair: i.repair ?? null,
+    cost_of_waiting: i.cost_of_waiting ?? null,
+    stop_condition: i.stop_condition ?? null,
+    check_date: i.check_date ?? null,
+    check_every_days: i.check_every_days ?? null,
+    next_decision: i.next_decision ?? null,
+    status: i.status,
+    health: i.health,
+    health_reason: i.health_reason ?? null,
+    owner_id: i.owner_id,
+    client_id: i.client_id ?? null,
+    sort_order: i.sort_order ?? 0,
+    activated_at: i.activated_at ?? null,
+    closed_at: i.closed_at ?? null,
+    closed_reason: i.closed_reason ?? null,
+    created_by_id: i.created_by_id,
+    created_at: i.created_at,
+    updated_at: i.updated_at,
+    numbers: numbers.map(formatInitiativeNumberResponse),
+    latest_check_in: latest ? formatInitiativeCheckInResponse(latest) : null,
   };
 }

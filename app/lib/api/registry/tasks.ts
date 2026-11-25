@@ -88,6 +88,7 @@ export const taskEndpoints: ApiEndpoint[] = [
           { name: 'title', type: 'string', required: true, description: 'Task title' },
           { name: 'project_id', type: 'uuid', required: false, description: 'Project ID' },
           { name: 'client_id', type: 'uuid', required: false, description: 'Client ID (derived from project if not set)' },
+          { name: 'initiative_id', type: 'uuid', required: false, description: 'Link to one initiative (404 if it does not exist or is deleted); pass null to clear; omit to leave untouched. A process change is a task (a rule_proposal or reusable_tool card), so this link covers it.' },
           { name: 'arc_id', type: 'uuid', required: false, description: 'Clarity Phase 5 — the arc board\'s "+ Quest" quick-add (404-checked). When given with no assignee_id and no project/function auto-assign match, defaults assignee to the primary operator (mike@becomeindelible.com), same fallback /api/session-tasks uses — scoped to arc_id only, no change to the general no-arc creation path' },
           { name: 'description', type: 'string', required: false, description: 'Task description' },
           { name: 'status', type: 'string', required: false, description: 'not_started, in_progress, review, done, blocked, abandoned' },
@@ -126,6 +127,7 @@ export const taskEndpoints: ApiEndpoint[] = [
           status: 'string',
           is_focus: 'boolean',
           project_id: 'uuid|null',
+          initiative_id: 'uuid|null',
           arc_id: 'uuid|null',
           arc: { id: 'uuid', name: 'string' },
           // Clarity Phase 7 — assigned automatically at creation (see the GET response
@@ -221,6 +223,7 @@ export const taskEndpoints: ApiEndpoint[] = [
         auth: 'required',
         bodySchema: [
           { name: 'status', type: 'string', required: false, description: 'not_started|in_progress|review|done|blocked|abandoned. Applied alone or together with other fields, through the same transition rules and side effects either way (timestamps, auto-focus on in_progress, activity log, dependent unblocking). A disallowed transition or unknown value returns 400 and writes nothing. An explicit is_focus in the same body wins over the auto-focus.' },
+          { name: 'initiative_id', type: 'uuid', required: false, description: 'Link to one initiative (404 if it does not exist or is deleted); pass null to clear; omit to leave untouched.' },
           { name: 'arc_id', type: 'uuid', required: false, description: 'Clarity Phase 4b — attach to an arc (404 if the arc does not exist); pass null to explicitly detach; omit to leave untouched. PM/Admin only.' },
           { name: 'promised_to', type: 'string', required: false, description: 'Clarity Phase 8 — omit to leave untouched, null to clear back to internal/target, a name to set promised-to.' },
           { name: 'hard_due_at', type: 'ISO-8601', required: false, description: 'Home screen: a real outside date. Omit to leave untouched; null clears it and its source; a date needs hard_due_source in the same body (400 otherwise). due_date is not changed.' },

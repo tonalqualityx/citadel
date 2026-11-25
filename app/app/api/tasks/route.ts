@@ -21,6 +21,7 @@ import { linkAsksForNewTask } from '@/lib/work/link-asks';
 import { checkTracked, type SourceRef } from '@/lib/work/guard'; // Work stage D: never a second to-do for work something already carries
 import { emailSourcesFor, mayOverride, parseSourceKey, trackedResponse } from '@/lib/work/tracked';
 import { hasSecurityTag } from '@/lib/home/rules';
+import { assertInitiativeLinkable } from '@/lib/initiatives/service';
 import { guardDoxTaskCreate } from '@/lib/dox/guard';
 
 // Clarity Phase 5 — the arc board's "+ Quest" quick-add defaults assignee to the primary
@@ -51,6 +52,8 @@ const createTaskSchema = z.object({
   // Clarity Phase 5 — the arc board's "+ Quest" quick-add. Mirrors PATCH /api/tasks/[id]'s
   // additive arc_id support from Clarity Phase 4b (404-checked if given).
   arc_id: z.string().uuid().optional().nullable(),
+  // Initiatives: the optional link to one initiative (a process change is a task).
+  initiative_id: z.string().uuid().optional().nullable(),
   site_id: z.string().uuid().optional().nullable(),
   phase_id: z.string().uuid().optional().nullable(),
   phase: z.string().max(100).optional().nullable(), // Legacy field
@@ -380,6 +383,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    if (data.initiative_id) await assertInitiativeLinkable(data.initiative_id);
+
     // Validate assignee exists if provided
     if (data.assignee_id) {
       const assignee = await prisma.user.findUnique({
@@ -557,6 +562,7 @@ export async function POST(request: NextRequest) {
         client_id: clientId,
         cover_url: coverUrl,
         arc_id: data.arc_id,
+        initiative_id: data.initiative_id,
         site_id: data.site_id,
         phase_id: data.phase_id,
         phase: data.phase, // Legacy field
