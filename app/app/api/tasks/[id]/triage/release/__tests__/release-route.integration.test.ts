@@ -22,6 +22,7 @@ import { loadCards } from '@/lib/tasks/triage-card';
 import { patchTask } from '@/lib/services/task-patch';
 import { recordWords, releaseOnMikesWords } from '@/lib/front-session/release';
 import { POST } from '../route';
+import { PATCH as patchTriage } from '../../route';
 
 const authMock = requireAuth as Mock;
 const params = (id: string) => ({ params: Promise.resolve({ id }) });
@@ -86,6 +87,34 @@ describe.skipIf(!SCRATCH)('front session release on Mike\'s words (real database
     // Mike's 72 hour Undo covers it, like any release from his home screen.
     await runHomeUndo(prisma, MIKE_USER_ID, body.release.action_id, new Date(Date.now() + 60_000));
     expect((await row(id)).status).toBe('triage');
+  });
+
+  it('an unsorted card the front session filed: refused as not sorted, then the front session sorts it and it releases on Mike\'s words', async () => {
+    // Filed by the front session (Mike's own key files it, as create-task.py does) with no kind, as card 338356dc arrived on 2026-11-24.
+    const id = await mk('unsorted from the front session', { triage_kind: null, created_by_id: MIKE_USER_ID });
+    authMock.mockResolvedValue(front());
+    const refused = await post(id, WORDS);
+    expect(refused.status).toBe(409);
+    expect((await refused.json()).code).toBe('not_sorted');
+    expect((await row(id)).status).toBe('triage');
+    expect(await comments(id)).toHaveLength(0); // the request was taken back out
+    // release.py --kind: the same key sorts the card, then releases it
+    const sorted = await patchTriage(new NextRequest(new URL(`http://localhost/api/tasks/${id}/triage`), { method: 'PATCH', body: JSON.stringify({ kind: 'project_setup' }) } as never), params(id));
+    expect(sorted.status).toBe(200);
+    expect(await sorted.json()).toMatchObject({ kind: 'project_setup', release_ready: true });
+    const res = await post(id, WORDS);
+    expect(res.status).toBe(200);
+    const after = await row(id);
+    // a project card with no project goes to Dox, who creates the project from it
+    expect(after.status).toBe('not_started');
+    expect(after.project_id).toBeNull();
+    expect(after.assignee_id).toBe(DOX_USER_ID);
+    expect(after.tags).toEqual(expect.arrayContaining(['keep-me', 'kickoff', 'from-triage']));
+    const [c] = await comments(id);
+    expect(c.content).toContain(`"${WORDS.mike_words}"`);
+    expect(c.content).toMatch(/^Released from Triage by the front session/);
+    const kindLine = await prisma.triageChange.findFirstOrThrow({ where: { task_id: id, area: 'card' } });
+    expect(kindLine.line).toBe('Kind set by the front session');
   });
 
   it('refuses a request without Mike\'s words, without where or when, with empty words or a future time; nothing changes', async () => {

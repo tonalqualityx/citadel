@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Mock } from 'vitest';
 
 // Front-session lane (project 1e374bad; Mike, 2026-11-24: "The bast session will need to be able to release triage cards"): born enforced, acts as
-// Bast, reaches exactly four routes (release a Triage card on Mike's words; record his words on a card as a silent internal comment, Mike,
+// Bast, reaches exactly five routes (release a Triage card on Mike's words; sort a Triage card, its kind and project link, Mike, 2026-11-24: "The
+// whole point of this chat is that we can triage and release things."; record his words on a card as a silent internal comment, Mike,
 // 2026-11-24: "every time you attach a comment from me on a card I get a slack notification. Would love for that to stop."; read a card's
 // questions and answer one with his words, Mike, 2026-11-24: "fix that issue in Citadel so we can answer questions from here") and is refused
 // everywhere else.
@@ -45,6 +46,7 @@ beforeEach(() => {
 });
 
 const RELEASE = '/api/tasks/7f1c/triage/release';
+const SORT = '/api/tasks/7f1c/triage';
 const COMMENT = '/api/tasks/7f1c/comments';
 const QUESTIONS = '/api/tasks/7f1c/questions';
 const ANSWER = '/api/tasks/7f1c/questions/9a/answer';
@@ -55,8 +57,9 @@ const DENIED: [string, string][] = [
   ['PATCH', '/api/tasks/bulk'],
   ['POST', '/api/home/act'],
   ['POST', '/api/home/undo'],
-  ['PATCH', '/api/tasks/7f1c/triage'],
   ['PUT', '/api/tasks/7f1c/triage/shape'],
+  ['DELETE', '/api/tasks/7f1c/triage'],
+  ['POST', '/api/tasks/7f1c/triage'],
   ['GET', '/api/tasks/7f1c/triage'],
   ['GET', RELEASE],
   ['PUT', RELEASE],
@@ -101,14 +104,16 @@ describe('lane front-session', () => {
     expect(keyScopesSchema.safeParse(['lane:front-session', 'lane:bast-chat', 'scope-mode:enforce']).success).toBe(false);
   });
 
-  it('holds exactly four routes: POST release, POST a comment, GET a card\'s questions and POST an answer', () => {
+  it('holds exactly five routes: POST release, PATCH a card\'s sort, POST a comment, GET a card\'s questions and POST an answer', () => {
     expect(LANE_ROUTES['front-session'].map((r) => `${r.method} ${r.pattern}`)).toEqual([
       'POST /api/tasks/:id/triage/release',
+      'PATCH /api/tasks/:id/triage',
       'POST /api/tasks/:id/comments',
       'GET /api/tasks/:id/questions',
       'POST /api/tasks/:id/questions/:qid/answer',
     ]);
     expect(laneAllows('front-session', 'POST', RELEASE)).toBe(true);
+    expect(laneAllows('front-session', 'PATCH', SORT)).toBe(true);
     expect(laneAllows('front-session', 'POST', COMMENT)).toBe(true);
     expect(laneAllows('front-session', 'GET', QUESTIONS)).toBe(true);
     expect(laneAllows('front-session', 'POST', ANSWER)).toBe(true);

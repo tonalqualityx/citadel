@@ -16,7 +16,7 @@ vi.mock('@/lib/auth/middleware', async (orig) => ({
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth, type AuthPayload } from '@/lib/auth/middleware';
 import { SCRATCH } from '@/lib/engine/__tests__/seed';
-import { MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
+import { BAST_USER_ID, MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import { mayLeaveTriage } from '@/lib/services/task-patch';
 import { GET, PATCH } from '../route';
 import { PUT } from '../shape/route';
@@ -52,6 +52,7 @@ describe.skipIf(!SCRATCH)('triage card routes (real database)', () => {
 
   beforeAll(async () => {
     await prisma.user.upsert({ where: { id: MIKE_USER_ID }, update: {}, create: { id: MIKE_USER_ID, email: `mike-${tag}@example.test`, password_hash: 'x', name: 'Mike', role: 'admin' } });
+    await prisma.user.upsert({ where: { id: BAST_USER_ID }, update: {}, create: { id: BAST_USER_ID, email: `bast-${tag}@example.test`, password_hash: 'x', name: 'Bast', role: 'pm' } });
     botId = (await prisma.user.create({ data: { email: `bot-${tag}@example.test`, password_hash: 'x', name: 'Bot', role: 'pm' } })).id;
     otherId = (await prisma.user.create({ data: { email: `oth-${tag}@example.test`, password_hash: 'x', name: 'Other', role: 'admin' } })).id;
     clientId = (await prisma.client.create({ data: { name: `${tag} Co` } })).id;
@@ -107,6 +108,45 @@ describe.skipIf(!SCRATCH)('triage card routes (real database)', () => {
     // leaving Triage stays Mike's session and the chat lane: his API key is refused.
     const out = await prisma.task.findUniqueOrThrow({ where: { id: pc } });
     expect(out.status).toBe('triage');
+  });
+
+  it('the front session\'s key sorts a card (kind and project link) but cannot set dates, read the card, drop or release it', async () => {
+    const front = (): AuthPayload => ({ userId: BAST_USER_ID, role: 'pm', email: 'bast@test', via: 'api_key', apiKeyId: 'kf', lane: 'front-session', laneEnforced: true });
+    const c = await fresh();
+    authMock.mockResolvedValue(front());
+    // the kind probe create-task.py sends answers 404, not 403
+    expect((await patch('00000000-0000-0000-0000-000000000000', { kind: null })).status).toBe(404);
+    const res = await patch(c, { kind: 'project_setup' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ kind: 'project_setup', release_ready: true });
+    const fsProject = (await prisma.project.create({ data: { name: `${tag} front session project`, client_id: clientId, status: 'queue' } })).id;
+    projectIds.push(fsProject);
+    expect((await patch(c, { project_id: fsProject })).status).toBe(200);
+    expect(await prisma.task.findUniqueOrThrow({ where: { id: c } })).toMatchObject({ triage_kind: 'project_setup', project_id: fsProject, client_id: clientId });
+    // the link is narrowed like the chat's: a project another Triage card already uses is refused
+    const usedProject = (await prisma.project.create({ data: { name: `${tag} used project`, client_id: clientId, status: 'queue' } })).id;
+    projectIds.push(usedProject);
+    await mk('other card', { project_id: usedProject });
+    const taken = await patch(c, { project_id: usedProject });
+    expect(taken.status).toBe(409);
+    expect((await taken.json()).code).toBe('project_in_use');
+    // dates are not the front session's to set
+    for (const body of [{ target_launch_date: '2027-01-15' }, { kind: 'project_setup', target_start_date: '2027-01-02' }, { kind: 'task', date_source: { kind: 'mike', label: 'chat' } }]) {
+      const r = await patch(c, body);
+      expect(r.status, JSON.stringify(body)).toBe(403);
+      expect((await r.json()).code).toBe('front_session_sort_only');
+    }
+    expect((await GET(req(`http://localhost/api/tasks/${c}/triage`, 'GET'), params(c))).status).toBe(403);
+    expect(mayLeaveTriage(front())).toBe(false);
+    const t = await prisma.task.findUniqueOrThrow({ where: { id: c } });
+    expect(t.status).toBe('triage');
+    expect(t.project_id).toBe(fsProject);
+    // the same lane on a key that is not enforced, or under another user, is refused
+    for (const actor of [{ ...front(), laneEnforced: false }, { ...front(), userId: botId }]) {
+      authMock.mockResolvedValue(actor);
+      expect((await patch(c, { kind: 'task' })).status).toBe(403);
+    }
+    expect((await prisma.task.findUniqueOrThrow({ where: { id: c } })).triage_kind).toBe('project_setup');
   });
 
   it('Mike\'s session and the chat lane can set the kind, change it, and clear it; the card payload comes back', async () => {

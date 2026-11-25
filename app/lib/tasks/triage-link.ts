@@ -1,5 +1,5 @@
 /**
- * Which project a Triage card may be linked to by a session (the triage desk or the chat lane; the owner's own session is not narrowed).
+ * Which project a Triage card may be linked to by a session (the triage desk, the chat lane or the front session; the owner's own session is not narrowed).
  * A card may be linked only to a project that no OTHER Triage card is using and that belongs to the card's own client or is internal (no
  * client). Without this a session could point its card at another client's queued project and then redraw that project's shape or set its
  * launch date through its own card. A card that has no client yet may take any such project (it then takes the project's client).
@@ -9,12 +9,13 @@ import { ApiError } from '@/lib/api/errors';
 import type { AuthPayload } from '@/lib/auth/middleware';
 import { isTriageDeskLane } from '@/lib/triage-desk/guard';
 import { isChatLane } from './questions';
+import { isFrontSessionCaller } from '@/lib/front-session/identity';
 import { DATE_SOURCE_MESSAGE, type DateSource } from './plan-schema';
 
 type Db = Pick<PrismaClient, 'task' | 'project'>;
 
 export function linkIsNarrowed(auth: Pick<AuthPayload, 'userId' | 'role' | 'via' | 'lane' | 'laneEnforced'>): boolean {
-  return isTriageDeskLane(auth) || isChatLane(auth);
+  return isTriageDeskLane(auth) || isChatLane(auth) || isFrontSessionCaller(auth);
 }
 
 export async function assertLinkableProject(db: Db, cardId: string, cardClientId: string | null, projectId: string): Promise<void> {

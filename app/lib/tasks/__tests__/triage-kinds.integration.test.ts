@@ -101,12 +101,16 @@ describe.skipIf(!SCRATCH)('release by kind (real database)', () => {
     expect((await prisma.project.findUniqueOrThrow({ where: { id: project } })).status).toBe('quote');
   });
 
-  it('project_setup with no project, and a closed project, are refused with a clear 409', async () => {
+  it('project_setup with no project goes to Dox to create the project; a closed project is refused with a clear 409', async () => {
     const none = await mk('setup none', { triage_kind: 'project_setup' });
-    await expect(release(none)).rejects.toMatchObject({ statusCode: 409, code: 'no_project' });
+    await release(none);
+    const out = await row(none);
+    expect(out.status).toBe('not_started');
+    expect(out.project_id).toBeNull();
+    expect(out.assignee_id).toBe(DOX_USER_ID);
+    expect(out.tags).toEqual(expect.arrayContaining(['kickoff', 'from-triage']));
     const closed = await mk('setup closed', { triage_kind: 'project_setup', project_id: await mkProject('cancelled') });
     await expect(release(closed)).rejects.toMatchObject({ statusCode: 409, code: 'project_closed' });
-    expect((await row(none)).status).toBe('triage');
     expect((await row(closed)).status).toBe('triage');
   });
 

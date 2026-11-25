@@ -15,6 +15,7 @@ import { estimatePatchForKind } from '@/lib/tasks/triage-estimate';
 import { dateSourceSchema } from '@/lib/tasks/plan-schema';
 import { changedDates, recordDateChanges } from '@/lib/tasks/date-changes';
 import { cardForCaller } from '@/lib/deals/access';
+import { isFrontSessionCaller } from '@/lib/front-session/identity';
 
 async function cardOr404(id: string) {
   const [card] = await loadCards(prisma, [id]);
@@ -69,15 +70,22 @@ const bodySchema = z
  * The chat lane sets dates on any project, the portal's included, only with date_source (422 date_source_required otherwise); each changed date is a change line with old, new and the source.
  * only; Mike's session, his own un-laned API key or the chat lane only (403 for everyone else). Returns the card.
  * His own key sorts a card (kind, project, dates) so a card filed from his work session arrives sorted; it still cannot release or drop one (mayLeaveTriage).
+ * The front session's key sorts a card too: its kind and its project link, nothing else (dates answer 403 front_session_sort_only), and the link is
+ * narrowed like the chat's. Mike, 2026-11-24: "The whole point of this chat is that we can triage and release things." It still cannot drop a card,
+ * and it releases only through POST /api/tasks/:id/triage/release on his quoted words.
  */
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const auth = await requireAuth();
     // Dox sets the kind of a card he filed (lib/dox/guard.ts guardDoxTriagePatch, below); everything else here is the editors'.
-    if (!isDoxLane(auth) && !isMikeOwnKey(auth)) requireTriageEditor(auth);
+    const frontSession = isFrontSessionCaller(auth);
+    if (!isDoxLane(auth) && !isMikeOwnKey(auth) && !frontSession) requireTriageEditor(auth);
     const { id } = await params;
     const rawBody = await request.json();
     const body = bodySchema.parse(rawBody);
+    if (frontSession && (body.target_start_date !== undefined || body.target_launch_date !== undefined || body.date_source !== undefined)) {
+      throw new ApiError("The front session sets a card's kind and its project link, nothing else.", 403, 'front_session_sort_only');
+    }
     const task = await prisma.task.findFirst({ where: { id, is_deleted: false }, select: { id: true, status: true, project_id: true, client_id: true, triage_kind: true, estimated_minutes: true, energy_estimate: true, mystery_factor: true, battery_impact: true, tags: true, created_by_id: true } });
     if (!task || task.status !== 'triage') throw new ApiError('That card is not in Triage.', 404, 'not_in_triage');
     guardDoxTriagePatch(auth, rawBody, task);

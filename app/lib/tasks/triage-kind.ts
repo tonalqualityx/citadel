@@ -5,7 +5,8 @@
  * that describes them. The sentence is built from the effects by describeRelease, and `release()` in triage.ts applies exactly those effects, so the
  * "On release" line can never promise something the action does not do. Pure: no database, no React.
  *
- *   project_setup (a project card)                    project queue -> ready, card -> not_started, assigned to Dox, tags kickoff + from-triage
+ *   project_setup (a project card)                    project queue -> ready, card -> not_started, assigned to Dox, tags kickoff + from-triage;
+ *                                                     with no project linked, Dox creates the project from the card (his card pass) and links it
  *   task | project_addition | reusable_tool | rule_proposal   card -> not_started, assigned to Dox when nobody is (or Bast is), tag from-triage;
  *                                                     a linked project still in queue goes to ready (Mike's release of the card starts its work)
  *   question_only                                     card closed as done; its questions and answers stay on it
@@ -20,6 +21,7 @@ export const KICKOFF_TAG = 'kickoff';
 /** A tag the worker gate parks on (gate.json blocking_tags). Release no longer adds it; the constant stays so cards released earlier can have it taken off. */
 export const PM_RELEASE_TAG = 'needs-pm-release';
 
+/** `no_project` is no longer produced (a project card with no project now goes to Dox to create it); kept so older payloads still type-check. */
 export type ReleaseBlock = 'unsorted' | 'no_project' | 'still_quote' | 'project_closed';
 
 export interface ReleaseInput {
@@ -109,7 +111,9 @@ export function describeRelease(fx: ReleaseEffects): string {
     if (fx.questions.stay > 0) parts.push(`${fx.questions.stay} open ${plural(fx.questions.stay, 'question stays', 'questions stay')} unanswered.`);
     return parts.join(' ');
   }
-  if (fx.kind === 'project_setup') {
+  if (fx.kind === 'project_setup' && !fx.project_name) {
+    parts.push(`Hands this to ${PM_NAME}, who creates the project from this card, then creates and assigns every task.`);
+  } else if (fx.kind === 'project_setup') {
     parts.push(
       fx.starts_project
         ? `Starts the project: hands ${fx.project_name} to ${PM_NAME} to set up, creating and assigning every task.`
@@ -182,7 +186,22 @@ export function planRelease(input: ReleaseInput): ReleasePlan {
   }
 
   if (kind === 'project_setup') {
-    if (!project) return blocked('no_project', 'Needs its project linked before it can be released.');
+    // No project linked: the card IS the setup, so release hands it to Dox, who creates the project from it and links it (his card pass,
+    // lib/dox/guard.ts loadCardForPass). Mike, 2026-11-24: "if it's a project setup and there is no linked project that should trigger dox
+    // to create a project, yeah?"
+    if (!project) {
+      return finish({
+        ...common,
+        to_status: 'not_started',
+        assign_dox: true,
+        add_tags: [KICKOFF_TAG, FROM_TRIAGE_TAG],
+        project_to_ready: false,
+        lands_on: PM_NAME,
+        lands_on_dox: true,
+        closes_card: false,
+        questions: { go, wait, stay: 0 },
+      });
+    }
     if (project.status === 'quote') return blocked('still_quote', `${project.name} is still a quote, so release is refused.`);
     if (['cancelled', 'done', 'suspended'].includes(project.status)) return blocked('project_closed', `${project.name} is ${words(project.status)}, so release is refused.`);
     const toReady = project.status === 'queue';

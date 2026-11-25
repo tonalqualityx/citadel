@@ -162,6 +162,8 @@ describe('matching', () => {
         if (lane === 'dox' && (m === 'GET' || m === 'PATCH')) continue;
         // The triage desk edits a card too (its own list and refusals are pinned in lane-triage-desk.test.ts).
         if (lane === 'triage-desk') continue;
+        // The front session sorts a card (kind and project link only; its list is pinned in lane-front-session.test.ts).
+        if (lane === 'front-session' && m === 'PATCH') continue;
         expect(laneAllows(lane, m, path), `${lane} ${m} ${path}`).toBe(false);
       }
     }

@@ -27,10 +27,16 @@ describe('planRelease: the line and the effects come from one function', () => {
     expect(r.line).toBe('Hands Stronghold to Dox to set up, who creates and assigns every task.');
   });
 
-  it('project_setup is refused for a quote project, no project, and a closed project, and the line says why', () => {
+  it('project_setup with no project linked releases to Dox, who creates the project from the card', () => {
+    const r = planRelease(base({ kind: 'project_setup' }));
+    expect(r).toMatchObject({ ready: true, block: null });
+    expect(r.effects).toMatchObject({ to_status: 'not_started', assign_dox: true, add_tags: ['kickoff', 'from-triage'], project_to_ready: false, starts_project: false, project_name: null, lands_on: 'Dox', lands_on_dox: true });
+    expect(r.line).toBe('Hands this to Dox, who creates the project from this card, then creates and assigns every task.');
+  });
+
+  it('project_setup is refused for a quote project and a closed project, and the line says why', () => {
     expect(planRelease(base({ kind: 'project_setup', project: P('quote') }))).toMatchObject({ ready: false, block: 'still_quote', effects: null });
     expect(planRelease(base({ kind: 'project_setup', project: P('quote') })).line).toContain('still a quote');
-    expect(planRelease(base({ kind: 'project_setup' }))).toMatchObject({ ready: false, block: 'no_project' });
     for (const s of ['cancelled', 'done', 'suspended']) expect(planRelease(base({ kind: 'project_setup', project: P(s) }))).toMatchObject({ ready: false, block: 'project_closed' });
   });
 
@@ -161,7 +167,9 @@ describe('planRelease: every effect has its phrase, present exactly when the eff
       // a queued project starts whenever the card goes on to be worked; a closed card starts nothing
       expect(fx.project_to_ready, label).toBe(!fx.closes_card && input.project?.status === 'queue');
       expect(fx.starts_project, label).toBe(fx.project_to_ready);
-      expect(has(/to Dox to set up/), label).toBe(fx.kind === 'project_setup');
+      expect(has(/to Dox to set up/), label).toBe(fx.kind === 'project_setup' && !!input.project);
+      // a project card with no project: Dox creates the project from the card
+      expect(has(/creates the project from this card/), label).toBe(fx.kind === 'project_setup' && !input.project);
       // lands on Dox: the card is handed to him, no hold tag, and the old hold sentence is gone
       expect(fx.add_tags, label).not.toContain(PM_RELEASE_TAG);
       expect(has(/Nothing begins until/), label).toBe(false);
