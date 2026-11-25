@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { formatMilestoneResponse } from '@/lib/api/formatters';
+import { ROCK_CAP, QUARTER_PATTERN, lastDayOfQuarter } from '@/lib/milestones/rock';
 
 const updateMilestoneSchema = z.object({
   name: z.string().min(1, 'Name is required').max(255).optional(),
@@ -14,6 +15,12 @@ const updateMilestoneSchema = z.object({
   phase_id: z.string().uuid().optional().nullable(),
   billing_amount: z.number().positive().optional().nullable(),
   billing_status: z.enum(['pending', 'triggered', 'invoiced']).optional(),
+  rock_quarter: z
+    .string()
+    .regex(QUARTER_PATTERN, 'Quarter must look like 2027-Q1')
+    .optional()
+    .nullable(),
+  rock_done_when: z.string().max(300).optional().nullable(),
 });
 
 // GET /api/milestones/[id] - Get a single milestone
@@ -33,6 +40,9 @@ export async function GET(
             id: true,
             name: true,
             is_deleted: true,
+            next_step_text: true,
+            next_step_owner_id: true,
+            next_step_at: true,
           },
         },
       },
@@ -56,7 +66,7 @@ export async function GET(
       }
     }
 
-    return NextResponse.json(formatMilestoneResponse(milestone));
+    return NextResponse.json(formatMilestoneResponse(milestone, milestone.project));
   } catch (error) {
     return handleApiError(error);
   }
@@ -82,6 +92,9 @@ export async function PATCH(
           select: {
             id: true,
             is_deleted: true,
+            next_step_text: true,
+            next_step_owner_id: true,
+            next_step_at: true,
           },
         },
       },
@@ -165,13 +178,68 @@ export async function PATCH(
       updateData.triggered_by_id = auth.userId;
     }
 
+    // Quarter priority ("rock") rules
+    const finalQuarter =
+      data.rock_quarter !== undefined ? data.rock_quarter : existingMilestone.rock_quarter;
+
+    const doneWhen = typeof data.rock_done_when === 'string' ? data.rock_done_when.trim() : data.rock_done_when;
+
+    if (finalQuarter === null || finalQuarter === undefined) {
+      if (doneWhen) {
+        throw new ApiError('Only a quarter priority can have a done-when line', 400, 'not_a_rock');
+      }
+      if (data.rock_quarter === null) {
+        // Unmarking clears the done-when line too
+        updateData.rock_quarter = null;
+        updateData.rock_done_when = null;
+      }
+    } else {
+      if (data.target_date === null) {
+        throw new ApiError('A quarter priority needs a target date', 400, 'rock_needs_target_date');
+      }
+
+      const wasRock = !!existingMilestone.rock_quarter;
+      const needsLine =
+        (!wasRock && !doneWhen) || (wasRock && data.rock_done_when !== undefined && !doneWhen);
+      if (needsLine) {
+        throw new ApiError('A quarter priority needs a yes-or-no done line', 400, 'rock_needs_done_when');
+      }
+
+      if (data.rock_quarter) {
+        const otherRocks = await prisma.milestone.count({
+          where: {
+            rock_quarter: data.rock_quarter,
+            id: { not: id },
+            project: { is_deleted: false },
+          },
+        });
+        if (otherRocks >= ROCK_CAP) {
+          throw new ApiError(
+            `${data.rock_quarter} already has ${ROCK_CAP} quarter priorities`,
+            409,
+            'rock_cap'
+          );
+        }
+        updateData.rock_quarter = data.rock_quarter;
+      }
+
+      if (data.rock_done_when !== undefined) {
+        updateData.rock_done_when = doneWhen;
+      }
+
+      // No target date anywhere: default to the last day of the quarter
+      if (data.target_date === undefined && !existingMilestone.target_date) {
+        updateData.target_date = lastDayOfQuarter(finalQuarter);
+      }
+    }
+
     // Update the milestone
     const milestone = await prisma.milestone.update({
       where: { id },
       data: updateData,
     });
 
-    return NextResponse.json(formatMilestoneResponse(milestone));
+    return NextResponse.json(formatMilestoneResponse(milestone, existingMilestone.project));
   } catch (error) {
     return handleApiError(error);
   }

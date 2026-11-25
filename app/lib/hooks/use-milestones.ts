@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
 import { showToast } from '@/lib/hooks/use-toast';
 
+export type RockStatus = 'done' | 'off_track' | 'on_track';
 export type BillingStatus = 'pending' | 'triggered' | 'invoiced';
 
 export interface Milestone {
@@ -19,6 +20,10 @@ export interface Milestone {
   triggered_by_id: string | null;
   invoiced_at: string | null;
   invoiced_by_id: string | null;
+  rock_quarter: string | null;
+  rock_done_when: string | null;
+  rock_status: RockStatus | null;
+  rock_decision: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -44,6 +49,8 @@ export interface UpdateMilestoneInput {
   sort_order?: number;
   billing_amount?: number | null;
   phase_id?: string | null;
+  rock_quarter?: string | null;
+  rock_done_when?: string | null;
 }
 
 // Query keys for milestones

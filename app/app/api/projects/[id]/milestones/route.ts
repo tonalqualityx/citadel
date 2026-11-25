@@ -57,7 +57,7 @@ export async function GET(
     });
 
     return NextResponse.json({
-      milestones: milestones.map(formatMilestoneResponse),
+      milestones: milestones.map((m) => formatMilestoneResponse(m, project)),
       count: milestones.length,
     });
   } catch (error) {

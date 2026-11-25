@@ -1485,12 +1485,17 @@ model Milestone {
   invoiced_at     DateTime?
   invoiced_by_id  String?                @db.Uuid
 
+  // Quarter priority ("rock")
+  rock_quarter    String? @db.VarChar(7) // "2027-Q1"; null = not a rock
+  rock_done_when  String? @db.VarChar(300) // the yes-or-no line that says the rock is done
+
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
   @@index([project_id])
   @@index([phase_id])
   @@index([billing_status])
+  @@index([rock_quarter])
   @@map("milestones")
 }
 

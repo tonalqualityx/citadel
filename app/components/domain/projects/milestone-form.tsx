@@ -14,14 +14,29 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
+import { Checkbox } from '@/components/ui/checkbox';
+import { upcomingQuarters } from '@/lib/milestones/rock';
 
-const milestoneSchema = z.object({
+const milestoneSchema = z
+  .object({
   name: z.string().min(1, 'Name is required').max(255),
   target_date: z.string().optional(),
   notes: z.string().optional(),
   billing_amount: z.number().positive('Billing amount must be positive').optional().nullable(),
   phase_id: z.string().uuid().optional().nullable(),
-});
+  is_rock: z.boolean().optional(),
+  rock_quarter: z.string().optional().nullable(),
+  rock_done_when: z.string().max(300, 'Keep it under 300 characters').optional().nullable(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.is_rock && !value.rock_done_when?.trim()) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['rock_done_when'],
+        message: 'Add a yes-or-no line that says when this priority is done',
+      });
+    }
+  });
 
 type MilestoneFormData = z.infer<typeof milestoneSchema>;
 
@@ -53,6 +68,7 @@ export function MilestoneForm({
     register,
     handleSubmit,
     control,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm<MilestoneFormData>({
     resolver: zodResolver(milestoneSchema),
@@ -62,8 +78,21 @@ export function MilestoneForm({
       notes: milestone?.notes || '',
       billing_amount: milestone?.billing_amount ?? undefined,
       phase_id: milestone?.phase_id ?? undefined,
+      is_rock: !!milestone?.rock_quarter,
+      rock_quarter: milestone?.rock_quarter ?? undefined,
+      rock_done_when: milestone?.rock_done_when ?? '',
     },
   });
+
+  const isRock = watch('is_rock');
+  const quarterOptions = React.useMemo(() => {
+    const quarters = upcomingQuarters(3);
+    // Keep an existing quarter selectable even when it is no longer upcoming
+    if (milestone?.rock_quarter && !quarters.includes(milestone.rock_quarter)) {
+      quarters.unshift(milestone.rock_quarter);
+    }
+    return quarters.map((q) => ({ value: q, label: q }));
+  }, [milestone?.rock_quarter]);
 
   const isLoading = isSubmitting || createMilestone.isPending || updateMilestone.isPending;
 
@@ -78,7 +107,19 @@ export function MilestoneForm({
       };
 
       if (isEdit && milestone) {
-        await updateMilestone.mutateAsync({ id: milestone.id, data: payload });
+        const rockQuarter = data.is_rock ? data.rock_quarter || quarterOptions[0]?.value : null;
+        // A rock with no date leaves target_date out, so the API sets the quarter's last day
+        const { target_date, ...rest } = payload;
+        await updateMilestone.mutateAsync({
+          id: milestone.id,
+          data: {
+            ...rest,
+            ...(rockQuarter && !target_date ? {} : { target_date }),
+            // Unmarking sends null; the API clears the done-when line with it
+            rock_quarter: rockQuarter,
+            ...(rockQuarter ? { rock_done_when: data.rock_done_when?.trim() || null } : {}),
+          },
+        });
       } else {
         await createMilestone.mutateAsync(payload);
       }
@@ -143,6 +184,51 @@ export function MilestoneForm({
           Optional: Set a billing amount to enable billing workflow for this milestone.
         </p>
       </div>
+
+      {isEdit && (
+        <div className="space-y-3">
+          <Controller
+            name="is_rock"
+            control={control}
+            render={({ field }) => (
+              <label className="flex items-center gap-2 text-sm text-text-main cursor-pointer">
+                <Checkbox
+                  checked={!!field.value}
+                  onCheckedChange={field.onChange}
+                  aria-label="Quarter priority"
+                />
+                Quarter priority
+              </label>
+            )}
+          />
+          {isRock && (
+            <>
+              <Controller
+                name="rock_quarter"
+                control={control}
+                render={({ field }) => (
+                  <Select
+                    label="Quarter"
+                    options={quarterOptions}
+                    value={field.value ?? quarterOptions[0]?.value ?? ''}
+                    onChange={(value) => field.onChange(value || null)}
+                  />
+                )}
+              />
+              <Input
+                label="Done when"
+                {...register('rock_done_when')}
+                error={errors.rock_done_when?.message}
+                maxLength={300}
+                placeholder="A yes-or-no line that says this is done"
+              />
+              <p className="text-xs text-text-sub">
+                A quarter can hold up to 7 priorities. With no target date, this uses the last day of the quarter.
+              </p>
+            </>
+          )}
+        </div>
+      )}
 
       {phases.length > 0 && (
         <div>

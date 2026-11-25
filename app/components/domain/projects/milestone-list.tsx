@@ -1,7 +1,6 @@
 'use client';
 
 import * as React from 'react';
-import { format } from 'date-fns';
 import { Plus, Pencil, Trash2, Check, Circle, Flag, Calendar, DollarSign, Receipt } from 'lucide-react';
 import {
   useMilestones,
@@ -26,6 +25,7 @@ import {
   ModalBody,
 } from '@/components/ui/modal';
 import { MilestoneForm, Phase } from './milestone-form';
+import { formatCalendarDateUtc } from '@/lib/milestones/rock';
 
 interface MilestoneListProps {
   projectId: string;
@@ -41,6 +41,12 @@ function formatCurrency(amount: number): string {
     currency: 'USD',
   }).format(amount);
 }
+
+const ROCK_STATUS_DISPLAY = {
+  on_track: { variant: 'success', label: '\u25CF On track' },
+  off_track: { variant: 'warning', label: '\u25D0 Off track' },
+  done: { variant: 'info', label: '\u2713 Done' },
+} as const;
 
 /**
  * Get badge variant and label for billing status
@@ -107,7 +113,8 @@ export function MilestoneList({ projectId, phases = [] }: MilestoneListProps) {
 
   const formatTargetDate = (dateString: string | null) => {
     if (!dateString) return null;
-    return format(new Date(dateString), 'MMM d, yyyy');
+    // Target dates are calendar dates stored as UTC midnight
+    return formatCalendarDateUtc(dateString);
   };
 
   const renderMilestoneItem = (milestone: Milestone) => {
@@ -162,6 +169,28 @@ export function MilestoneList({ projectId, phases = [] }: MilestoneListProps) {
               </Badge>
             )}
           </div>
+
+          {/* Quarter priority */}
+          {milestone.rock_quarter && (
+            <div className="mt-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <Badge variant="purple" size="sm">
+                  Rock · {milestone.rock_quarter}
+                </Badge>
+                {milestone.rock_status && (
+                  <Badge variant={ROCK_STATUS_DISPLAY[milestone.rock_status].variant} size="sm">
+                    {ROCK_STATUS_DISPLAY[milestone.rock_status].label}
+                  </Badge>
+                )}
+              </div>
+              {milestone.rock_decision && (
+                <p className="mt-1 text-sm text-text-main">{milestone.rock_decision}</p>
+              )}
+              {milestone.rock_done_when && (
+                <p className="mt-1 text-sm text-text-sub">Done when: {milestone.rock_done_when}</p>
+              )}
+            </div>
+          )}
 
           {/* Target date */}
           {formattedDate && (

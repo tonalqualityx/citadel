@@ -1,3 +1,4 @@
+import { rockStatus, rockDecisionLine, type RockProject } from '@/lib/milestones/rock';
 import { normalizeGmailDeepLink } from '@/lib/email-asks';
 
 export function formatClientContactResponse(contact: any) {
@@ -261,7 +262,7 @@ export function formatProjectResponse(project: any) {
     phases: project.phases?.map(formatPhaseResponse),
     tasks: project.tasks?.map(formatTaskResponse),
     team_assignments: project.team_assignments?.map(formatTeamAssignmentResponse),
-    milestones: project.milestones?.map(formatMilestoneResponse),
+    milestones: project.milestones?.map((m: Parameters<typeof formatMilestoneResponse>[0]) => formatMilestoneResponse(m, project)),
     health,
     is_deleted: project.is_deleted,
     created_at: project.created_at,
@@ -311,7 +312,7 @@ export function formatUserFunctionResponse(userFunction: any) {
   };
 }
 
-export function formatMilestoneResponse(milestone: any) {
+export function formatMilestoneResponse(milestone: any, project?: RockProject | null) {
   return {
     id: milestone.id,
     name: milestone.name,
@@ -327,6 +328,10 @@ export function formatMilestoneResponse(milestone: any) {
     triggered_by_id: milestone.triggered_by_id,
     invoiced_at: milestone.invoiced_at,
     invoiced_by_id: milestone.invoiced_by_id,
+    rock_quarter: milestone.rock_quarter ?? null,
+    rock_done_when: milestone.rock_done_when ?? null,
+    rock_status: rockStatus(milestone, new Date(), project),
+    rock_decision: rockDecisionLine(milestone, new Date(), project),
     created_at: milestone.created_at,
     updated_at: milestone.updated_at,
   };
