@@ -26,6 +26,7 @@ import { Select } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { CharterRetainerMonth } from '@/components/domain/retainer-months/CharterRetainerMonth';
 import { CharterDetail } from '@/components/domain/charters/CharterDetail';
 import { UsageTracker } from '@/components/domain/charters/UsageTracker';
 import { CharterKanban } from '@/components/domain/charters/CharterKanban';
@@ -148,6 +149,8 @@ export default function CharterDetailPage() {
           )}
         </div>
       </div>
+
+      {charter.billing_period === 'monthly' && charter.status === 'active' && <CharterRetainerMonth charterId={charter.id} />}
 
       {/* Tabs */}
       <Tabs defaultValue="overview">

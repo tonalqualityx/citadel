@@ -1180,3 +1180,55 @@ export interface UpdateBrandProfileInput {
 // Client portal role (portal MVP A3); can_initiate_work is derived from it (owner and member = true).
 export type PortalRole = 'owner' | 'member' | 'viewer' | 'none';
 export type PortalVisibility = 'inherit' | 'restricted' | 'hidden';
+
+// ============================================
+// Retainer months (design.md 2.6)
+// ============================================
+
+export type RetainerMonthState = 'planning' | 'planned' | 'closed';
+
+export interface RetainerMonthItemView {
+  id: string;
+  title: string;
+  estimate_min_low: number;
+  estimate_min_high: number;
+  task_id: string | null;
+  recurring_work_id: string | null;
+  position: number;
+  /** Counted time on the item's task, in minutes. */
+  used_minutes: number;
+}
+
+export interface RetainerMonthView {
+  id: string;
+  charter_id: string;
+  charter_name: string;
+  client_id: string;
+  client_name: string;
+  /** "2026-12" */
+  month: string;
+  state: RetainerMonthState;
+  hours_allotted: number;
+  planning_task_id: string | null;
+  /** When the month was drafted. */
+  created_at?: string;
+  planned_at: string | null;
+  planned_by_id: string | null;
+  note: string | null;
+  used_minutes: number;
+  outside_minutes: number;
+  /** Client time on retainer-work tasks with no charter, when the client has two or more monthly charters. Not in used_minutes. */
+  unassigned_minutes: number;
+  frozen: boolean;
+  outside: { id: string; title: string; minutes: number }[];
+  items: RetainerMonthItemView[];
+}
+
+export interface RetainerMonthLine {
+  id: string;
+  month: string;
+  state: RetainerMonthState;
+  hours_allotted: number;
+  used_minutes: number;
+  outside_minutes: number;
+}

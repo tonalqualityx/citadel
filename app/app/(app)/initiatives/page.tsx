@@ -4,6 +4,10 @@ import * as React from 'react';
 import { Spinner } from '@/components/ui/spinner';
 import { EmptyState } from '@/components/ui/empty-state';
 import { usePageBastChat, useBastChatShell } from '@/components/domain/bast-chat/BastChatProvider';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { RetainerMonthsBoard } from '@/components/domain/retainer-months/RetainerMonthsBoard';
+import { useConfirmRetainerMonth, useRetainerMonths } from '@/lib/hooks/use-retainer-months';
+import type { RetainerMonthView } from '@/types/entities';
 import { InitiativesBoard } from '@/components/domain/initiatives/InitiativesBoard';
 import { monthDay } from '@/components/domain/initiatives/format';
 import {
@@ -23,7 +27,7 @@ function chatCard(i: BoardInitiative | null) {
   return i ? { key: `initiative:${i.id}`, title: i.name.slice(0, 120), tile: 'initiatives' } : null;
 }
 
-export default function InitiativesPage() {
+function InitiativesTab() {
   const { data: board, isLoading, error } = useInitiativeBoard();
   const checkIn = useInitiativeCheckIn();
   const stop = useStopInitiative();
@@ -75,5 +79,52 @@ export default function InitiativesPage() {
         busy: checkIn.isPending || stop.isPending,
       }}
     />
+  );
+}
+
+function RetainerMonthsTab() {
+  const { data, isLoading, error } = useRetainerMonths();
+  const confirm = useConfirmRetainerMonth();
+  const shell = useBastChatShell();
+  const [focusId, setFocusId] = React.useState<string | null>(null);
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center py-12">
+        <Spinner size="lg" />
+      </div>
+    );
+  }
+  if (error || !data) {
+    return <EmptyState title="Retainer months did not load" description="Reload the page to try again." />;
+  }
+  return (
+    <RetainerMonthsBoard
+      month={data.month}
+      retainers={data.retainers}
+      upcoming={data.upcoming}
+      focusId={focusId}
+      onFocus={setFocusId}
+      onConfirm={(m: RetainerMonthView) => confirm.mutate(m.id)}
+      onTalk={(m: RetainerMonthView) => shell.talkAbout({ key: 'retainer-months', title: `${m.client_name}: retainer month`.slice(0, 120), tile: 'initiatives' })}
+      busy={confirm.isPending}
+    />
+  );
+}
+
+export default function InitiativesPage() {
+  return (
+    <Tabs defaultValue="initiatives">
+      <TabsList>
+        <TabsTrigger value="initiatives">Initiatives</TabsTrigger>
+        <TabsTrigger value="retainer-months">Retainer months</TabsTrigger>
+      </TabsList>
+      <TabsContent value="initiatives" className="mt-4">
+        <InitiativesTab />
+      </TabsContent>
+      <TabsContent value="retainer-months" className="mt-4">
+        <RetainerMonthsTab />
+      </TabsContent>
+    </Tabs>
   );
 }

@@ -29,6 +29,7 @@ const REQUIRED = [
   'lib/work/attach-store.ts', // Work stage D: Undo of "Just a task" abandons the task the answer made (after un-stamping its asks)
   'lib/design/track-core.ts', // Designer portal v2: completeStageTask marks a design stage task done
   'lib/engagement/client-report.ts', // Dox client reports: a new draft task abandons last week's unsent one
+  'lib/retainer-months/service.ts', // Retainer months: Use this plan, or the draft standing on the 2nd, closes the planning task
 ];
 
 /** Files that match the scan but carry no email link, with the reason. Empty on purpose. */

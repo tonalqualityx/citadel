@@ -19,6 +19,7 @@ model User {
   initiatives_created   Initiative[]        @relation("InitiativeCreatedBy")
   initiative_check_ins  InitiativeCheckIn[] @relation("InitiativeCheckInAuthor")
   recurring_work_owned  RecurringWork[]     @relation("RecurringWorkOwner")
+  retainer_months_planned RetainerMonth[]     @relation("RetainerMonthPlannedBy")
   email                 String              @unique @db.VarChar(255)
   password_hash         String              @db.VarChar(255)
   name                  String              @db.VarChar(255)
@@ -1411,6 +1412,10 @@ model Task {
   recurring_work_id String?        @db.Uuid
   recurring_work    RecurringWork? @relation(fields: [recurring_work_id], references: [id], onDelete: SetNull)
 
+  // Retainer months (design.md 2.6): back-relations
+  retainer_month_planning RetainerMonth[]
+  retainer_month_items    RetainerMonthItem[]
+
   @@index([recurring_work_id])
   @@index([initiative_id])
   @@index([project_id])
@@ -2433,6 +2438,7 @@ model Charter {
   meeting_charters    MeetingCharter[]
   today_picks         TodayPick[]
   scheduled_invoices  ScheduledInvoice[]
+  retainer_months     RetainerMonth[]
 
   // Wait record phase 1 (back-relations)
   waits      Wait[]
@@ -2515,6 +2521,7 @@ model RecurringWork {
   // Relations
   generation_logs CharterGenerationLog[]
   tasks           Task[]
+  retainer_month_items RetainerMonthItem[]
 
   @@index([charter_id])
   @@index([sop_id])
@@ -6272,4 +6279,59 @@ model InitiativeCheckIn {
 
   @@index([initiative_id, created_at])
   @@map("initiative_check_ins")
+}
+
+// ============================================
+// RETAINER MONTHS (design.md 2.6)
+// ============================================
+
+enum RetainerMonthState {
+  planning // the month's plan is drafted, not confirmed
+  planned // confirmed
+  closed // month over; numbers frozen
+}
+
+model RetainerMonth {
+  id               String              @id @default(uuid()) @db.Uuid
+  charter_id       String              @db.Uuid
+  charter          Charter             @relation(fields: [charter_id], references: [id], onDelete: Cascade)
+  month            String              @db.VarChar(7) // "2026-12"
+  hours_allotted   Decimal             @db.Decimal(6, 2) // copied at creation; later charter edits do not rewrite history
+  state            RetainerMonthState  @default(planning)
+  planning_task_id String?             @db.Uuid
+  planning_task    Task?               @relation(fields: [planning_task_id], references: [id], onDelete: SetNull)
+  planned_at       DateTime?
+  planned_by_id    String?             @db.Uuid
+  planned_by       User?               @relation("RetainerMonthPlannedBy", fields: [planned_by_id], references: [id], onDelete: SetNull)
+  note             String?             @db.VarChar(300)
+  used_minutes     Int? // frozen at close; live months compute it
+  outside_minutes  Int? // frozen at close
+  items            RetainerMonthItem[]
+  created_at       DateTime            @default(now())
+  updated_at       DateTime            @updatedAt
+
+  @@unique([charter_id, month])
+  @@index([month])
+  @@index([planning_task_id])
+  @@map("retainer_months")
+}
+
+model RetainerMonthItem {
+  id                String         @id @default(uuid()) @db.Uuid
+  retainer_month_id String         @db.Uuid
+  retainer_month    RetainerMonth  @relation(fields: [retainer_month_id], references: [id], onDelete: Cascade)
+  title             String         @db.VarChar(200) // named work: "Two blog posts", "Monthly report", "Plugin updates"
+  estimate_min_low  Int
+  estimate_min_high Int
+  recurring_work_id String?        @db.Uuid
+  recurring_work    RecurringWork? @relation(fields: [recurring_work_id], references: [id], onDelete: SetNull)
+  task_id           String?        @db.Uuid
+  task              Task?          @relation(fields: [task_id], references: [id], onDelete: SetNull)
+  position          Int            @default(0)
+  created_at        DateTime       @default(now())
+
+  @@index([retainer_month_id])
+  @@index([task_id])
+  @@index([recurring_work_id])
+  @@map("retainer_month_items")
 }
