@@ -76,6 +76,17 @@ const STATUS_ROUTE_HINT: Record<string, string> = {
   pending_research: 'is the initial status and is not a valid manual transition',
 };
 
+// YYYY-MM-DD, optionally followed by an ISO time, naming a day that exists:
+// `new Date('2026-02-30')` rolls over to March 2 instead of failing, so the
+// calendar part is checked on its own.
+function isIsoCalendarDate(value: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})?)?$/.exec(value);
+  if (!match) return false;
+  const day = new Date(`${match[1]}-${match[2]}-${match[3]}T00:00:00.000Z`);
+  if (Number.isNaN(day.getTime()) || day.toISOString().slice(0, 10) !== value.slice(0, 10)) return false;
+  return !Number.isNaN(new Date(value).getTime());
+}
+
 const patchArticleSchema = z.object({
   research_summary: z.string().optional(),
   body: z.string().optional(),
@@ -85,9 +96,40 @@ const patchArticleSchema = z.object({
   status: articleStatusEnum.optional(),
   title: z.string().optional(),
   scheduled_date: z.string().nullable().optional(),
+  // The worker's proposed publish date, set on the in_review handoff. Advisory only:
+  // scheduling still goes through scheduled_date / action 'schedule'.
+  suggested_date: z
+    .string()
+    .refine(isIsoCalendarDate, {
+      message: 'suggested_date must be a real ISO-8601 date (YYYY-MM-DD, optionally with a time)',
+    })
+    .nullable()
+    .optional(),
   published_url: z.string().optional(),
   action: z.enum(['approve', 'drop', 'postpone', 'reactivate', 'schedule', 'publish']).optional(),
-});
+}).strict();
+
+// Unknown keys are refused, never stripped: a stripped key returns 200 having
+// changed nothing, which is how suggested_date went missing for months.
+function parsePatchBody(body: unknown) {
+  const result = patchArticleSchema.safeParse(body);
+  if (result.success) return result.data;
+  const unknownKeys = result.error.issues.flatMap((issue) =>
+    issue.code === 'unrecognized_keys' ? issue.keys : []
+  );
+  if (unknownKeys.length > 0) {
+    throw new ApiError(
+      `Unknown field${unknownKeys.length > 1 ? 's' : ''}: ${unknownKeys.join(', ')}. This route does not accept ${
+        unknownKeys.length > 1 ? 'them' : 'it'
+      }.`,
+      400,
+      'unknown_fields',
+      undefined,
+      { unknown_fields: unknownKeys }
+    );
+  }
+  throw result.error;
+}
 
 export async function PATCH(
   request: NextRequest,
@@ -104,7 +146,7 @@ export async function PATCH(
     if (!article) throw new ApiError('Article not found', 404);
 
     const bot = isTroubadorBot(auth);
-    const data = patchArticleSchema.parse(await request.json());
+    const data = parsePatchBody(await request.json());
 
     // Worker cannot EDIT locked (approved) copy — but it may publish/schedule it.
     if (bot && article.locked) {
@@ -113,6 +155,7 @@ export async function PATCH(
         data.body !== undefined ||
         data.social_copy !== undefined ||
         data.title !== undefined ||
+        data.suggested_date !== undefined ||
         data.check_state !== undefined ||
         data.check_report !== undefined;
       const nonPublishAction =
@@ -251,6 +294,9 @@ export async function PATCH(
     if (data.body !== undefined) update.body = data.body;
     if (data.social_copy !== undefined) update.social_copy = data.social_copy;
     if (data.title !== undefined) update.title = data.title;
+    if (data.suggested_date !== undefined) {
+      update.suggested_date = data.suggested_date === null ? null : new Date(data.suggested_date);
+    }
 
     await prisma.article.update({ where: { id }, data: update });
 

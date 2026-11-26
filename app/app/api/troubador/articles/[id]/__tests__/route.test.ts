@@ -315,4 +315,93 @@ describe('PATCH /api/troubador/articles/[id]', () => {
     expect(mockUpdate.mock.calls[0][0].data.status).toBe('in_review');
     expect(notifyArticleNeedsReview).toHaveBeenCalledWith('a1');
   });
+
+  it('stores suggested_date from the worker\'s in_review handoff', async () => {
+    mockRequireAuth.mockResolvedValue(BOT);
+    mockFindFirst.mockResolvedValue(articleRow({ status: 'drafting' }));
+
+    const res = await PATCH(
+      patchReq({ body: 'draft', status: 'in_review', suggested_date: '2026-12-08' }),
+      { params }
+    );
+
+    expect(res.status).toBe(200);
+    const data = mockUpdate.mock.calls[0][0].data;
+    expect(data.suggested_date).toBeInstanceOf(Date);
+    expect((data.suggested_date as Date).toISOString()).toBe('2026-12-08T00:00:00.000Z');
+    expect(data.status).toBe('in_review');
+  });
+
+  it('clears suggested_date when sent as null', async () => {
+    mockRequireAuth.mockResolvedValue(HUMAN);
+    mockFindFirst.mockResolvedValue(articleRow());
+
+    const res = await PATCH(patchReq({ suggested_date: null }), { params });
+
+    expect(res.status).toBe(200);
+    expect(mockUpdate.mock.calls[0][0].data).toEqual({ suggested_date: null });
+  });
+
+  it('rejects a suggested_date that is not a date (400)', async () => {
+    mockRequireAuth.mockResolvedValue(BOT);
+    mockFindFirst.mockResolvedValue(articleRow({ status: 'drafting' }));
+
+    const res = await PATCH(patchReq({ suggested_date: 'next tuesday' }), { params });
+
+    expect(res.status).toBe(400);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it.each(['2026-02-30', '2026-13-01', '12/08/2026'])(
+    'rejects suggested_date %s, which is not a real ISO date (400)',
+    async (value) => {
+      mockRequireAuth.mockResolvedValue(BOT);
+      mockFindFirst.mockResolvedValue(articleRow({ status: 'drafting' }));
+
+      const res = await PATCH(patchReq({ suggested_date: value }), { params });
+
+      expect(res.status).toBe(400);
+      expect(mockUpdate).not.toHaveBeenCalled();
+    }
+  );
+
+  it('accepts a full ISO timestamp for suggested_date', async () => {
+    mockRequireAuth.mockResolvedValue(BOT);
+    mockFindFirst.mockResolvedValue(articleRow({ status: 'drafting' }));
+
+    const res = await PATCH(patchReq({ suggested_date: '2026-12-08T14:00:00.000Z' }), { params });
+
+    expect(res.status).toBe(200);
+    expect((mockUpdate.mock.calls[0][0].data.suggested_date as Date).toISOString()).toBe(
+      '2026-12-08T14:00:00.000Z'
+    );
+  });
+
+  it('blocks the worker from changing suggested_date on a locked article (409)', async () => {
+    mockRequireAuth.mockResolvedValue(BOT);
+    mockFindFirst.mockResolvedValue(articleRow({ status: 'approved', locked: true }));
+
+    const res = await PATCH(patchReq({ suggested_date: '2026-12-08' }), { params });
+
+    expect(res.status).toBe(409);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('refuses unknown fields with a 400 that names them, instead of a silent 200', async () => {
+    mockRequireAuth.mockResolvedValue(BOT);
+    mockFindFirst.mockResolvedValue(articleRow({ status: 'drafting' }));
+
+    const res = await PATCH(
+      patchReq({ body: 'draft', publish_date: '2026-12-08', slug: 'x' }),
+      { params }
+    );
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.code).toBe('unknown_fields');
+    expect(json.unknown_fields).toEqual(['publish_date', 'slug']);
+    expect(json.error).toContain('publish_date');
+    expect(json.error).toContain('slug');
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
 });
