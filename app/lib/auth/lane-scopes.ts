@@ -256,6 +256,12 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('GET', '/api/waits'),
     r('GET', '/api/charters/:id'),
     r('GET', '/api/clients'),
+    // Waiting on someone (task 23cd54cf): the mark, the email lane that closes a card on the person's yes, and the follow-up job
+    r('GET', '/api/tasks/waiting'),
+    r('GET', '/api/tasks/:id/waiting'),
+    r('PUT', '/api/tasks/:id/waiting'),
+    r('PATCH', '/api/tasks/:id/waiting'),
+    r('DELETE', '/api/tasks/:id/waiting'),
   ],
   // Audit lane (free-audit campaign). audit-lane/lane_citadel.py
   'audit-lane': [
@@ -625,7 +631,7 @@ const PARAM_EXCEPT: Record<string, readonly string[]> = {
   '/api/projects/:id': ['wizard'],
   '/api/sites/:id': ['bulk'],
   '/api/sops/:id': ['bulk', 'tags'],
-  '/api/tasks/:id': ['bulk', 'claims', 'unblock-sweep'],
+  '/api/tasks/:id': ['bulk', 'claims', 'unblock-sweep', 'waiting'],
   '/api/waits/:id': ['events', 'mine', 'sweep'],
   '/api/work/:key': ['apply-decisions', 'attach', 'backfill-links', 'evidence', 'task'],
 };

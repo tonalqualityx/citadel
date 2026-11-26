@@ -1,5 +1,6 @@
 import { rockStatus, rockDecisionLine, type RockProject } from '@/lib/milestones/rock';
 import { normalizeGmailDeepLink } from '@/lib/email-asks';
+import { formatWaiting } from '@/lib/tasks/waiting-format';
 import type { Initiative, InitiativeNumber, InitiativeCheckIn } from '@prisma/client';
 
 export function formatClientContactResponse(contact: any) {
@@ -1057,6 +1058,8 @@ export function formatTaskResponse(task: any) {
     due_date: task.due_date,
     // Clarity Phase 8 (composition) — presence = promised to a named person.
     promised_to: task.promised_to ?? null,
+    // Waiting on someone (task 23cd54cf): null when the card is not marked; active = off Mike's lists right now.
+    waiting_on: formatWaiting(task),
     started_at: task.started_at,
     completed_at: task.completed_at,
     // Fleet item 3: claims with leases (the token is never listed; spawn-gate reads lease_until)

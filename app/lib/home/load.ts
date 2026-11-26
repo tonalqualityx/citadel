@@ -21,6 +21,7 @@
 import type { Prisma, PrismaClient, WaitKind, WaitState } from '@prisma/client';
 import { BOT_USER_IDS } from '@/lib/oracle/projects/gate-constants';
 import { loadWaitCandidates } from '@/lib/waits/load-blocks';
+import { notActivelyWaitingWhere } from '@/lib/tasks/waiting';
 import { DEFAULT_DISPLAY_TIMEZONE } from '@/lib/timezone';
 import {
   AUTO_HANDLED_NOTE_PREFIX,
@@ -283,7 +284,7 @@ const TASK_SELECT = {
  * The owner's open tasks, plus (Slice 3) open tasks assigned to a bot and tagged needs-mike, marked bot_task: Bast
  * stopped on those and needs the owner. Same project filter for both.
  */
-async function loadTasks(db: PrismaClient, userId: string): Promise<RawTask[]> {
+async function loadTasks(db: PrismaClient, userId: string, now: Date = new Date()): Promise<RawTask[]> {
   const rows = await db.task.findMany({
     where: {
       is_deleted: false,
@@ -297,7 +298,11 @@ async function loadTasks(db: PrismaClient, userId: string): Promise<RawTask[]> {
         { assignee_id: userId, blocked_by: { none: { is_deleted: false, status: { notIn: CLOSED } } } },
         { assignee_id: { in: [...BOT_USER_IDS] }, tags: { has: NEEDS_MIKE_TAG } },
       ],
-      AND: [{ OR: [{ project_id: null }, { project: { status: { notIn: [...EXCLUDED_PROJECT_STATUSES] } } }] }],
+      AND: [
+        { OR: [{ project_id: null }, { project: { status: { notIn: [...EXCLUDED_PROJECT_STATUSES] } } }] },
+        // A card marked waiting on someone else stays off the home screen until its follow-up time passes (task 23cd54cf).
+        notActivelyWaitingWhere(now),
+      ],
     },
     select: TASK_SELECT,
     orderBy: { created_at: 'asc' },
@@ -1035,7 +1040,7 @@ export async function loadHomeInputs(
 ): Promise<RawHomeInputs> {
   const [tasks, reviewFolds, sessionAsks, waits, threads, crises, autoHandled, calendarEvents, heldProjects, keeperLines, owedRows, drafterFreshAt, siteIncidents, notEmergencyRules, projectSteps, weights, timezone] =
     await Promise.all([
-      loadTasks(db, userId),
+      loadTasks(db, userId, now),
       loadReviewFolds(db, userId),
       loadSessionAsksFor(db, userId),
       loadWaits(db, userId),

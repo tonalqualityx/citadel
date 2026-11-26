@@ -1,6 +1,20 @@
 import type { ApiEndpoint } from './index';
 import { DEAL_RESPONSE_NOTE, DEAL_RESPONSE_SHAPE } from './deal-shape';
 
+// Waiting on someone (task 23cd54cf). null on a card with no mark.
+const WAITING_EXAMPLE = {
+  name: 'string',
+  contact_id: 'uuid|null',
+  user_id: 'uuid|null',
+  since: 'ISO-8601',
+  follow_up_at: 'ISO-8601|null',
+  thread: 'string|null',
+  note: 'string|null',
+  follow_up_sent_at: 'ISO-8601|null',
+  active: 'boolean',
+  follow_up_due: 'boolean',
+};
+
 export const taskEndpoints: ApiEndpoint[] = [
   {
     path: '/api/tasks',
@@ -59,6 +73,7 @@ export const taskEndpoints: ApiEndpoint[] = [
             // Clarity Phase 8 (composition) — presence = promised to a named person; null =
             // internal/target. See the reason-chip module for the rendering rule.
             promised_to: 'string|null',
+            waiting_on: WAITING_EXAMPLE,
             started_at: 'ISO-8601|null',
             completed_at: 'ISO-8601|null',
             time_spent_minutes: 'number|null',
@@ -184,6 +199,7 @@ export const taskEndpoints: ApiEndpoint[] = [
           battery_impact: 'string',
           due_date: 'ISO-8601|null',
           promised_to: 'string|null',
+          waiting_on: WAITING_EXAMPLE,
           started_at: 'ISO-8601|null',
           completed_at: 'ISO-8601|null',
           requirements: 'string|null',
@@ -813,6 +829,77 @@ export const taskEndpoints: ApiEndpoint[] = [
         responseExample: { status: 'done', already_notified: false, lane: 'chat|email|none', emailed: ['string'] },
         responseNotes:
           'The Bast token is accepted as well as pm/admin. Chat tasks (a portal chat conversation exists): the line is posted as a team message and the chat sweep emails it when the client is away. Other tasks: one EmailOutbox row per recipient, kind portal_golive, from bast@ as Indelible Support, subject "<Client>: your change is live". A task with no portal requester sends no client email.',
+      },
+    ],
+  },
+  {
+    path: '/api/tasks/:id/waiting',
+    group: 'tasks',
+    methods: [
+      {
+        method: 'GET',
+        summary: "Who the card waits on. Task 23cd54cf: a marked card leaves Mike's waiting lists until the follow-up time passes.",
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseExample: { task_id: 'uuid', waiting_on: WAITING_EXAMPLE },
+        responseNotes: 'waiting_on is null when the card is not marked.',
+      },
+      {
+        method: 'PUT',
+        summary: "Mark the card waiting on a client contact, a user or a named person, with a follow-up date. Replaces any mark it had; re-marking the same person keeps the original since.",
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        bodySchema: [
+          { name: 'contact_id', type: 'uuid', required: false, description: 'A client contact (the email lane matches their replies to the card)' },
+          { name: 'user_id', type: 'uuid', required: false, description: 'A staff user. Not with contact_id.' },
+          { name: 'name', type: 'string', required: false, description: 'Who, in words. Required when neither id is given; defaults to the contact or user name.' },
+          { name: 'follow_up_at', type: 'string', required: false, description: 'YYYY-MM-DD (the card stays off the lists through that day, Eastern) or an ISO time. When it passes the card returns to the lists and the follow-up job sends one short ask on the thread.' },
+          { name: 'thread', type: 'string', required: false, description: '"<account>:<gmail thread id>", the thread the follow-up goes on' },
+          { name: 'note', type: 'string', required: false, description: 'What we are waiting for, worded to follow "following up on", for example "your approval of the new site"' },
+        ],
+        responseExample: { task_id: 'uuid', waiting_on: WAITING_EXAMPLE },
+        responseNotes: '409 closed for a done or abandoned task; 404 contact_not_found or user_not_found.',
+      },
+      {
+        method: 'PATCH',
+        summary: 'Change the follow-up date, thread or note of a marked card, or record that the follow-up went out.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        bodySchema: [
+          { name: 'follow_up_at', type: 'string', required: false, description: 'New date or time; null clears it. A new date resets follow_up_sent_at.' },
+          { name: 'thread', type: 'string', required: false, description: 'null clears it' },
+          { name: 'note', type: 'string', required: false, description: 'null clears it' },
+          { name: 'follow_up_sent_at', type: 'ISO-8601', required: false, description: 'When the follow-up was sent (the follow-up job sets it)' },
+        ],
+        responseExample: { task_id: 'uuid', waiting_on: WAITING_EXAMPLE },
+        responseNotes: '409 not_waiting when the card has no mark.',
+      },
+      {
+        method: 'DELETE',
+        summary: 'Take the mark off (the person answered, or it was set by mistake). Idempotent.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseExample: { task_id: 'uuid', waiting_on: null },
+      },
+    ],
+  },
+  {
+    path: '/api/tasks/waiting',
+    group: 'tasks',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Open cards marked waiting on someone, soonest follow-up first (task 23cd54cf).',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        queryParams: [
+          { name: 'due', type: 'string', required: false, description: '1 = only cards whose follow-up time has passed with no follow-up sent (the follow-up job list)' },
+          { name: 'limit', type: 'number', required: false, description: 'Default 200, max 500' },
+        ],
+        responseExample: {
+          tasks: [{ id: 'uuid', title: 'string', status: 'string', assignee_id: 'uuid|null', tags: ['string'], project: { id: 'uuid', name: 'string' }, client: { id: 'uuid', name: 'string' }, contact: { id: 'uuid', name: 'string|null', email: 'string' }, user: { id: 'uuid', name: 'string', email: 'string' }, waiting_on: WAITING_EXAMPLE }],
+          total: 'number',
+        },
       },
     ],
   },

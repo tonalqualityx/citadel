@@ -6,6 +6,7 @@ import { formatEmailAskResponse } from '@/lib/api/formatters';
 import { TaskStatus, AskQueue, EmailAskIntent, ProjectStatus } from '@prisma/client';
 import { floatHighPriority } from '@/lib/waiting-on-me-priority';
 import { BOT_USER_IDS } from '@/lib/oracle/projects/gate-constants';
+import { notActivelyWaitingWhere } from '@/lib/tasks/waiting';
 
 // The merged "everything waiting on Mike" feed. Task side is a 5-query sweep — focus,
 // overdue, awaiting-review, blocked, open-within-14d — each excluding IDs already emitted
@@ -176,11 +177,15 @@ export async function GET(request: NextRequest) {
     // touched by this rule — only explicitly project-scoped work can be "on a quote".
     // Scoped to the do-queue sweeps only, per spec — awaiting-review is untouched (a
     // review ask is inherently already-done work waiting on approval, not plate load).
+    // Waiting on someone (task 23cd54cf; Mike, 2026-11-26: "this needs to be marked waiting on someone"): a card marked
+    // waiting on another person stays off every do-queue sweep until its follow-up time passes. Under AND, so it never
+    // collides with the plate rule's own OR.
     const notOnAQuoteOrQueueProject = {
       OR: [
         { project_id: null },
         { project: { status: { notIn: [ProjectStatus.quote, ProjectStatus.queue] } } },
       ],
+      AND: [notActivelyWaitingWhere(now)],
     };
 
     const focusWhere = {

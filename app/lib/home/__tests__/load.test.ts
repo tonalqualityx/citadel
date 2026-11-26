@@ -145,6 +145,8 @@ describe('loadHomeInputs: tasks', () => {
           { project: { status: { notIn: ['quote', 'queue', 'suspended', 'cancelled', 'done'] } } },
         ],
       },
+      // A card marked waiting on someone else stays off until its follow-up time passes (task 23cd54cf).
+      { OR: [{ waiting_since: null }, { waiting_follow_up_at: { lte: NOW } }] },
     ]);
   });
 

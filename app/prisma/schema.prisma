@@ -59,6 +59,7 @@ model User {
   tasks_created                      Task[]                   @relation("TaskCreatedBy")
   tasks_reviewing                    Task[]                   @relation("TaskReviewer")
   tasks_approved                     Task[]                   @relation("TaskApprovedBy")
+  tasks_waiting_on                   Task[]                   @relation("TaskWaitingOnUser")
   time_entries                       TimeEntry[]
   comments                           Comment[]
   password_reset_tokens              PasswordResetToken[]
@@ -752,6 +753,9 @@ model ClientContact {
   // Questions we sent this contact by email, logged on the card they serve
   questions_asked TaskQuestion[] @relation("QuestionAskedOf")
 
+  // Cards marked waiting on this contact (task 23cd54cf)
+  tasks_waiting_on Task[] @relation("TaskWaitingOnContact")
+
   @@unique([client_id, email])
   @@index([email])
   @@index([client_id])
@@ -1323,6 +1327,22 @@ model Task {
   // an explicit choice client-side.
   promised_to String? @db.VarChar(200)
 
+  // Waiting on someone (task 23cd54cf; Mike, 2026-11-26: "this needs to be marked waiting on someone and we need to ensure
+  // that the Followup process works in a way that once Dan responds it unlocks my next steps"). PRESENCE of waiting_since is
+  // the mark. While it is set and waiting_follow_up_at is in the future (or empty), the card leaves Mike's waiting lists;
+  // once the follow-up time passes it comes back. Exactly one of contact or user is named, or neither with a free-text
+  // name. waiting_thread is "<account>:<gmail thread id>", the thread the follow-up goes on. lib/tasks/waiting.ts.
+  waiting_on_name           String?        @db.VarChar(200)
+  waiting_on_contact_id     String?        @db.Uuid
+  waiting_on_contact        ClientContact? @relation("TaskWaitingOnContact", fields: [waiting_on_contact_id], references: [id], onDelete: SetNull)
+  waiting_on_user_id        String?        @db.Uuid
+  waiting_on_user           User?          @relation("TaskWaitingOnUser", fields: [waiting_on_user_id], references: [id], onDelete: SetNull)
+  waiting_since             DateTime?
+  waiting_follow_up_at      DateTime?
+  waiting_thread            String?        @db.VarChar(300)
+  waiting_note              String?        @db.VarChar(500)
+  waiting_follow_up_sent_at DateTime?
+
   // Home screen Slice 2: a real outside date and who or what set it. Read only by the home screen.
   hard_due_at     DateTime?
   hard_due_source String?   @db.VarChar(200)
@@ -1439,6 +1459,8 @@ model Task {
   @@index([meeting_id])
   @@index([source])
   @@index([requested_by_contact_id])
+  @@index([waiting_since])
+  @@index([waiting_on_contact_id])
   @@index([approved_by_contact_id])
   @@index([portal_token])
   @@index([arc_id])
