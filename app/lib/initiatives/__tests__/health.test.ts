@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MAX_ACTIVE, MAX_NUMBERS, computeInitiativeHealth, expectedValue, numberPace, type HealthNumber } from '../health';
+import { MAX_ACTIVE, MAX_NUMBERS, PROPOSALS_ZERO_NOTE, computeInitiativeHealth, expectedValue, numberPace, type HealthNumber } from '../health';
 
 const NOW = new Date('2026-06-15T00:00:00Z');
 const d = (s: string) => new Date(s);
@@ -148,5 +148,38 @@ describe('computeInitiativeHealth', () => {
   it('keeps the reason within 200 characters', () => {
     const r = computeInitiativeHealth({ ...base, numbers: [number({ label: 'x'.repeat(120), ...read(1) })] });
     expect(r.health_reason.length).toBeLessThanOrEqual(200);
+  });
+});
+
+describe('quotes sent zero note', () => {
+  const quotes = (o: Partial<HealthNumber> = {}) => number({ source: 'citadel:proposals_sent', ...o });
+
+  it('says only quotes with an attached project count while a Citadel quotes number reads zero', () => {
+    const r = computeInitiativeHealth({ check_date: d('2026-07-01'), numbers: [quotes(read(0))], latest_check_in: null, now: NOW });
+    expect(r.health_reason.endsWith(PROPOSALS_ZERO_NOTE)).toBe(true);
+    expect(r.health_reason).toBe(`Quotes sent is behind pace: 0 of 5 expected by now. ${PROPOSALS_ZERO_NOTE}`);
+    expect(PROPOSALS_ZERO_NOTE).not.toMatch(/[\u2014\u2013-]/);
+  });
+
+  it('shows on a first zero read that only set the baseline', () => {
+    const n = quotes({ baseline_value: 0, baseline_at: d('2026-06-15T00:00:00Z'), last_value: 0, last_read_at: d('2026-06-15T00:00:00Z') });
+    const r = computeInitiativeHealth({ check_date: d('2026-07-01'), numbers: [n], latest_check_in: null, now: NOW });
+    expect(r.health).toBe('unchecked');
+    expect(r.health_reason).toBe(`First reading due 2026-07-01. ${PROPOSALS_ZERO_NOTE}`);
+  });
+
+  it('is absent when the count is above zero, not yet read, or the number is not the Citadel quotes key', () => {
+    const cases: HealthNumber[] = [quotes(read(6)), quotes(), number(read(0)), number({ source: 'manual', ...read(0) })];
+    for (const n of cases) {
+      const r = computeInitiativeHealth({ check_date: d('2026-07-01'), numbers: [n], latest_check_in: null, now: NOW });
+      expect(r.health_reason).not.toContain(PROPOSALS_ZERO_NOTE);
+    }
+  });
+
+  it('keeps the line within 200 characters with the note whole', () => {
+    const n = quotes({ label: 'Q'.repeat(119), ...read(0) });
+    const r = computeInitiativeHealth({ check_date: d('2026-07-01'), numbers: [n], latest_check_in: null, now: NOW });
+    expect(r.health_reason.length).toBeLessThanOrEqual(200);
+    expect(r.health_reason.endsWith(PROPOSALS_ZERO_NOTE)).toBe(true);
   });
 });

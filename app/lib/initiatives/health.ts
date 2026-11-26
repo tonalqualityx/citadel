@@ -24,6 +24,7 @@ export interface HealthNumber {
   target_by: Date;
   last_value: Numberish;
   last_read_at: Date | null | undefined;
+  source?: string | null;
 }
 
 export interface HealthCheckIn {
@@ -93,7 +94,23 @@ export function numberPace(n: HealthNumber, now: Date): { pace: NumberPace; expe
   return { pace: onPace ? 'on_pace' : 'behind', expected };
 }
 
+/** Said in the health line while a quotes-sent number reads zero, so nobody reads the zero as no quotes (Dox, task a1cb8a07). */
+export const PROPOSALS_ZERO_NOTE = 'Only quotes with a project on this initiative count.';
+
+function readsZeroQuotes(n: HealthNumber): boolean {
+  return n.source === 'citadel:proposals_sent' && !!n.last_read_at && num(n.last_value) === 0;
+}
+
 export function computeInitiativeHealth(input: HealthInput): HealthResult {
+  const result = baseHealth(input);
+  if (!input.numbers.some(readsZeroQuotes)) return result;
+  const room = REASON_MAX - PROPOSALS_ZERO_NOTE.length - 2;
+  const base = result.health_reason.trim();
+  const cut = (base.length > room ? base.slice(0, room) : base).trimEnd().replace(/[.:,;…]+$/, '');
+  return { ...result, health_reason: cut ? `${cut}. ${PROPOSALS_ZERO_NOTE}` : PROPOSALS_ZERO_NOTE };
+}
+
+function baseHealth(input: HealthInput): HealthResult {
   const { numbers, latest_check_in: checkIn, now } = input;
   const checkDate = input.check_date ?? null;
 

@@ -4,6 +4,7 @@ import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { ApiError, handleApiError } from '@/lib/api/errors';
 import { formatInitiativeNumberResponse, formatInitiativeResponse } from '@/lib/api/formatters';
 import { readingSchema, recomputeHealth } from '@/lib/initiatives/service';
+import { recordReading } from '@/lib/initiatives/readings';
 
 // POST /api/initiatives/[id]/readings - record a value for one of the initiative's numbers
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -19,24 +20,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (!number) throw new ApiError('Number not found', 404);
 
     const readAt = data.read_at ? new Date(data.read_at) : new Date();
-    const reading = await prisma.initiativeReading.create({
-      data: { number_id: number.id, value: data.value, read_at: readAt, source: data.source },
-    });
-
-    // The newest reading is the number's last value; an older, back-dated one is kept but does not replace it.
-    const numberUpdate: Record<string, unknown> = {};
-    if (!number.last_read_at || readAt.getTime() >= number.last_read_at.getTime()) {
-      numberUpdate.last_value = data.value;
-      numberUpdate.last_read_at = readAt;
-    }
-    // A number with no baseline takes its first reading as the baseline.
-    if (number.baseline_value === null || number.baseline_value === undefined) {
-      numberUpdate.baseline_value = data.value;
-      numberUpdate.baseline_at = readAt;
-    }
-    const updatedNumber = Object.keys(numberUpdate).length
-      ? await prisma.initiativeNumber.update({ where: { id: number.id }, data: numberUpdate })
-      : number;
+    const { reading, number: updatedNumber } = await recordReading(number, data.value, readAt, data.source);
 
     const initiative = await recomputeHealth(id);
     return NextResponse.json(

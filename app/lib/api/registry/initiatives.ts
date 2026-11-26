@@ -8,7 +8,7 @@ const numberFields: ParamDef[] = [
   { name: 'target_by', type: 'string', required: true, description: 'Date the target is due (YYYY-MM-DD)' },
   { name: 'baseline_value', type: 'number', required: false, description: 'Where it stands today; when omitted the first reading becomes the baseline' },
   { name: 'baseline_at', type: 'ISO-8601', required: false, description: 'When the baseline was read (defaults to now when a baseline_value is given)' },
-  { name: 'source', type: 'string', required: false, description: 'manual (default) | citadel:<key> | ga4 | gsc (max 40). Only stored for now; no nightly read yet.' },
+  { name: 'source', type: 'string', required: false, description: 'manual (default) | citadel:<key> | ga4 | gsc (max 40). citadel:<key> numbers are read nightly by /api/cron/initiative-numbers.' },
   { name: 'position', type: 'number', required: false, description: 'Order among the initiative\'s numbers (defaults to the next slot)' },
 ];
 
@@ -156,6 +156,19 @@ export const initiativeEndpoints: ApiEndpoint[] = [
           { name: 'note', type: 'string', required: false, description: 'One line (max 300)' },
         ],
         responseExample: { check_in: { id: 'uuid', health: 'string', note: 'string|null', author_id: 'uuid', created_at: 'ISO-8601' }, initiative: initiativeResponse },
+      },
+    ],
+  },
+  {
+    path: '/api/cron/initiative-numbers',
+    group: 'initiatives',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Nightly read of Citadel-computed initiative numbers (source citadel:<key>) and a health refresh of every non-deleted initiative (cron).',
+        auth: 'cron',
+        responseExample: { success: true, read: 'number', skipped: [{ number_id: 'uuid', source: 'string', reason: 'string' }], refreshed: 'number' },
+        responseNotes: 'Requires x-cron-secret header matching CRON_SECRET env var. Keys: projects_signed, proposals_sent, charters_active, retainer_hours_sold. One reading per number per UTC day; unknown keys are listed in skipped.',
       },
     ],
   },
