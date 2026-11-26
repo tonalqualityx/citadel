@@ -618,6 +618,7 @@ export function normalizePath(pathname: string): string {
 const PARAM_EXCEPT: Record<string, readonly string[]> = {
   '/api/clients/:id': ['bulk'],
   '/api/decisions/:id': ['import', 'in-scope'],
+  '/api/initiatives/:id': ['board'],
   '/api/meetings/:id': ['incomplete'],
   '/api/oracle/projects/:id': ['nudge-draft', 'refresh', 'refresh-requests'],
   '/api/oracle/sessions/:id': ['stale-asks'],

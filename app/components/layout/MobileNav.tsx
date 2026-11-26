@@ -71,6 +71,7 @@ export function MobileNav({ open, onClose, anyWidth = false }: MobileNavProps) {
   const mainNav: NavItem[] = [
     { name: t('dashboard'), href: '/dashboard', emoji: '🏔️' },
     { name: 'Timekeeper', href: '/time', emoji: '⏱️' },
+    ...(isPmOrAdmin ? [{ name: 'Initiatives', href: '/initiatives', emoji: '🎯' }] : []),
   ];
 
   const workSection: NavSection = {

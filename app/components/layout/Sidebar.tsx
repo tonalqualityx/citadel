@@ -108,6 +108,8 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean } = {}) {
   const mainNav: NavItem[] = [
     { name: t('dashboard'), href: '/dashboard', emoji: '🏔️' },
     { name: 'Timekeeper', href: '/time', emoji: '⏱️' },
+    // Initiatives (design.md 3.1): Mike's bets, pm and admin only
+    ...(isPmOrAdmin ? [{ name: 'Initiatives', href: '/initiatives', emoji: '🎯' }] : []),
   ];
 
   // Tech users don't see projects list - they access projects via task links

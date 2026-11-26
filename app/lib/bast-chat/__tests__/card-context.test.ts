@@ -48,11 +48,15 @@ describe('resolveCardContext', () => {
       arc: { findUnique: vi.fn().mockResolvedValue(found ? { id: ID } : null) },
       wait: { findUnique: vi.fn().mockResolvedValue(found ? { id: ID } : null) },
       emailAsk: { findUnique: vi.fn().mockResolvedValue(found ? { id: ID } : null) },
+      initiative: { findFirst: vi.fn().mockResolvedValue(found ? { id: ID } : null) },
     }) as never;
   it('keeps a card that exists', async () => {
     expect((await resolveCardContext({ kind: 'task', id: ID, screen: 'home' }, mk(true))).kind).toBe('task');
   });
-  it.each(['task', 'project', 'arc', 'wait', 'email_ask'])('stores a missing %s as none', async (kind) => {
+  it('keeps an initiative that exists', async () => {
+    expect(await resolveCardContext({ kind: 'initiative', id: ID, screen: 'home' }, mk(true))).toEqual({ screen: 'home', kind: 'initiative', id: ID });
+  });
+  it.each(['task', 'project', 'arc', 'wait', 'email_ask', 'initiative'])('stores a missing %s as none', async (kind) => {
     expect(await resolveCardContext({ kind, id: ID, screen: 'home', title: 'x' }, mk(false))).toEqual({ screen: 'home', kind: 'none' });
   });
 });

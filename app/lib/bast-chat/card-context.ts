@@ -14,7 +14,7 @@ import type { PrismaClient } from '@prisma/client';
 import { prisma as defaultDb } from '@/lib/db/prisma';
 import { stripInvisible } from './plain';
 
-export const CARD_KINDS = ['task', 'email_ask', 'wait', 'project', 'arc', 'session_ask', 'none'] as const;
+export const CARD_KINDS = ['task', 'email_ask', 'wait', 'project', 'arc', 'session_ask', 'initiative', 'none'] as const;
 export const CARD_SCREENS = ['home', 'overlook'] as const;
 export const CARD_TITLE_MAX = 120;
 
@@ -100,7 +100,7 @@ export function parseCardContext(raw: unknown): CardContext {
   };
 }
 
-type CardDb = Pick<PrismaClient, 'task' | 'project' | 'arc' | 'wait' | 'emailAsk'>;
+type CardDb = Pick<PrismaClient, 'task' | 'project' | 'arc' | 'wait' | 'emailAsk' | 'initiative'>;
 
 /**
  * `parseCardContext`, then check the card exists for its kind. A card that does not exist is stored as
@@ -126,6 +126,9 @@ export async function resolveCardContext(raw: unknown, db: CardDb = defaultDb): 
       break;
     case 'email_ask':
       found = !!(await db.emailAsk.findUnique({ where: { id }, select: { id: true } }));
+      break;
+    case 'initiative':
+      found = !!(await db.initiative.findFirst({ where: { id, is_deleted: false }, select: { id: true } }));
       break;
   }
   if (!found) return { ...(card.screen ? { screen: card.screen } : {}), ...(card.tile ? { tile: card.tile } : {}), kind: 'none' };

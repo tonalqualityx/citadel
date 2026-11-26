@@ -73,6 +73,49 @@ export const initiativeEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/initiatives/board',
+    group: 'initiatives',
+    methods: [
+      {
+        method: 'GET',
+        summary:
+          'Everything the Initiatives screen shows (design.md 3.1). Active initiatives in focus order (a decision waiting first, then behind, then the soonest check date), then proposed, paused and closed. Each carries its numbers with pace and the last 12 readings, what is attached, its rocks this quarter, and whether a check is due or the stop condition can be judged (a number reached its target date unmet with no check-in since). quarter_rocks lists every rock this quarter, attached or not.',
+        auth: 'required',
+        responseExample: {
+          quarter: 'string',
+          summary: {
+            active: 'number', decisions_waiting: 'number', rocks_this_quarter: 'number', rocks_off_track: 'number',
+            proposed: 'number', paused: 'number', closed: 'number',
+          },
+          focus_id: 'uuid|null',
+          initiatives: [
+            {
+              ...initiativeResponse,
+              numbers: [{ ...numberResponse, pace: 'no_pace|met|on_pace|behind', expected: 'number|null', readings: [{ value: 'number', read_at: 'ISO-8601' }] }],
+              attached: {
+                projects: [{ id: 'uuid', name: 'string', status: 'string' }],
+                recurring: [{ id: 'uuid', title: 'string', is_active: 'boolean' }],
+                tasks: [{ id: 'uuid', title: 'string', status: 'string' }],
+              },
+              attached_count: 'number',
+              rocks: [{
+                id: 'uuid', name: 'string', project_id: 'uuid', project_name: 'string', target_date: 'ISO-8601|null', rock_quarter: 'string',
+                rock_done_when: 'string|null', rock_status: 'done|off_track|on_track', rock_decision: 'string|null',
+              }],
+              check_due: 'boolean',
+              stop_check_due: 'boolean',
+              decision_waiting: 'boolean',
+            },
+          ],
+          quarter_rocks: [{
+            id: 'uuid', name: 'string', project_id: 'uuid', project_name: 'string', target_date: 'ISO-8601|null', rock_quarter: 'string',
+            rock_done_when: 'string|null', rock_status: 'done|off_track|on_track', rock_decision: 'string|null', initiative_id: 'uuid|null',
+          }],
+        },
+      },
+    ],
+  },
+  {
     path: '/api/initiatives/:id',
     group: 'initiatives',
     methods: [

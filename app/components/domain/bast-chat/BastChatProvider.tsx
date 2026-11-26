@@ -74,7 +74,7 @@ export interface BastChatShell {
   openChat: () => void;
   closeChat: () => void;
   /** Talk about this: opens the chat in place. One card (a task id) gets its own conversation; anything else uses the general chat. */
-  talkAbout: (card: OpenCardInput, opts?: { bindToPage?: boolean }) => void;
+  talkAbout: (card: OpenCardInput, opts?: { bindToPage?: boolean; draft?: string }) => void;
   /** Used by usePageBastChat. */
   offer: () => void;
   setPageCard: (card: OpenCardInput | null) => void;
@@ -368,8 +368,11 @@ export function BastChatProvider({ children }: { children: React.ReactNode }) {
     chatRef.current = chat;
   });
   const talkAbout = React.useCallback(
-    (card: OpenCardInput, opts?: { bindToPage?: boolean }) => {
+    (card: OpenCardInput, opts?: { bindToPage?: boolean; draft?: string }) => {
       openChat();
+      // A starting line for the box (the Initiatives Check in). Never over what he has already typed.
+      const draft = opts?.draft;
+      if (draft) setDraft((cur) => (cur.trim() ? cur : draft));
       if (card.own_conversation && card.task_id) {
         setCardChat({ task_id: card.task_id, title: card.title, bound: opts?.bindToPage === true });
         void chatRef.current.openCardConversation(card.task_id);

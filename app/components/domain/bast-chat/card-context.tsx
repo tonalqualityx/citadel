@@ -3,7 +3,7 @@
  * only `kind` and `id` travel with a message (plan 2.1, "How the open card is sent"). Citadel validates the id.
  */
 
-export type BastChatCardKind = 'task' | 'email_ask' | 'wait' | 'project' | 'arc' | 'session_ask' | 'none';
+export type BastChatCardKind = 'task' | 'email_ask' | 'wait' | 'project' | 'arc' | 'session_ask' | 'initiative' | 'none';
 
 export interface BastChatCard {
   /** The home screen's item key, "task:<uuid>" and the like. Used to tell one card from the next. */
@@ -43,6 +43,7 @@ export function cardFromInput(input: OpenCardInput | null | undefined): BastChat
   if (prefix === 'crisis' && isUuid(rest)) return { ...base, kind: 'email_ask', id: rest };
   if (prefix === 'review' && isUuid(rest)) return { ...base, kind: 'project', id: rest };
   if (prefix === 'session' && isUuid(rest)) return { ...base, kind: 'session_ask', id: rest };
+  if (prefix === 'initiative' && isUuid(rest)) return { ...base, kind: 'initiative', id: rest };
   // A bare uuid key is a project row (the Projects tile).
   if (prefix === '' && isUuid(rest)) return { ...base, kind: 'project', id: rest };
   return { ...base, kind: 'none' };

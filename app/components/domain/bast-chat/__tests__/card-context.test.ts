@@ -10,6 +10,7 @@ describe('card context', () => {
     expect(cardFromInput({ key: `crisis:${U}`, title: 'x' })).toMatchObject({ kind: 'email_ask', id: U });
     expect(cardFromInput({ key: `review:${U}`, title: 'x' })).toMatchObject({ kind: 'project', id: U });
     expect(cardFromInput({ key: U, title: 'Herba', tile: 'projects' })).toMatchObject({ kind: 'project', id: U });
+    expect(cardFromInput({ key: `initiative:${U}`, title: 'ADA builds', tile: 'initiatives' })).toMatchObject({ kind: 'initiative', id: U });
   });
   it('uses opened.task_id for a task item whose key is not a task key', () => {
     expect(cardFromInput({ key: 'thread:acct:abc', title: 'x', type: 'task', task_id: U })).toMatchObject({ kind: 'task', id: U });
@@ -17,6 +18,7 @@ describe('card context', () => {
   it('falls back to none when the id is unclear', () => {
     expect(cardFromInput({ key: 'thread:acct:abc', title: 'x', type: 'owed_reply' })).toMatchObject({ kind: 'none' });
     expect(cardFromInput({ key: 'session:abc', title: 'x' })).toMatchObject({ kind: 'none' });
+    expect(cardFromInput({ key: 'initiative:abc', title: 'x' })).toMatchObject({ kind: 'none' });
     expect(cardFromInput(null)).toBeNull();
   });
   it('sends only kind and id, never the title', () => {
