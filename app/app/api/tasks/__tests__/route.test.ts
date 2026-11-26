@@ -196,6 +196,20 @@ describe('POST /api/tasks', () => {
     });
   });
 
+  // Handbook 12c item 2: what Mike must act on is his own task, and its assignment notice is what reaches him. A bot's comment
+  // never notifies him (lib/services/bot-comment-silence.ts), so this notice is the path an ask to act takes.
+  describe('a bot files Mike a task he must act on', () => {
+    const BAST = 'ca5335e7-a374-4eff-92dc-fd67ceef2297';
+    const MIKE = '3ecfb7be-20bb-43cb-9b4d-31c44337dc81';
+    it('a task Bast files for Mike notifies him of the assignment', async () => {
+      mockRequireAuth.mockResolvedValue({ userId: BAST, role: 'pm', email: 'bast@becomeindelible.com', via: 'api_key' } as never);
+      mockTaskCreate.mockResolvedValue({ ...mockCreatedTask, assignee_id: MIKE, assignee: { id: MIKE, name: 'Mike', email: 'm@x.test', avatar_url: null } });
+      mockUserFindUnique.mockResolvedValue({ id: MIKE, name: 'Bast', is_active: true });
+      expect((await POST(createPostRequest({ title: 'Answer the hosting question', assignee_id: MIKE }))).status).toBe(201);
+      expect(mockNotifyTaskAssigned).toHaveBeenCalledWith('task-123', MIKE, 'Bast');
+    });
+  });
+
   describe('Work stage D: a security-tagged create is never answered already_tracked', () => {
     const opts = () => (vi.mocked(checkTracked).mock.calls.at(-1) as unknown[])[2] as { override?: boolean; urgent?: boolean };
     it('marks the guard call urgent for a security or security-report tag, in any case', async () => {

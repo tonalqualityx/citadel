@@ -60,8 +60,16 @@ describe('comment op', () => {
     expect(r.after).toEqual({ task_id: TASK, comment_id: COMMENT });
     expect(r.summary).toBe('Added a note to "Menu proof".');
     expect(r.undoable).toBe(true);
+    // The assignee is Mike: a comment written by the Bast user never notifies him (handbook 12c), so there is no notice to send.
+    expect(r.afterCommit).toBeUndefined();
+    expect(h.notify).not.toHaveBeenCalled();
+  });
+  it('sends the normal team notice when the task is held by a person other than Mike', async () => {
+    const OTHER = '22222222-2222-4222-8222-222222222222';
+    h.db.task.findUnique.mockResolvedValue(task({ assignee_id: OTHER }));
+    const r = await op.run(ctx() as any, op.validate({ task_id: TASK, text: 'hi' }), { task_updated_at: UPDATED.toISOString(), last_comment_id: null });
     await r.afterCommit!();
-    expect(h.notify).toHaveBeenCalledWith(expect.objectContaining({ userId: MIKE_USER_ID, type: 'comment_added', entityType: 'task', entityId: TASK }));
+    expect(h.notify).toHaveBeenCalledWith(expect.objectContaining({ userId: OTHER, type: 'comment_added', entityType: 'task', entityId: TASK }));
   });
   it('sends no team notice when Bast holds the task (the author is Bast)', async () => {
     h.db.task.findUnique.mockResolvedValue(task({ assignee_id: BAST_USER_ID, status: 'done', needs_review: false }));

@@ -10,7 +10,7 @@ vi.mock('@/lib/auth/middleware', () => ({
 // Mock Prisma
 vi.mock('@/lib/db/prisma', () => ({
   prisma: {
-    task: { findUnique: vi.fn() },
+    task: { findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
     comment: { create: vi.fn(), findMany: vi.fn() },
     user: { findUnique: vi.fn(), findMany: vi.fn() },
     projectTeamAssignment: { findFirst: vi.fn() },
@@ -26,11 +26,12 @@ vi.mock('@/lib/portal/share-reply', async (importOriginal) => {
 // Mock notifications
 vi.mock('@/lib/services/notifications', () => ({
   createNotification: vi.fn(),
+  notifyTaskAssigned: vi.fn(),
 }));
 
 import { requireAuth } from '@/lib/auth/middleware';
 import { prisma } from '@/lib/db/prisma';
-import { createNotification } from '@/lib/services/notifications';
+import { createNotification, notifyTaskAssigned } from '@/lib/services/notifications';
 import { afterReplyShared } from '@/lib/portal/share-reply';
 import type { Mock } from 'vitest';
 
@@ -41,6 +42,9 @@ const mockCommentFindMany = prisma.comment.findMany as Mock;
 const mockUserFindUnique = prisma.user.findUnique as Mock;
 const mockUserFindMany = prisma.user.findMany as Mock;
 const mockCreateNotification = vi.mocked(createNotification);
+const mockNotifyTaskAssigned = vi.mocked(notifyTaskAssigned);
+const mockTaskFindFirst = prisma.task.findFirst as Mock;
+const mockTaskCreate = prisma.task.create as Mock;
 
 const AUTHOR = '11111111-1111-4111-8111-111111111111';
 const ASSIGNEE = '22222222-2222-4222-8222-222222222222';
@@ -325,15 +329,115 @@ describe('POST /api/tasks/[id]/comments from the front-session lane', () => {
     expect(mockCommentCreate).not.toHaveBeenCalled();
   });
 
-  it('the same Bast user without the lane still notifies the assignee', async () => {
+  it('the same Bast user without the lane still notifies an assignee who is not Mike', async () => {
     mockRequireAuth.mockResolvedValue({ userId: BAST, role: 'pm' } as never);
+    mockTaskFindUnique.mockResolvedValue({ id: TASK_ID, title: 'A Task', status: 'not_started', project_id: null, assignee_id: ASSIGNEE, assignee: { id: ASSIGNEE } });
     await POST(postRequest({ content: 'plain note' }), ctx);
-    expect(mockCreateNotification).toHaveBeenCalledWith(expect.objectContaining({ userId: MIKE, type: 'comment_added' }));
+    expect(mockCreateNotification).toHaveBeenCalledWith(expect.objectContaining({ userId: ASSIGNEE, type: 'comment_added' }));
   });
 
   it('the lane on another user\'s key is not the front session, so the comment is not silenced', async () => {
     mockRequireAuth.mockResolvedValue({ ...front, userId: AUTHOR } as never);
     await POST(postRequest({ content: 'plain note' }), ctx);
     expect(mockCreateNotification).toHaveBeenCalledWith(expect.objectContaining({ userId: MIKE, type: 'comment_added' }));
+  });
+});
+
+// Mike, 2026-11-26, after a worker cleanup pass commented on 22 of his tasks: "Also, my slack notifications are losing their shit.
+// What's happening?" Handbook 12c: a bot's comment never notifies Mike. What he must act on reaches him as his own task (its
+// assignment notice is tested in app/api/tasks/__tests__/route.test.ts).
+describe('POST /api/tasks/[id]/comments: a bot comment never notifies Mike', () => {
+  const BAST = 'ca5335e7-a374-4eff-92dc-fd67ceef2297';
+  const DOX = '1797579d-2c5e-42de-8366-c38be92ee1ae';
+  const DESIGN_WORKER = 'fc628c63-b14b-40f0-b1db-1a55fd4d00ae';
+  const MIKE = '3ecfb7be-20bb-43cb-9b4d-31c44337dc81';
+  const mikesTask = { id: TASK_ID, title: 'A Task', status: 'not_started', project_id: null, assignee_id: MIKE, assignee: { id: MIKE } };
+
+  beforeEach(() => {
+    mockTaskFindUnique.mockResolvedValue(mikesTask);
+  });
+
+  it('a Bast, Dox, worker-lane or designer worker comment on his task sends him nothing', async () => {
+    for (const auth of [
+      { userId: BAST, role: 'pm' },
+      { userId: BAST, role: 'pm', via: 'api_key', lane: 'worker', laneEnforced: true },
+      { userId: DOX, role: 'pm' },
+      { userId: DESIGN_WORKER, role: 'pm' },
+    ]) {
+      vi.clearAllMocks();
+      mockTaskFindUnique.mockResolvedValue(mikesTask);
+      mockUserFindUnique.mockResolvedValue({ name: 'Bast' });
+      mockRequireAuth.mockResolvedValue(auth as never);
+      const res = await POST(postRequest({ content: 'Stale claim released.', is_internal: true }), ctx);
+      expect(res.status).toBe(201);
+      expect(mockCreateNotification).not.toHaveBeenCalled();
+    }
+  });
+
+  it('a bot comment that asks him to act (tags him) sends no comment notice; it files his own task, whose assignment notifies him', async () => {
+    mockRequireAuth.mockResolvedValue({ userId: BAST, role: 'pm' } as never);
+    mockUserFindMany.mockImplementation(async ({ where }: { where: { id: { in: string[] } } }) => where.id.in.map((id) => ({ id })));
+    mockTaskFindFirst.mockResolvedValue(null);
+    mockTaskCreate.mockResolvedValue({ id: 'mike-task-1' });
+    const res = await POST(postRequest({ content: '@Mike please answer the hosting question ~ Bast', mentioned_user_ids: [MIKE] }), ctx);
+    expect(res.status).toBe(201);
+    expect((await res.json()).mike_task_id).toBe('mike-task-1');
+    expect(mockCreateNotification).not.toHaveBeenCalled();
+    expect(mockCommentCreate.mock.calls[0][0].data).toMatchObject({ mentioned_user_ids: [] });
+    const created = mockTaskCreate.mock.calls[0][0].data;
+    expect(created).toMatchObject({ assignee_id: MIKE, created_by_id: BAST, title: 'Act on: A Task', tags: [`mike-ask:${TASK_ID}`] });
+    expect(created.description).toContain(`/tasks/${TASK_ID}`);
+    expect(created.description).toContain('please answer the hosting question');
+    expect(mockNotifyTaskAssigned).toHaveBeenCalledWith('mike-task-1', MIKE, 'Bast');
+  });
+
+  it('a second ask on the same card while his task is open adds to that task instead of filing another', async () => {
+    mockRequireAuth.mockResolvedValue({ userId: DOX, role: 'pm' } as never);
+    mockUserFindMany.mockImplementation(async ({ where }: { where: { id: { in: string[] } } }) => where.id.in.map((id) => ({ id })));
+    mockTaskFindFirst.mockResolvedValue({ id: 'mike-task-1' });
+    const res = await POST(postRequest({ content: '@Mike one more thing on this', mentioned_user_ids: [MIKE] }), ctx);
+    expect(res.status).toBe(201);
+    expect((await res.json()).mike_task_id).toBe('mike-task-1');
+    expect(mockTaskCreate).not.toHaveBeenCalled();
+    expect(mockNotifyTaskAssigned).not.toHaveBeenCalled();
+    expect(mockCreateNotification).not.toHaveBeenCalled();
+    expect(mockCommentCreate.mock.calls[1][0].data).toMatchObject({ task_id: 'mike-task-1', mentioned_user_ids: [], is_internal: true });
+  });
+
+  it('a silent bot comment that does not tag him files no task', async () => {
+    mockRequireAuth.mockResolvedValue({ userId: BAST, role: 'pm' } as never);
+    await POST(postRequest({ content: 'Stale claim released.' }), ctx);
+    expect(mockTaskCreate).not.toHaveBeenCalled();
+    expect(mockTaskFindFirst).not.toHaveBeenCalled();
+  });
+
+  it('the front session tagging him files no task (its comments are records)', async () => {
+    mockRequireAuth.mockResolvedValue({ userId: BAST, role: 'pm', via: 'api_key', lane: 'front-session', laneEnforced: true } as never);
+    await POST(postRequest({ content: 'noted', mentioned_user_ids: [MIKE] }), ctx);
+    expect(mockTaskCreate).not.toHaveBeenCalled();
+    expect(mockCreateNotification).not.toHaveBeenCalled();
+  });
+
+  it('a bot comment that tags someone else still notifies them, but not Mike', async () => {
+    mockRequireAuth.mockResolvedValue({ userId: BAST, role: 'pm' } as never);
+    mockUserFindMany.mockImplementation(async ({ where }: { where: { id: { in: string[] } } }) => where.id.in.map((id) => ({ id })));
+    await POST(postRequest({ content: '@Sabeen over to you ~ Bast', mentioned_user_ids: [MENTIONED, MIKE] }), ctx);
+    expect(mockCreateNotification).toHaveBeenCalledTimes(1);
+    expect(mockCreateNotification).toHaveBeenCalledWith(expect.objectContaining({ userId: MENTIONED, type: 'task_mentioned' }));
+    expect(mockCommentCreate.mock.calls[0][0].data).toMatchObject({ mentioned_user_ids: [MENTIONED] });
+  });
+
+  it('a person\'s comment on his task still notifies him', async () => {
+    mockRequireAuth.mockResolvedValue({ userId: AUTHOR, role: 'pm' } as never);
+    await POST(postRequest({ content: 'Can you look at this?' }), ctx);
+    expect(mockCreateNotification).toHaveBeenCalledWith(expect.objectContaining({ userId: MIKE, type: 'comment_added' }));
+  });
+
+  it('a person\'s mention of Mike still notifies him', async () => {
+    mockRequireAuth.mockResolvedValue({ userId: AUTHOR, role: 'pm' } as never);
+    mockTaskFindUnique.mockResolvedValue({ ...mikesTask, assignee_id: ASSIGNEE, assignee: { id: ASSIGNEE } });
+    mockUserFindMany.mockResolvedValue([{ id: MIKE }]);
+    await POST(postRequest({ content: '@Mike see this', mentioned_user_ids: [MIKE] }), ctx);
+    expect(mockCreateNotification).toHaveBeenCalledWith(expect.objectContaining({ userId: MIKE, type: 'task_mentioned' }));
   });
 });

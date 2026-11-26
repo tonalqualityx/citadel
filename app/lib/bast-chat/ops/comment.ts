@@ -5,7 +5,8 @@
  * client_question false, and no mentions. The portal thread shows a comment only when a client wrote it, it is
  * client_visible, or it is a client question (lib/portal/thread.ts), and the client's email notice is queued only
  * from the comment route when client_visible is true (never here). The input schema is strict, so none of those
- * flags can be sent. The assignee gets the normal team notice, exactly as the comment route sends it.
+ * flags can be sent. The assignee gets the normal team notice, exactly as the comment route sends it: none when the
+ * assignee is Mike, since a bot's comment never notifies him (lib/services/bot-comment-silence.ts).
  *
  * It is written by the Bast user, with the text prefixed "From Mike, through the chat: ", so the worker's gate
  * counts it as a bot comment and it never wakes a card. A comment on a task Bast holds, or whose last comment
@@ -26,6 +27,7 @@ import type { BastChatAction } from '@prisma/client';
 import { ApiError } from '@/lib/api/errors';
 import { actorLaneField } from '@/lib/auth/actor-lane';
 import { createNotification } from '@/lib/services/notifications';
+import { botCommentSilentFor } from '@/lib/services/bot-comment-silence';
 import { loadReachTask, opSummary, type OpContext, type PreparedOp } from '../actions';
 import { quoted } from '../card-context';
 import { BAST_USER_ID, BOT_USER_IDS } from '../gate-mirror';
@@ -117,7 +119,7 @@ async function run(ctx: OpContext, input: CommentInput, expect: unknown): Promis
     result: { comment_id: c.id, task_id: input.task_id, internal: true },
     undoable: true,
     afterCommit:
-      assignee && assignee !== BAST_USER_ID
+      assignee && assignee !== BAST_USER_ID && !botCommentSilentFor(BAST_USER_ID, assignee)
         ? async () => {
             await createNotification({
               userId: assignee,

@@ -16,6 +16,8 @@ import { isChatLane } from '@/lib/tasks/questions';
 import { guardFrontSessionComment } from '@/lib/front-session/comment';
 import { isFrontSessionCaller } from '@/lib/front-session/release';
 import { isChangeLineImitation, CHANGE_LINE_IMITATION_MESSAGE } from '@/lib/tasks/triage-rev';
+import { botCommentSilentFor, isBotUser, routeBotAskToMike, MIKE_USER_ID } from '@/lib/services/bot-comment-silence';
+import { notifyTaskAssigned } from '@/lib/services/notifications';
 
 const createCommentSchema = z.object({
   content: z.string().min(1, 'Comment cannot be empty').max(10000),
@@ -235,8 +237,10 @@ export async function POST(
     // The triage desk, the front session, and Dox on a card in Triage notify nobody (a note from a session is not a message to staff;
     // Mike, 2026-11-24: "every time you attach a comment from me on a card I get a slack notification. Would love for that to stop.").
     const silent = isTriageDeskLane(auth) || frontSession || (isDoxLane(auth) && task.status === 'triage');
+    // A bot's comment never notifies Mike, mention or not: what he must act on reaches him as his own task (handbook 12c item 2;
+    // lib/services/bot-comment-silence.ts).
     const requestedMentionIds = (silent ? [] : [...new Set(data.mentioned_user_ids ?? [])]).filter(
-      (uid) => uid !== auth.userId
+      (uid) => uid !== auth.userId && !botCommentSilentFor(auth.userId, uid)
     );
     const mentionedUsers =
       requestedMentionIds.length > 0
@@ -303,12 +307,26 @@ export async function POST(
       });
     }
 
+    // A bot comment that tags Mike asks him to act: it reaches him as his own task (handbook 12c item 2), never as a comment notice.
+    let mikeAskTaskId: string | null = null;
+    if (!silent && isBotUser(auth.userId) && (data.mentioned_user_ids ?? []).includes(MIKE_USER_ID)) {
+      const routed = await routeBotAskToMike(prisma, {
+        authorId: auth.userId,
+        task: { id: taskId, title: task.title, project_id: task.project_id, client_id: task.client_id, site_id: task.site_id },
+        content: data.content,
+        notifyAssigned: notifyTaskAssigned,
+        authorName: commenter?.name || 'Bast',
+      });
+      mikeAskTaskId = routed.task_id;
+    }
+
     // Send notification to task assignee if different from commenter — but skip if they
     // were already notified via a mention above (no double notification).
     if (
       !silent &&
       task.assignee_id &&
       task.assignee_id !== auth.userId &&
+      !botCommentSilentFor(auth.userId, task.assignee_id) &&
       !mentionedUserIds.includes(task.assignee_id)
     ) {
       await createNotification({
@@ -321,7 +339,10 @@ export async function POST(
       });
     }
 
-    return NextResponse.json(formatComment(comment), { status: 201 });
+    return NextResponse.json(
+      mikeAskTaskId ? { ...formatComment(comment), mike_task_id: mikeAskTaskId } : formatComment(comment),
+      { status: 201 }
+    );
   } catch (error) {
     return handleApiError(error);
   }

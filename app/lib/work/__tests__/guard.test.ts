@@ -44,6 +44,7 @@ const EXEMPT: Record<string, string> = {
   'lib/services/kickoff.ts': 'the kickoff tasks of a signed proposal',
   'lib/engagement/client-report.ts': 'the draft task for the owner when a client report is handed in; no email or session behind it',
   'lib/retainer-months/service.ts': 'a generator for a retainer month: its planning task; no email or session behind it',
+  'lib/services/bot-comment-silence.ts': "the owner's own task for a bot comment that asks him to act; the card it comes from is the record, one open task per card",
 };
 
 function walk(dir: string, out: string[] = []): string[] {
