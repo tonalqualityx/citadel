@@ -16,6 +16,7 @@ import {
   type ClassifyProjectBlockersInput,
 } from '@/lib/oracle/projects/blockers';
 import { lastMovement, daysSince, isStale, type LastMovementInput } from '@/lib/oracle/projects/movement';
+import { sessionAskSince } from '@/lib/oracle/session-ask-since';
 import {
   findNextStepCandidate,
   mergeNextStep,
@@ -542,6 +543,7 @@ export async function GET(request: NextRequest) {
             ask_severity: true,
             last_event_at: true,
             created_at: true,
+            waiting_on_since: true,
             arc_id: true,
           },
         })
@@ -563,7 +565,7 @@ export async function GET(request: NextRequest) {
         queue: s.ask_queue,
         text: s.waiting_on,
         severity: s.ask_severity,
-        waiting_since: (s.last_event_at ?? s.created_at)?.toISOString() ?? null,
+        waiting_since: sessionAskSince(s)?.toISOString() ?? null,
       });
       sessionAsksByProject.set(projectId, list);
     }

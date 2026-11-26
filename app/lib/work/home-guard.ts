@@ -17,6 +17,7 @@ import { attachedItemLabel } from './attach-copy';
 import { emailRefOfAsk, sourceKeyOf } from './keys';
 import { workState } from './state';
 import { emailSourcesFor } from './tracked';
+import { sessionAskSince } from '@/lib/oracle/session-ask-since';
 
 export interface GuardedAsk {
   id: string;
@@ -124,9 +125,9 @@ export async function loadTaskAttachments(db: HomeDb, taskIds: readonly string[]
 export async function keptOffNow(db: HomeDb): Promise<number> {
   const asks = await db.emailAsk.findMany({ where: { state: 'open', is_urgent: false }, select: { id: true, conversation_key: true, rfc_message_id: true, message_id: true }, take: 2000 });
   const mail = await handledAskIds(db, asks);
-  const sessions = await db.oracleSession.findMany({ where: { waiting_on: { not: null }, archived_at: null }, select: { external_id: true, last_event_at: true, ask_severity: true }, take: 500 });
+  const sessions = await db.oracleSession.findMany({ where: { waiting_on: { not: null }, archived_at: null }, select: { external_id: true, last_event_at: true, waiting_on_since: true, ask_severity: true }, take: 500 });
   const handled = sessions.length
-    ? await handledElsewhereMany(db, sessions.map((s) => ({ kind: 'session' as const, ref: s.external_id, latest_at: s.last_event_at, urgent: s.ask_severity === 'client_blocking' || s.ask_severity === 'launch_blocking' })))
+    ? await handledElsewhereMany(db, sessions.map((s) => ({ kind: 'session' as const, ref: s.external_id, latest_at: sessionAskSince(s), urgent: s.ask_severity === 'client_blocking' || s.ask_severity === 'launch_blocking' })))
     : new Map();
   return mail.sources + handled.size;
 }

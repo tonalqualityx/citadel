@@ -74,6 +74,7 @@ import { latestAnswers } from '@/lib/tasks/checklist-answers';
 import { loadSessionFinishedCards } from '@/lib/work/sessions-store';
 import { loadAttachQuestions } from '@/lib/work/attach-store';
 import { attachedTrackCardIds, guardSessionAsks, handledAskIds, loadTaskAttachments } from '@/lib/work/home-guard';
+import { sessionAskSince } from '@/lib/oracle/session-ask-since';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** How long a keeper line stays in Handled for you (and open for Undo). */
@@ -738,6 +739,7 @@ export async function loadSessionAsks(db: PrismaClient): Promise<RawSessionAsk[]
       remote_url: true,
       last_event_at: true,
       updated_at: true,
+      waiting_on_since: true,
       arc: {
         select: {
           ...ARC_SELECT,
@@ -763,7 +765,7 @@ export async function loadSessionAsks(db: PrismaClient): Promise<RawSessionAsk[]
       ask_severity: s.ask_severity,
       status: s.status,
       remote_url: s.remote_url,
-      asked_at: s.last_event_at ?? s.updated_at,
+      asked_at: sessionAskSince(s) ?? s.updated_at,
       arc: s.arc ? arcRef(s.arc) : null,
       client: s.arc ? clientRef(s.arc.client) : null,
       project: s.arc ? projectRef(s.arc.project) : null,

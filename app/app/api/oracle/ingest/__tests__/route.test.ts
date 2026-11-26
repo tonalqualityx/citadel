@@ -1020,6 +1020,52 @@ describe('POST /api/oracle/ingest — session meaning (Clarity Phase 1)', () => 
     );
   });
 
+  function existingAsk(id: string, waiting_on: string | null) {
+    const existing = {
+      id,
+      source: 'claude_code',
+      external_id: id,
+      status: 'idle',
+      last_event_at: new Date(Date.now() - 5_000),
+      updated_at: new Date(Date.now() - 5_000),
+      waiting_on,
+      ask_queue: waiting_on ? 'answer' : null,
+    };
+    mockSessionFindUnique.mockResolvedValue(existing);
+    mockSessionUpdate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ ...existing, ...data }));
+    return existing;
+  }
+
+  async function snapshotOf(session: Record<string, unknown>) {
+    await POST(ingestRequest({ machine: { name: 'reshi-workstation' }, snapshot: { sessions: [{ source: 'claude_code', ...session }] } }));
+    return (mockSessionUpdate.mock.calls[0][0] as { data: Record<string, unknown> }).data;
+  }
+
+  it('stores waiting_on_since from the heartbeat (task 6799e4ca)', async () => {
+    existingAsk('cc-since-1', 'Old ask');
+    const data = await snapshotOf({ external_id: 'cc-since-1', waiting_on: 'Old ask', waiting_on_since: '2026-11-09T16:12:42.000Z' });
+    expect(data.waiting_on_since).toEqual(new Date('2026-11-09T16:12:42.000Z'));
+  });
+
+  it('a repeat heartbeat with the same ask and no time leaves waiting_on_since untouched', async () => {
+    existingAsk('cc-since-2', 'Same ask');
+    const data = await snapshotOf({ external_id: 'cc-since-2', waiting_on: 'Same  ask ' });
+    expect('waiting_on_since' in data).toBe(false);
+  });
+
+  it('a changed ask with no time is dated now', async () => {
+    existingAsk('cc-since-3', 'Old ask');
+    const before = Date.now();
+    const data = await snapshotOf({ external_id: 'cc-since-3', waiting_on: 'A new ask' });
+    expect((data.waiting_on_since as Date).getTime()).toBeGreaterThanOrEqual(before);
+  });
+
+  it('clearing the ask clears waiting_on_since', async () => {
+    existingAsk('cc-since-4', 'Old ask');
+    const data = await snapshotOf({ external_id: 'cc-since-4', waiting_on: null });
+    expect(data.waiting_on_since).toBeNull();
+  });
+
   it('leaves session-meaning fields untouched when absent from the snapshot session', async () => {
     const existing = {
       id: 'sess-leave-meaning',

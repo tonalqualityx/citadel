@@ -3000,6 +3000,8 @@ model OracleSession {
   waiting_on   String?            @db.Text
   ask_queue    AskQueue?
   ask_severity AskSeverity?
+  // When the session set its current waiting_on (task 6799e4ca): an ask is dated by this, never by last_event_at.
+  waiting_on_since DateTime?
   arc_id       String?            @db.Uuid
   arc          Arc?               @relation(fields: [arc_id], references: [id])
   archived_at  DateTime?

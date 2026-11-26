@@ -377,6 +377,28 @@ describe('GET /api/waiting-on-me — grouping', () => {
     });
   });
 
+  it('a session ask is dated by when it was asked, not by the session\'s last activity (task 6799e4ca)', async () => {
+    const asked = new Date('2026-11-09T16:12:42.000Z');
+    mockSessionFindMany.mockResolvedValue([
+      session({ id: 's1', ask_queue: 'answer', waiting_on_since: asked, last_event_at: new Date('2026-11-26T23:22:03.000Z') }),
+    ]);
+
+    const res = await GET(getRequest());
+    const body = await res.json();
+
+    expect(body.answer[0].waiting_since).toBe(asked.toISOString());
+  });
+
+  it('a session that has not reported when it asked falls back to its last activity', async () => {
+    const touched = new Date('2026-11-26T23:22:03.000Z');
+    mockSessionFindMany.mockResolvedValue([session({ id: 's1', ask_queue: 'answer', waiting_on_since: null, last_event_at: touched })]);
+
+    const res = await GET(getRequest());
+    const body = await res.json();
+
+    expect(body.answer[0].waiting_since).toBe(touched.toISOString());
+  });
+
   it('task cards carry type, task_id, and priority', async () => {
     mockTaskSweep({ focus: [task({ id: 't1', priority: 2 })] });
 

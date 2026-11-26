@@ -1,3 +1,4 @@
+import { resolveWaitingOnSince } from '@/lib/oracle/session-ask-since';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import {
@@ -126,6 +127,8 @@ const snapshotSessionSchema = z.object({
   waiting_on: z.string().max(SESSION_MEANING_TEXT_MAX).nullable().optional(),
   ask_queue: askQueueSchema.nullable().optional(),
   ask_severity: askSeveritySchema.nullable().optional(),
+  // When the session set waiting_on (the manifest's own timestamp). Absent: the route dates a changed ask itself.
+  waiting_on_since: z.coerce.date().nullable().optional(),
   arc_id: z.string().uuid().nullable().optional(),
   // Explicit archive: a session no longer worth surfacing in the fleet view / waiting-on-me
   // feed by default (still queryable via ?include_archived=true on /api/oracle/fleet).
@@ -155,6 +158,8 @@ type SessionRow = {
   updated_at: Date;
   ended_at?: Date | null;
   tokens_total?: number | null;
+  waiting_on?: string | null;
+  waiting_on_since?: Date | null;
 };
 
 // Token monotonicity (review finding, 2026-07-09): claude_code tokens_total comes
@@ -390,6 +395,15 @@ export async function POST(request: NextRequest) {
           }
         }
 
+        // An ask is dated by when it was set, never by the session's last activity (task 6799e4ca).
+        const waitingOnSince = resolveWaitingOnSince({
+          existing_waiting_on: existing?.waiting_on,
+          existing_since: existing?.waiting_on_since,
+          incoming_waiting_on: snap.waiting_on,
+          incoming_since: snap.waiting_on_since,
+          now,
+        });
+
         const fields: Record<string, unknown> = {
           ...(snap.title !== undefined && { title: snap.title }),
           ...(snap.cwd !== undefined && { cwd: snap.cwd }),
@@ -409,6 +423,7 @@ export async function POST(request: NextRequest) {
           ...(snap.waiting_on !== undefined && { waiting_on: snap.waiting_on }),
           ...(snap.ask_queue !== undefined && { ask_queue: snap.ask_queue }),
           ...(snap.ask_severity !== undefined && { ask_severity: snap.ask_severity }),
+          ...(waitingOnSince !== undefined && { waiting_on_since: waitingOnSince }),
           ...(snap.arc_id !== undefined && { arc_id: resolvedArcId }),
           ...(snap.archived_at !== undefined && { archived_at: snap.archived_at }),
           last_event_at: snap.last_event_at ?? now,

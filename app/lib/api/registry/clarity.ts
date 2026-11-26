@@ -309,7 +309,7 @@ export const clarityEndpoints: ApiEndpoint[] = [
           'Review column\'s grouping) and `waiting_since` ("when this started waiting": for a ' +
           'task, the later of its created_at and its newest comment from a human — comments ' +
           'from Bast and the other service accounts are excluded, so an automated touch never ' +
-          'resets the visible age; for a session, its last_event_at). ' +
+          'resets the visible age; for a session, when it set the ask (waiting_on_since, falling back to last_event_at for a session that has not reported one)). ' +
           'Clarity Phase 6: intake email asks carry `intent` (general|meeting|sales, null=' +
           'general) and the proposed_event_* trio (null=no parsed meeting time, no ' +
           'Add-to-calendar affordance); `intake` additionally carries `lanes` — per-lane ' +

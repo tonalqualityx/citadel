@@ -19,6 +19,7 @@ import type { Prisma, PrismaClient } from '@prisma/client';
 import { ApiError } from '@/lib/api/errors';
 import { EXCLUDED_SESSION_STATUSES, hasSecurityTag } from '@/lib/home/rules';
 import { sessionAskHash } from '@/lib/home/session-clear';
+import { sessionAskSince } from '@/lib/oracle/session-ask-since';
 import { appendHomeAction, upsertItemState, type HomeDb } from '@/lib/home/state';
 import { displayText } from '@/lib/home/copy';
 import { homeOwner } from './ask-closure';
@@ -103,7 +104,7 @@ export function readStaleRecord(v: unknown): ClearRecord | null {
 async function gather(db: PrismaClient, userId: string, now: Date, days: number) {
   const sessions = await db.oracleSession.findMany({
     where: { waiting_on: { not: null }, archived_at: null },
-    select: { id: true, external_id: true, title: true, goal: true, waiting_on: true, ask_severity: true, status: true, last_event_at: true, updated_at: true },
+    select: { id: true, external_id: true, title: true, goal: true, waiting_on: true, ask_severity: true, status: true, last_event_at: true, updated_at: true, waiting_on_since: true },
     orderBy: { last_event_at: 'asc' },
     take: 5000,
   });
@@ -133,7 +134,7 @@ async function gather(db: PrismaClient, userId: string, now: Date, days: number)
     facts: {
       status: s.status,
       ask_severity: s.ask_severity,
-      asked_at: s.last_event_at ?? s.updated_at,
+      asked_at: sessionAskSince(s) ?? s.updated_at,
       title: s.title,
       goal: s.goal,
       waiting_on: s.waiting_on as string,

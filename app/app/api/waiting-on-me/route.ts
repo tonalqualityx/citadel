@@ -7,6 +7,7 @@ import { TaskStatus, AskQueue, EmailAskIntent, ProjectStatus } from '@prisma/cli
 import { floatHighPriority } from '@/lib/waiting-on-me-priority';
 import { BOT_USER_IDS } from '@/lib/oracle/projects/gate-constants';
 import { notActivelyWaitingWhere } from '@/lib/tasks/waiting';
+import { sessionAskSince } from '@/lib/oracle/session-ask-since';
 
 // The merged "everything waiting on Mike" feed. Task side is a 5-query sweep — focus,
 // overdue, awaiting-review, blocked, open-within-14d — each excluding IDs already emitted
@@ -115,6 +116,7 @@ function sessionToCard(s: {
   arc: { id: string; name: string } | null;
   last_event_at?: Date | null;
   created_at?: Date | null;
+  waiting_on_since?: Date | null;
 }): SessionCard {
   return {
     type: 'session_ask',
@@ -128,7 +130,8 @@ function sessionToCard(s: {
     arc: s.arc,
     client: null,
     due_date: null,
-    waiting_since: s.last_event_at ?? s.created_at ?? null,
+    // Dated by when the session asked, so an old ask never comes back as new when its session is touched (task 6799e4ca).
+    waiting_since: sessionAskSince(s),
   };
 }
 
