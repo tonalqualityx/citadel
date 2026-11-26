@@ -182,6 +182,10 @@ export interface QuestionOut {
   nudge_drafted_at: string | null;
   /** The cards waiting on the answer. */
   blocks: Array<{ id: string; title: string; status: string }>;
+  /** When Mike tapped "talk it through" on a report page: the question waits for a chat and never goes ahead on its own. Null otherwise. */
+  held_for_chat_at: string | null;
+  /** The report page he tapped it on. */
+  held_report_url: string | null;
 }
 
 export function formatQuestion(q: QuestionRowFull): QuestionOut {
@@ -222,6 +226,8 @@ export function formatQuestion(q: QuestionRowFull): QuestionOut {
     default_at: q.default_at ? q.default_at.toISOString() : null,
     nudge_drafted_at: q.nudge_drafted_at ? q.nudge_drafted_at.toISOString() : null,
     blocks: (q.blocks ?? []).map((t) => ({ id: t.id, title: t.title, status: t.status })),
+    held_for_chat_at: q.held_for_chat_at ? q.held_for_chat_at.toISOString() : null,
+    held_report_url: q.held_report_url ?? null,
   };
 }
 
@@ -434,7 +440,7 @@ export async function patchQuestion(task: TaskHead, qid: string, auth: Auth, pat
  * When no open question is left on the card, the marker tag comes off, and `needs-mike` with it only if release itself added it
  * (the second marker is present): a `needs-mike` that something else put on the card is never ours to remove.
  */
-async function releaseHoldIfLast(tx: Prisma.TransactionClient, taskId: string): Promise<boolean> {
+export async function releaseHoldIfLast(tx: Prisma.TransactionClient, taskId: string): Promise<boolean> {
   const stillOpen = await tx.taskQuestion.count({ where: { task_id: taskId, state: 'open' } });
   if (stillOpen > 0) return false;
   const t = await tx.task.findUnique({ where: { id: taskId }, select: { tags: true } });

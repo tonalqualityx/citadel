@@ -99,10 +99,16 @@ describe('markdown subset: bounds', () => {
     'spaces': ' '.repeat(20_000) + 'x',
   };
   it.each(Object.keys(shapes))('pathological input %s finishes under 200 ms', (name) => {
-    const t = performance.now();
+    // The bound catches a quadratic blow-up (seconds), not machine load: one warm-up render, then the best of three, so a busy full-suite
+    // run (dozens of test processes) does not fail a linear render that took 250 ms once.
     const c = html(shapes[name]);
-    const ms = performance.now() - t;
     expect(c).toBeTruthy();
-    expect(ms).toBeLessThan(200);
+    let best = Infinity;
+    for (let i = 0; i < 3; i++) {
+      const t = performance.now();
+      html(shapes[name]);
+      best = Math.min(best, performance.now() - t);
+    }
+    expect(best).toBeLessThan(200);
   });
 });

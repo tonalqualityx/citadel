@@ -211,6 +211,8 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('POST', '/api/tasks/:id/questions/:qid/blocks'),
     r('DELETE', '/api/tasks/:id/questions/:qid/blocks'),
     r('GET', '/api/questions'),
+    // Report pages (Mike, 2026-11-25: "My tap is still my answer"): mike_report.py mints the signed one-time answer links its buttons carry.
+    r('POST', '/api/tasks/:id/questions/:qid/links'),
     r('GET', '/api/contacts/resolve'),
     r('GET', '/api/projects'),
     // The plan of a card: read only (after release; a Triage card's plan is the owner's, the chat's and Dox's)

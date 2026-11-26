@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AuthError } from '@/lib/api/errors';
 import { NOT_WORKERS, OWNER_ID, WORKER, req } from '../../../__tests__/harness';
 import { makeFakeDb, type FakeAsk } from '@/lib/home/owed/__tests__/fixtures/fake-db';
@@ -50,10 +50,17 @@ function setDb(opts: Parameters<typeof makeFakeDb>[0] = { asks: [fakeAsk()] }) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // The fixtures are dated early November 2026; the owed queue only lists recent threads, so the clock is pinned to just after them.
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-11-06T12:00:00Z'));
   h.ownerId = OWNER_ID;
   h.raw = { threads: [], crises: [] };
   vi.mocked(requireAuth).mockResolvedValue(WORKER);
   setDb();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 const callers: [string, () => Promise<Response>][] = [

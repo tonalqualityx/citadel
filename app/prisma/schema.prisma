@@ -6029,6 +6029,12 @@ model TaskQuestion {
   nudge_drafted_at      DateTime?
   // The cards waiting on the answer: an open question holds them in `blocked` exactly as an unfinished blocker task does
   blocks                Task[]             @relation("QuestionBlocks")
+  // Mike tapped "talk it through" on a report page (Mike, 2026-11-25: buttons, or "I can come back and talk through it with you"): the
+  // question waits for a chat and never goes ahead on its own (if_nobody_action is set to wait at the same time). The report it came from.
+  held_for_chat_at      DateTime?
+  held_report_url       String?            @db.VarChar(500)
+  // Signed one-time links a report page carries for this question (lib/tasks/answer-links.ts)
+  answer_links          QuestionAnswerLink[]
   created_at            DateTime           @default(now())
   updated_at            DateTime           @updatedAt
 
@@ -6039,6 +6045,30 @@ model TaskQuestion {
   @@index([state, default_at])
   @@index([asked_of_contact_id])
   @@map("task_questions")
+}
+
+/// A signed one-time link that answers a card question as Mike from a report page (Mike, 2026-11-25: "My tap is still my answer, even if I
+/// don't type words."). One row per link: one per option, plus one "talk it through" link, minted together as a batch. The URL carries the row
+/// id and an HMAC of it (lib/tasks/answer-links.ts), so an altered link matches nothing. Using any link of a batch to answer spends the batch.
+model QuestionAnswerLink {
+  id           String       @id @default(uuid()) @db.Uuid
+  question_id  String       @db.Uuid
+  question     TaskQuestion @relation(fields: [question_id], references: [id], onDelete: Cascade)
+  batch_id     String       @db.Uuid
+  kind         String       @db.VarChar(10) // option | hold
+  option_id    String?      @db.VarChar(40)
+  report_url   String       @db.VarChar(500)
+  // sha256 of the question wording and options when minted: a link answers only the wording the report showed
+  wording_hash String       @db.VarChar(64)
+  expires_at   DateTime
+  used_at      DateTime?
+  used_outcome String?      @db.VarChar(20) // answered | held | spent (another link of the batch answered)
+  minted_by_id String?      @db.Uuid
+  created_at   DateTime     @default(now())
+
+  @@index([question_id])
+  @@index([batch_id])
+  @@map("question_answer_links")
 }
 
 /// The sections of a Triage card's plan, in the order the tab shows them.

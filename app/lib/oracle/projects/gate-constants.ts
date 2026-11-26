@@ -23,6 +23,7 @@ export const BLOCKING_TAGS: readonly string[] = [
   'client-plan-approval',
   'plan-approval',
   'design-runner',
+  'free-audit', // the audit lane owns these cards from intake to send (gate.json, 2026-11-24, task d74cf878)
 ];
 
 export const BOT_USER_IDS: readonly string[] = [

@@ -443,6 +443,43 @@ export const taskEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/tasks/:id/questions/:qid/links',
+    group: 'tasks',
+    methods: [
+      {
+        method: 'POST',
+        summary: "Mint signed one-time answer links for a report page: one per option of the question, plus a talk-it-through link. Opening an option link records that option as Mike's answer; the talk-it-through link holds the question for a chat.",
+        auth: 'required',
+        bodySchema: [
+          { name: 'report_url', type: 'string', required: true, description: 'The https report page the buttons sit on. Recorded with the answer.' },
+          { name: 'expires_in_days', type: 'number', required: false, description: 'How long the links work: 1 to 90 days (default 30).' },
+        ],
+        responseExample: { question_id: 'uuid', question: 'string', report_url: 'string', expires_at: 'iso', options: [{ option_id: 'string', label: 'string', recommended: 'boolean', url: 'string' }], talk_it_through: { label: 'Talk it through', url: 'string' } },
+        responseNotes: "201. Mike's session, the chat lane, the front session (its lane key or Mike's own key), or Bast's worker key; anyone else 403 mint_not_allowed. Only an open question for Mike: 422 not_mikes_question for a question we sent a client, 409 not_open. A question with no options gets only the talk-it-through link. Each link works once; answering with one spends the others of the same mint. A link answers only the wording it was minted for: an edit to the question or its options makes it record nothing.",
+      },
+    ],
+  },
+  {
+    path: '/api/question-links/:token',
+    group: 'tasks',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Open a signed answer link. Reads only: a good link shows a page that posts itself back (one tap records it in a browser); a used, expired, altered or out-of-date link shows why and records nothing.',
+        auth: 'none',
+        responseExample: { ok: 'boolean', code: 'ready|used|expired|altered|withdrawn|already_answered|already_defaulted|changed', title: 'string', message: 'string', question: 'string', label: 'string', task_id: 'uuid' },
+        responseNotes: 'HTML page by default; JSON with Accept: application/json. 200 ready, 400 altered, 410 used or expired, 409 withdrawn, already_answered, already_defaulted or changed.',
+      },
+      {
+        method: 'POST',
+        summary: "Use a signed answer link. An option link records the option as Mike's answer (comment: From Mike, <date>: \"tapped <option> on the report page\" (<report link>)), lifts the question hold and releases the cards the question blocked. The talk-it-through link marks the question held for a chat, sets it to wait and clears its go-ahead date, so it never goes ahead on its own.",
+        auth: 'none',
+        responseExample: { ok: 'boolean', code: 'answered|held|used|expired|altered|withdrawn|already_answered|already_defaulted|changed', title: 'string', message: 'string', question: 'string', label: 'string', task_id: 'uuid', released_task_ids: ['uuid'] },
+        responseNotes: 'The signed token is the permission; no session. Single use and atomic with the answer. A refused link records nothing and says why. HTML confirmation page by default; JSON with Accept: application/json.',
+      },
+    ],
+  },
+  {
     path: '/api/tasks/:id/questions/:qid/blocks',
     group: 'tasks',
     methods: [

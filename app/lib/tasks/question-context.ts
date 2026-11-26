@@ -253,4 +253,6 @@ export interface QuestionView {
   asked_of_contact?: { id: string; name: string | null; email: string } | null;
   /** The cards waiting on the answer. */
   blocks?: Array<{ id: string; title: string; status: string }>;
+  /** Mike tapped "talk it through" on a report page: the question waits for a chat. */
+  held_for_chat_at?: string | null;
 }
