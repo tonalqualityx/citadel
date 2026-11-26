@@ -465,6 +465,12 @@ export interface WatchPost {
   lines: WireLine[];
   /** Slice 6c: present only when the body carried caps ["scan"]. At most 2, each marked requested now; [] when the switch is off. */
   scans?: Array<WireScan>;
+  /**
+   * Crisis clearing: present only when the body carried caps ["clear"] (and the home view is on). The ids (home_emergency_watch row
+   * ids, the uuid part of a line id "<uuid>:first") of the owner's tracked Needs-you-now rows that are still open, read right after
+   * this run's tracking. The machine clears the Slack message of any kept row it posted that is not listed.
+   */
+  open_rows?: string[];
   skipped?: 'home_off';
   counts: { opened: number; updated: number; closed: number; ignored: number };
 }
@@ -490,6 +496,7 @@ export async function applyWatch(db: PrismaClient, ownerId: string, body: WatchB
 
   const wantsSlack = (body.caps ?? []).includes('slack');
   const wantsScan = (body.caps ?? []).includes('scan');
+  const wantsClear = (body.caps ?? []).includes('clear');
   const result = await db.$transaction(
     async (tx) => {
       // ---- Kuma ----
@@ -630,19 +637,22 @@ export async function applyWatch(db: PrismaClient, ownerId: string, body: WatchB
   // Slice 6b: track what is in Needs you now (always); hand out lines only with the switch on and the "slack" cap.
   const items = await loadWatchItems(db, ownerId, now, timezone);
   const slackOn = wantsSlack && (await loadEmergencySlack(db, ownerId));
-  const lines = await db.$transaction(
+  const { lines, openRows } = await db.$transaction(
     async (tx) => {
       await trackWatch(tx, ownerId, items, now);
-      return slackOn ? claimLines(tx, ownerId, items, now, timezone) : [];
+      const claimed = slackOn ? await claimLines(tx, ownerId, items, now, timezone) : [];
+      const open = wantsClear ? await tx.homeEmergencyWatch.findMany({ where: { user_id: ownerId, cleared_at: null }, select: { id: true } }) : null;
+      return { lines: claimed, openRows: open ? open.map((r) => r.id) : null };
     },
     { timeout: 30_000 }
   );
-  if (!wantsScan) return { lines, counts: result.counts };
+  const withOpen = openRows ? { open_rows: openRows } : {};
+  if (!wantsScan) return { lines, ...withOpen, counts: result.counts };
   // Slice 6c: scans only for a script that says it can run them, and only with the switch on.
   const scans = await db.$transaction(
     async (tx) => ((await loadOutsideScan(tx, ownerId)) ? claimScans(tx, ownerId, items.map((i) => i.key), sites, now) : []),
     { timeout: 30_000 }
   );
-  return { lines, scans, counts: result.counts };
+  return { lines, scans, ...withOpen, counts: result.counts };
 }
 

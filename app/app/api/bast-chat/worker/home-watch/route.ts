@@ -30,7 +30,10 @@ export async function GET(): Promise<NextResponse> {
  * claimed now) only when the owner's emergency_slack switch is on AND the body carries `caps: ["slack"]`; otherwise `[]` and
  * nothing is claimed (the 6a machine script sends no caps). The machine posts them and acknowledges through
  * POST /api/bast-chat/worker/home-watch/ack.
- * 200 `{lines, counts: {opened, updated, closed, ignored}}` or `{lines: [], skipped: "home_off", counts}`.
+ * Crisis clearing: with `caps: ["clear"]` the response also carries `open_rows: [uuid, ...]`, the ids of the owner's tracked
+ * Needs-you-now rows still open (read after this run's tracking). The machine updates in place the Slack message of any kept
+ * row it posted that is not listed. Absent without the cap and when home is off.
+ * 200 `{lines, open_rows?, counts: {opened, updated, closed, ignored}}` or `{lines: [], skipped: "home_off", counts}`.
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
