@@ -174,3 +174,43 @@ describe('home_view', () => {
     expect(mockUpsert).not.toHaveBeenCalled();
   });
 });
+
+describe('auto_time_tracking (Mike 2026-11-26: off for everyone but Mike)', () => {
+  it('defaults to off when the person has no preferences row', async () => {
+    mockFindUnique.mockResolvedValue(null);
+    const body = await (await GET(new NextRequest('http://localhost:3000/api/users/me/preferences'))).json();
+    expect(body.preferences.auto_time_tracking).toBe(false);
+  });
+
+  it('returns the stored value', async () => {
+    mockFindUnique.mockResolvedValue({ naming_convention: 'awesome', theme: 'system', notification_bundle: true, today_view: 'list', energy_filter: 'all', home_view: 'overlook', auto_time_tracking: true });
+    const body = await (await GET(new NextRequest('http://localhost:3000/api/users/me/preferences'))).json();
+    expect(body.preferences.auto_time_tracking).toBe(true);
+    expect(mockFindUnique.mock.calls[0][0].select.auto_time_tracking).toBe(true);
+  });
+
+  it('any person can turn their own setting on or off', async () => {
+    mockRequireAuth.mockResolvedValue({ userId: 'designer-1', role: 'designer', email: 'd@example.com' } as never);
+    for (const value of [true, false]) {
+      mockUpsert.mockResolvedValue({ auto_time_tracking: value });
+      const res = await PATCH(patchReq({ auto_time_tracking: value }));
+      expect(res.status).toBe(200);
+      const arg = mockUpsert.mock.calls.at(-1)![0];
+      expect(arg.where).toEqual({ user_id: 'designer-1' });
+      expect(arg.update).toEqual({ auto_time_tracking: value });
+      expect(arg.create.auto_time_tracking).toBe(value);
+    }
+  });
+
+  it('a new row created by another change starts with it off', async () => {
+    mockUpsert.mockResolvedValue({ theme: 'dark', auto_time_tracking: false });
+    await PATCH(patchReq({ theme: 'dark' }));
+    expect(mockUpsert.mock.calls[0][0].create.auto_time_tracking).toBe(false);
+  });
+
+  it('rejects a value that is not true or false', async () => {
+    const res = await PATCH(patchReq({ auto_time_tracking: 'yes' }));
+    expect(res.status).toBe(400);
+    expect(mockUpsert).not.toHaveBeenCalled();
+  });
+});

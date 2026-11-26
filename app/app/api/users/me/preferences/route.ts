@@ -15,6 +15,8 @@ const updatePreferencesSchema = z.object({
   energy_filter: z.enum(['all', 'low_energy', 'deep_work']).optional(),
   // Home screen Slice 1: which first screen /dashboard renders. 'home' is admin-only.
   home_view: z.enum(['overlook', 'home']).optional(),
+  // Automatic time tracking (Mike, 2026-11-26): the designer portal starts this person's timer only while on.
+  auto_time_tracking: z.boolean().optional(),
 });
 
 export async function GET(request: NextRequest) {
@@ -30,6 +32,7 @@ export async function GET(request: NextRequest) {
         today_view: true,
         energy_filter: true,
         home_view: true,
+        auto_time_tracking: true,
       },
     });
 
@@ -45,6 +48,7 @@ export async function GET(request: NextRequest) {
         today_view: 'list',
         energy_filter: 'all',
         home_view: 'overlook',
+        auto_time_tracking: false,
       },
     });
   } catch (error) {
@@ -75,6 +79,7 @@ export async function PATCH(request: NextRequest) {
         today_view: validated.today_view ?? 'list',
         energy_filter: validated.energy_filter ?? 'all',
         home_view: validated.home_view ?? 'overlook',
+        auto_time_tracking: validated.auto_time_tracking ?? false,
       },
       select: {
         naming_convention: true,
@@ -83,6 +88,7 @@ export async function PATCH(request: NextRequest) {
         today_view: true,
         energy_filter: true,
         home_view: true,
+        auto_time_tracking: true,
       },
     });
 

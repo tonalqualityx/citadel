@@ -132,6 +132,10 @@ model UserPreference {
   energy_filter       EnergyFilter     @default(all)
   // Home screen Slice 1: which first screen /dashboard renders for this user.
   home_view           HomeView         @default(overlook)
+  // Automatic time tracking (Mike, 2026-11-26): the designer portal starts this person's timer when they open a
+  // page only while this is on. Off by default; the migration turns it on for Mike alone. The global switch
+  // (DesignPortalSettings.auto_timer_enabled) and the per-site one (Site.design_auto_timer) still apply as well.
+  auto_time_tracking  Boolean          @default(false)
   created_at          DateTime         @default(now())
   updated_at          DateTime         @updatedAt
 

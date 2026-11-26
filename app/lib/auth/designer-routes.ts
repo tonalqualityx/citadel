@@ -6,7 +6,7 @@ import { patternMatches, parseRouteHeader } from './lane-scopes';
  * the x-citadel-route header that proxy.ts stamps (and overwrites) on every /api request.
  *
  * Exact list from feature-planning/designer-portal-design.md section 5 D1, plus
- * POST /api/design/publishes/:id/confirm (added by ruling) and the D11 client-files refresh (W2.8), and POST /api/design/work (start new work on a site with no pre-existing task). Change it only with the design doc.
+ * POST /api/design/publishes/:id/confirm (added by ruling) and the D11 client-files refresh (W2.8), and POST /api/design/work (start new work on a site with no pre-existing task), and GET/PATCH /api/design/me/auto-timer (the caller's own automatic time tracking switch, 2026-11-26). Change it only with the design doc.
  */
 export interface DesignerRoute {
   method: 'GET' | 'POST' | 'PATCH';
@@ -52,6 +52,9 @@ export const DESIGNER_ROUTES: readonly DesignerRoute[] = [
   { method: 'POST', pattern: '/api/design/sessions/:id/art-direction/sign' },
   { method: 'POST', pattern: '/api/design/sessions/:id/art-direction/revise' },
   { method: 'POST', pattern: '/api/design/sessions/:id/preview-link' },
+  // The caller's own automatic time tracking switch in the portal header (Mike, 2026-11-26).
+  { method: 'GET', pattern: '/api/design/me/auto-timer' },
+  { method: 'PATCH', pattern: '/api/design/me/auto-timer' },
 ];
 
 /**

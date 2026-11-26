@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Settings, Palette, Bell, Type, Check, Loader2, Camera, User, Key, MessageSquare, Home } from 'lucide-react';
+import { Settings, Palette, Bell, Type, Check, Loader2, Camera, User, Key, MessageSquare, Home, Timer } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { usePreferences, useUpdatePreferences } from '@/lib/hooks/use-preferences';
 import { useAuth } from '@/lib/hooks/use-auth';
@@ -10,6 +10,7 @@ import { apiClient } from '@/lib/api/client';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
 import { LearnedCard } from '@/components/domain/home/LearnedCard';
 import { PortalChatSettings } from '@/components/domain/settings/portal-chat-settings';
 
@@ -217,6 +218,25 @@ export default function GuildPage() {
               />
             ))}
           </div>
+        </SettingsCard>
+
+        {/* Automatic time tracking (Mike, 2026-11-26): per person, off by default */}
+        <SettingsCard
+          icon={Timer}
+          title="Automatic time tracking"
+          description="When on, the designer portal starts your timer on a task as soon as you open its page. When off, timers start only when you start them."
+        >
+          <label htmlFor="auto-time-tracking" className="flex items-center gap-3 cursor-pointer">
+            <Switch
+              id="auto-time-tracking"
+              checked={preferences?.auto_time_tracking ?? false}
+              onCheckedChange={(checked) => updatePreferences.mutate({ auto_time_tracking: checked })}
+              disabled={updatePreferences.isPending}
+            />
+            <span className="text-sm text-text-main">
+              {preferences?.auto_time_tracking ? 'On' : 'Off'}
+            </span>
+          </label>
         </SettingsCard>
 
         {/* First screen (admin) */}

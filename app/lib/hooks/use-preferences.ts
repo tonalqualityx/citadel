@@ -12,6 +12,8 @@ export interface UserPreferences {
   energy_filter: 'all' | 'low_energy' | 'deep_work';
   // Home screen Slice 1: which first screen /dashboard renders.
   home_view: 'overlook' | 'home';
+  // Automatic time tracking: the designer portal starts this person's timer when they open a page only while on.
+  auto_time_tracking: boolean;
 }
 
 interface PreferencesResponse {

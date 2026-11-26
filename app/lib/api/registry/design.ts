@@ -262,6 +262,27 @@ const workerPublishPatchBody: ParamDef[] = [
 export const designEndpoints: ApiEndpoint[] = [
   // ---- Designer workspace: sessions, tasks, feed, pins, changes ----
   {
+    path: '/api/design/me/auto-timer',
+    group: 'design',
+    methods: [
+      {
+        method: 'GET',
+        summary: "The caller's own automatic time tracking setting (the portal starts their timer on opening a page only while on). Off by default. Signed-in session only.",
+        auth: 'required',
+        roles: ['designer', 'admin', 'pm', 'tech'],
+        responseExample: { auto_time_tracking: 'boolean' },
+      },
+      {
+        method: 'PATCH',
+        summary: "Turn the caller's own automatic time tracking on or off. Body: { auto_time_tracking: boolean }, nothing else. Signed-in session only.",
+        auth: 'required',
+        roles: ['designer', 'admin', 'pm', 'tech'],
+        bodySchema: [{ name: 'auto_time_tracking', type: 'boolean', required: true, description: 'On or off' }],
+        responseExample: { auto_time_tracking: 'boolean' },
+      },
+    ],
+  },
+  {
     path: '/api/design/tasks',
     group: 'design',
     methods: [

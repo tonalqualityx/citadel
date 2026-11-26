@@ -127,19 +127,25 @@ export const userEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'GET',
-        summary: 'Get current user preferences (theme, naming convention).',
+        summary: 'Get current user preferences (theme, naming convention, automatic time tracking).',
         auth: 'required',
         responseExample: {
-          theme: 'light|dark|dim',
-          naming_convention: 'string',
-          sidebar_collapsed: 'boolean',
+          preferences: {
+            theme: 'light|dim|dark|system',
+            naming_convention: 'awesome|standard',
+            notification_bundle: 'boolean',
+            today_view: 'list|board',
+            energy_filter: 'all|low_energy|deep_work',
+            home_view: 'overlook|home',
+            auto_time_tracking: 'boolean',
+          },
         },
       },
       {
         method: 'PATCH',
-        summary: 'Update user preferences.',
+        summary: 'Update user preferences. auto_time_tracking: the designer portal starts your timer when you open a page only while on (default off).',
         auth: 'required',
-        responseExample: { success: true },
+        responseExample: { preferences: { theme: 'string', auto_time_tracking: 'boolean' } },
       },
     ],
   },

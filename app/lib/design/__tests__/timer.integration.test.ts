@@ -4,7 +4,7 @@ import { createOrGetSession, transitionSession } from '../sessions';
 import { onPresence } from '../presence';
 import { ensureTimer, lapseStop, observeTimer, stopTimer, sweepLapsedTimers, AUTO_TIMER_DESCRIPTION, autoTimerBillable } from '../timer';
 import { createCommand, claimCommand, completeCommand } from '../commands';
-import { startRunningEntry } from '@/lib/services/time-entries';
+import { startRunningEntry, stopRunningEntry } from '@/lib/services/time-entries';
 import { SCRATCH, seedDesign, seedTask, teardownDesign, type DesignFixture } from './fixtures';
 
 const MIN = 60_000;
@@ -161,6 +161,32 @@ describe.skipIf(!SCRATCH)('automatic task timer (real database)', () => {
     await prisma.site.update({ where: { id: f.siteId }, data: { design_auto_timer: false } });
     await onPresence(a.session, true, f.designer);
     expect(await entries(f.designer.userId, a.taskId)).toHaveLength(0);
+  });
+
+  it('the person\'s automatic time tracking off: opening starts nothing, a manual timer still runs and stops; on again starts it', async () => {
+    const setPref = (on: boolean) => prisma.userPreference.update({ where: { user_id: f.designer.userId }, data: { auto_time_tracking: on } });
+    try {
+      await setPref(false);
+      const a = await open();
+      const view = await onPresence(a.session, true, f.designer);
+      expect(view?.running).toBe(false);
+      expect(await entries(f.designer.userId, a.taskId)).toHaveLength(0);
+      expect((await sess(a.session.id)).timer_entry_id).toBeNull();
+
+      // Manual start and stop are the Timekeeper's, untouched by the setting.
+      const manual = await startRunningEntry({ userId: f.designer.userId, taskId: a.taskId, description: 'manual', isBillable: false, touchTask: false }, prisma);
+      expect((await onPresence(a.session, true, f.designer))?.running).toBe(true);
+      expect((await sess(a.session.id)).timer_entry_id).toBeNull();
+      await stopRunningEntry({ entryId: manual.id, endedAt: new Date() }, prisma);
+      expect((await prisma.timeEntry.findUniqueOrThrow({ where: { id: manual.id } })).is_running).toBe(false);
+
+      await setPref(true);
+      const b = await open();
+      expect((await onPresence(b.session, true, f.designer))?.running).toBe(true);
+      expect(await entries(f.designer.userId, b.taskId)).toHaveLength(1);
+    } finally {
+      await setPref(true);
+    }
   });
 
   it('publish status changes leave it running; close stops it and a later poll does not restart it', async () => {

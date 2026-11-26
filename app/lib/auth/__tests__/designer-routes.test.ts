@@ -46,8 +46,10 @@ describe('DESIGNER_ROUTES', () => {
       'POST /api/design/sessions/:id/art-direction/sign',
       'POST /api/design/sessions/:id/art-direction/revise',
       'POST /api/design/sessions/:id/preview-link',
+      'GET /api/design/me/auto-timer',
+      'PATCH /api/design/me/auto-timer',
     ]);
-    expect(DESIGNER_ROUTES).toHaveLength(38);
+    expect(DESIGNER_ROUTES).toHaveLength(40);
   });
 
   it.each(DESIGNER_ROUTES.map((r) => [r.method, concrete(r.pattern)]))('allows %s %s', (method, path) => {

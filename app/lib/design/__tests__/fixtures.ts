@@ -28,6 +28,8 @@ export async function seedDesign(tag: string): Promise<DesignFixture> {
   const mkUser = (role: 'designer' | 'admin' | 'tech', n: string) =>
     prisma.user.create({ data: { email: `dp-${tag}-${n}@example.test`, password_hash: 'x', name: `${n} ${tag}`, role } });
   const [d, a, o, t] = await Promise.all([mkUser('designer', 'd'), mkUser('admin', 'a'), mkUser('designer', 'o'), mkUser('tech', 't')]);
+  // Fixture users opt in to automatic time tracking so the timer tests exercise it; the off case turns it off itself.
+  await prisma.userPreference.createMany({ data: [d, a, o, t].map((u) => ({ user_id: u.id, auto_time_tracking: true })) });
   const client = await prisma.client.create({ data: { name: `DP ${tag} Co`, type: 'direct', status: 'active' } });
   const site = await prisma.site.create({
     data: { name: `${tag} site`, url: `https://${tag}.example.test`, client_id: client.id, design_portal_enabled: true, site_type: 'eleventy' },

@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('@/lib/db/prisma', () => ({ prisma: {} }));
 
-import { ownsTimer, isClosingOrTerminal, ensureTimer, keepAlive, autoTimerBillable } from '../timer';
+import { ownsTimer, isClosingOrTerminal, ensureTimer, keepAlive, autoTimerBillable, autoTrackingOn } from '../timer';
 import { designerMayCall } from '@/lib/auth/designer-routes';
 
 const session = { designer_id: 'u-owner' };
@@ -47,6 +47,7 @@ describe('presence guard while closing', () => {
       designCommand: { findFirst: vi.fn(async () => (closeCmd ? { id: 'c1' } : null)) },
       designPortalSettings: { findUnique: vi.fn(async () => ({ auto_timer_enabled: true, auto_timer_lapse_minutes: 5, auto_timer_billable: false })) },
       site: { findUnique: vi.fn(async () => ({ design_auto_timer: true })) },
+      userPreference: { findUnique: vi.fn(async () => ({ auto_time_tracking: true })) },
       timeEntry: { findFirst: vi.fn(async () => null), findMany: vi.fn(async () => []) },
       $transaction: vi.fn(),
     };
@@ -93,5 +94,52 @@ describe('autoTimerBillable (Mike 2026-10-29): billable only for ad-hoc work of 
   });
   it('a missing task is non-billable', async () => {
     expect(await autoTimerBillable('t', db(null, null))).toBe(false);
+  });
+});
+
+describe('the person\'s automatic time tracking setting (Mike 2026-11-26)', () => {
+  const fakeDb = (pref: { auto_time_tracking: boolean } | null) => {
+    const db = {
+      designSession: { findUnique: vi.fn(async () => ({ status: 'active', closed_at: null, timer_entry_id: null, timer_presence_at: null })), updateMany: vi.fn() },
+      designCommand: { findFirst: vi.fn(async () => null) },
+      designPortalSettings: { findUnique: vi.fn(async () => ({ auto_timer_enabled: true, auto_timer_lapse_minutes: 5 })) },
+      site: { findUnique: vi.fn(async () => ({ design_auto_timer: true })) },
+      userPreference: { findUnique: vi.fn(async () => pref) },
+      timeEntry: { findFirst: vi.fn(async () => null), findMany: vi.fn(async () => []) },
+      $transaction: vi.fn(async () => undefined),
+    };
+    return db;
+  };
+  const session = { id: 's', designer_id: 'd', task_id: 't', site_id: 'x' };
+  const actor = { userId: 'd', role: 'designer' };
+
+  it('is on only when the person turned it on; no row means off', async () => {
+    expect(await autoTrackingOn('d', fakeDb({ auto_time_tracking: true }) as never)).toBe(true);
+    expect(await autoTrackingOn('d', fakeDb({ auto_time_tracking: false }) as never)).toBe(false);
+    expect(await autoTrackingOn('d', fakeDb(null) as never)).toBe(false);
+  });
+
+  it('off (or no preferences row): opening a page starts no timer and reports the current state', async () => {
+    for (const pref of [{ auto_time_tracking: false }, null]) {
+      const db = fakeDb(pref);
+      const view = await ensureTimer(session, actor, new Date(), db as never);
+      expect(db.$transaction).not.toHaveBeenCalled();
+      expect(db.userPreference.findUnique).toHaveBeenCalledWith({ where: { user_id: 'd' }, select: { auto_time_tracking: true } });
+      expect(view).toEqual({ running: false, elapsed_s: 0 });
+    }
+  });
+
+  it('off: a timer the person started by hand still shows as running', async () => {
+    const db = fakeDb({ auto_time_tracking: false });
+    db.timeEntry.findFirst = vi.fn(async () => ({ id: 'manual' })) as never;
+    const view = await ensureTimer(session, actor, new Date(), db as never);
+    expect(db.$transaction).not.toHaveBeenCalled();
+    expect(view?.running).toBe(true);
+  });
+
+  it('on: opening a page goes on to start the timer', async () => {
+    const db = fakeDb({ auto_time_tracking: true });
+    await ensureTimer(session, actor, new Date(), db as never);
+    expect(db.$transaction).toHaveBeenCalledTimes(1);
   });
 });

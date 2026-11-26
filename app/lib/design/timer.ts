@@ -59,6 +59,15 @@ export async function autoTimerBillable(taskId: string, db: Pick<PrismaClient, '
   return !(client?.retainer_hours != null && Number(client.retainer_hours) > 0);
 }
 
+/**
+ * The person's own automatic time tracking setting (Mike, 2026-11-26). No preferences row, or the setting off, means
+ * no automatic start: off is the default for everyone but Mike. Manual (Timekeeper) timers never read this.
+ */
+export async function autoTrackingOn(userId: string, db: Pick<PrismaClient, 'userPreference'>): Promise<boolean> {
+  const pref = await db.userPreference.findUnique({ where: { user_id: userId }, select: { auto_time_tracking: true } });
+  return pref?.auto_time_tracking === true;
+}
+
 /** Only the session's opener (a designer, or an admin or tech in a session they opened) owns a timer. */
 export function ownsTimer(session: Pick<TimerSession, 'designer_id'>, actor: TimerActor | undefined): boolean {
   return !!actor && actor.userId === session.designer_id && opensSessions(actor.role);
@@ -136,6 +145,8 @@ export async function ensureTimer(session: TimerSession, actor: TimerActor | und
   const settings = await loadSettings(db);
   const site = await db.site.findUnique({ where: { id: session.site_id }, select: { design_auto_timer: true } });
   if (!settings.enabled || site?.design_auto_timer === false) return viewOf(db, session, now);
+  // The person's own setting: off starts nothing (a lapsed entry still stops on the hidden-poll and sweep paths).
+  if (!(await autoTrackingOn(session.designer_id, db))) return viewOf(db, session, now);
 
   await lapseStop(session, now, db);
   if (await isClosingOrTerminal(session.id, db)) return viewOf(db, session, now); // closed or closing: never (re)start

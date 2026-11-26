@@ -5,8 +5,10 @@ import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
 import { useAuth } from '@/lib/hooks/use-auth';
+import { AutoTimerSwitch } from './AutoTimerSwitch';
 
-// Minimal designer chrome. /auth/me is the only non-design route it calls (designers may call it).
+// Minimal designer chrome. /auth/me is the only non-design route it calls (designers may call it). The automatic time
+// tracking switch reads and writes the person's own setting through /api/design/me/auto-timer.
 export function DesignChrome({ role }: { role: string | null }) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -34,6 +36,7 @@ export function DesignChrome({ role }: { role: string | null }) {
             Back to Citadel
           </Link>
         )}
+        {user && <AutoTimerSwitch />}
         {user && <span className="hidden text-text-main sm:inline">{user.name}</span>}
         <button type="button" onClick={signOut} className="min-h-[44px] px-2 text-text-sub hover:text-text-main sm:min-h-0">
           Sign out
