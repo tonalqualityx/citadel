@@ -21,7 +21,7 @@ export async function PATCH(
     requireRole(auth, ['pm', 'admin']);
     const { id, taskId } = await params;
 
-    const scheduledTask = await prisma.charterScheduledTask.findFirst({
+    const scheduledTask = await prisma.recurringWork.findFirst({
       where: { id: taskId, charter_id: id },
     });
 
@@ -32,7 +32,7 @@ export async function PATCH(
     const body = await request.json();
     const data = updateScheduledTaskSchema.parse(body);
 
-    const updated = await prisma.charterScheduledTask.update({
+    const updated = await prisma.recurringWork.update({
       where: { id: taskId },
       data,
       include: {
@@ -55,7 +55,7 @@ export async function DELETE(
     requireRole(auth, ['pm', 'admin']);
     const { id, taskId } = await params;
 
-    const scheduledTask = await prisma.charterScheduledTask.findFirst({
+    const scheduledTask = await prisma.recurringWork.findFirst({
       where: { id: taskId, charter_id: id },
     });
 
@@ -63,7 +63,7 @@ export async function DELETE(
       throw new ApiError('Scheduled task not found', 404);
     }
 
-    await prisma.charterScheduledTask.delete({
+    await prisma.recurringWork.delete({
       where: { id: taskId },
     });
 

@@ -231,7 +231,7 @@ export function CharterDetail({ charter }: CharterDetailProps) {
                     )}
                   </div>
                   <span className="text-sm text-text-sub capitalize">
-                    {task.cadence}
+                    {task.cadence ?? ''}
                   </span>
                 </div>
               ))}

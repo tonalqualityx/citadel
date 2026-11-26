@@ -826,21 +826,72 @@ export function formatCharterWareResponse(cw: any) {
   };
 }
 
-export function formatCharterScheduledTaskResponse(st: any) {
+/** Recurring work (design.md 2.5): every column, plus resolved names for whatever the query included. */
+type RecurringWorkRow = Record<string, unknown> & {
+  id: string;
+  sop?: { id: string; title: string } | null;
+  charter?: {
+    id: string;
+    name: string;
+    client_id?: string | null;
+    site_id?: string | null;
+    client?: { id: string; name: string } | null;
+    site?: { id: string; name: string } | null;
+  } | null;
+  owner?: { id: string; name: string } | null;
+  client?: { id: string; name: string } | null;
+  site?: { id: string; name: string } | null;
+  initiative?: { id: string; name: string } | null;
+};
+
+export function formatRecurringWorkResponse(rw: RecurringWorkRow) {
+  const named = (r?: { id: string; name: string } | null) => (r ? { id: r.id, name: r.name } : null);
+  // a charter row's client and site are the charter's own, read live so a charter that changes client moves its rows
+  const fromCharter = Boolean(rw.charter_id && rw.charter && 'client_id' in rw.charter);
+  const clientId = fromCharter ? (rw.charter!.client_id ?? null) : ((rw.client_id as string | null | undefined) ?? null);
+  const siteId = fromCharter ? (rw.charter!.site_id ?? null) : ((rw.site_id as string | null | undefined) ?? null);
+  const client = fromCharter ? named(rw.charter!.client) : named(rw.client);
+  const site = fromCharter ? named(rw.charter!.site) : named(rw.site);
   return {
-    id: st.id,
-    charter_id: st.charter_id,
-    charter_ware_id: st.charter_ware_id,
-    sop_id: st.sop_id,
-    sop: st.sop
-      ? { id: st.sop.id, title: st.sop.title }
-      : null,
-    cadence: st.cadence,
-    sort_order: st.sort_order,
-    is_active: st.is_active,
-    created_at: st.created_at,
-    updated_at: st.updated_at,
+    id: rw.id,
+    kind: rw.kind ?? 'citadel_task',
+    title: rw.title ?? rw.sop?.title ?? null,
+    charter_id: rw.charter_id ?? null,
+    charter: rw.charter ? { id: rw.charter.id, name: rw.charter.name } : null,
+    charter_ware_id: rw.charter_ware_id ?? null,
+    sop_id: rw.sop_id ?? null,
+    sop: rw.sop ? { id: rw.sop.id, title: rw.sop.title } : null,
+    cadence: rw.cadence ?? null,
+    schedule_text: rw.schedule_text ?? null,
+    cron_expr: rw.cron_expr ?? null,
+    job_key: rw.job_key ?? null,
+    source_kind: rw.source_kind ?? null,
+    source_id: rw.source_id ?? null,
+    owner_id: rw.owner_id ?? null,
+    owner: named(rw.owner),
+    produces: rw.produces ?? null,
+    client_id: clientId,
+    client,
+    site_id: siteId,
+    site,
+    initiative_id: rw.initiative_id ?? null,
+    initiative: named(rw.initiative),
+    is_plumbing: rw.is_plumbing ?? false,
+    last_run_at: rw.last_run_at ?? null,
+    last_run_ok: rw.last_run_ok ?? null,
+    last_run_note: rw.last_run_note ?? null,
+    next_run_at: rw.next_run_at ?? null,
+    paused_on_purpose: rw.paused_on_purpose ?? false,
+    sort_order: rw.sort_order,
+    is_active: rw.is_active,
+    created_at: rw.created_at,
+    updated_at: rw.updated_at,
   };
+}
+
+/** A charter's scheduled task is a recurring work row; charter responses keep every field they had and gain the new ones. */
+export function formatCharterScheduledTaskResponse(st: RecurringWorkRow) {
+  return formatRecurringWorkResponse(st);
 }
 
 export function formatCharterCommissionResponse(cc: any) {

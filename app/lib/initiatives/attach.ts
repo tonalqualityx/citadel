@@ -1,5 +1,5 @@
 /**
- * Attach or detach one project or one task to an initiative, and nothing else. The chat's narrow path: the project and
+ * Attach or detach one project, one task or one recurring work row to an initiative, and nothing else. The chat's narrow path: the project and
  * task PATCH routes take many other fields, so the chat lane never reaches them for this (design.md 2.3, "optional
  * attachments"). One initiative per item; attaching an item that already belongs to another initiative moves it.
  */
@@ -8,21 +8,31 @@ import { prisma } from '@/lib/db/prisma';
 import { ApiError } from '@/lib/api/errors';
 import { assertInitiativeLinkable } from './service';
 
-/** Exactly one of project_id or task_id. */
+/** Exactly one of project_id, task_id or recurring_work_id. */
 export const attachBodySchema = z
-  .object({ project_id: z.string().uuid().optional(), task_id: z.string().uuid().optional() })
+  .object({ project_id: z.string().uuid().optional(), task_id: z.string().uuid().optional(), recurring_work_id: z.string().uuid().optional() })
   .strict()
-  .refine((b) => (b.project_id ? 1 : 0) + (b.task_id ? 1 : 0) === 1, { message: 'Send exactly one of project_id or task_id' });
+  .refine((b) => (b.project_id ? 1 : 0) + (b.task_id ? 1 : 0) + (b.recurring_work_id ? 1 : 0) === 1, {
+    message: 'Send exactly one of project_id, task_id or recurring_work_id',
+  });
 
 export type AttachBody = z.infer<typeof attachBodySchema>;
 
-type Found = { kind: 'project' | 'task'; id: string; name: string; initiative_id: string | null };
+type Found = { kind: 'project' | 'task' | 'recurring_work'; id: string; name: string; initiative_id: string | null };
 
 async function findItem(body: AttachBody): Promise<Found> {
   if (body.project_id) {
     const p = await prisma.project.findFirst({ where: { id: body.project_id, is_deleted: false }, select: { id: true, name: true, initiative_id: true } });
     if (!p) throw new ApiError('Project not found', 404);
     return { kind: 'project', id: p.id, name: p.name, initiative_id: p.initiative_id };
+  }
+  if (body.recurring_work_id) {
+    const r = await prisma.recurringWork.findFirst({
+      where: { id: body.recurring_work_id },
+      select: { id: true, title: true, sop: { select: { title: true } }, initiative_id: true },
+    });
+    if (!r) throw new ApiError('Recurring work not found', 404);
+    return { kind: 'recurring_work', id: r.id, name: r.title ?? r.sop?.title ?? 'Recurring work', initiative_id: r.initiative_id };
   }
   const t = await prisma.task.findFirst({ where: { id: body.task_id!, is_deleted: false }, select: { id: true, title: true, initiative_id: true } });
   if (!t) throw new ApiError('Task not found', 404);
@@ -31,6 +41,7 @@ async function findItem(body: AttachBody): Promise<Found> {
 
 async function setLink(item: Found, initiativeId: string | null) {
   if (item.kind === 'project') await prisma.project.update({ where: { id: item.id }, data: { initiative_id: initiativeId } });
+  else if (item.kind === 'recurring_work') await prisma.recurringWork.update({ where: { id: item.id }, data: { initiative_id: initiativeId } });
   else await prisma.task.update({ where: { id: item.id }, data: { initiative_id: initiativeId } });
 }
 

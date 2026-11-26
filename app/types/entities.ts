@@ -616,18 +616,47 @@ export interface CharterWareItem {
   updated_at: string;
 }
 
-export interface CharterScheduledTaskItem {
+export type RecurringKind = 'citadel_task' | 'machine_job' | 'engine';
+
+/** A recurring work record (design.md 2.5). A charter's scheduled tasks are these rows. */
+export interface RecurringWorkItem {
   id: string;
-  charter_id: string;
+  kind: RecurringKind;
+  title: string | null;
+  charter_id: string | null;
+  charter?: { id: string; name: string } | null;
   charter_ware_id: string | null;
-  sop_id: string;
-  sop?: { id: string; title: string };
-  cadence: string;
+  sop_id: string | null;
+  sop?: { id: string; title: string } | null;
+  cadence: string | null;
+  schedule_text: string | null;
+  cron_expr: string | null;
+  job_key: string | null;
+  source_kind: string | null;
+  source_id: string | null;
+  owner_id: string | null;
+  owner?: { id: string; name: string } | null;
+  produces: string | null;
+  client_id: string | null;
+  client?: { id: string; name: string } | null;
+  site_id: string | null;
+  site?: { id: string; name: string } | null;
+  initiative_id: string | null;
+  initiative?: { id: string; name: string } | null;
+  is_plumbing: boolean;
+  last_run_at: string | null;
+  last_run_ok: boolean | null;
+  last_run_note: string | null;
+  next_run_at: string | null;
+  paused_on_purpose: boolean;
   sort_order: number;
   is_active: boolean;
   created_at: string;
   updated_at: string;
 }
+
+/** The charter screens' name for the same row. */
+export type CharterScheduledTaskItem = RecurringWorkItem;
 
 export interface CharterCommissionItem {
   id: string;

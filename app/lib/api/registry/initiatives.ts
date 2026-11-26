@@ -165,14 +165,15 @@ export const initiativeEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'POST',
-        summary: 'link one project or one task to this initiative. Send exactly one of project_id or task_id. An item already on another initiative moves here (moved_from names the old one). 404 for an unknown initiative, project or task.',
+        summary: 'link one project, one task or one recurring work row to this initiative. Send exactly one of project_id, task_id or recurring_work_id. An item already on another initiative moves here (moved_from names the old one). 404 for an unknown initiative, project or task.',
         auth: 'required',
         roles: ['pm', 'admin'],
         bodySchema: [
-          { name: 'project_id', type: 'uuid', required: false, description: 'The project to attach (send this or task_id, not both)' },
-          { name: 'task_id', type: 'uuid', required: false, description: 'The task to attach (send this or project_id, not both)' },
+          { name: 'project_id', type: 'uuid', required: false, description: 'The project to attach (send exactly one of project_id, task_id, recurring_work_id)' },
+          { name: 'task_id', type: 'uuid', required: false, description: 'The task to attach' },
+          { name: 'recurring_work_id', type: 'uuid', required: false, description: 'The recurring work row to attach' },
         ],
-        responseExample: { attached: 'boolean', kind: 'project|task', id: 'uuid', name: 'string', initiative_id: 'uuid', moved_from: 'uuid|null' },
+        responseExample: { attached: 'boolean', kind: 'project|task|recurring_work', id: 'uuid', name: 'string', initiative_id: 'uuid', moved_from: 'uuid|null' },
       },
     ],
   },
@@ -182,14 +183,15 @@ export const initiativeEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'POST',
-        summary: 'Unlink one project or one task, only when it points at this initiative. Send exactly one of project_id or task_id. 409 not_attached_here when it is attached elsewhere or nowhere.',
+        summary: 'Unlink one project, one task or one recurring work row, only when it points at this initiative. Send exactly one of project_id, task_id or recurring_work_id. 409 not_attached_here when it is attached elsewhere or nowhere.',
         auth: 'required',
         roles: ['pm', 'admin'],
         bodySchema: [
-          { name: 'project_id', type: 'uuid', required: false, description: 'The project to detach (send this or task_id, not both)' },
-          { name: 'task_id', type: 'uuid', required: false, description: 'The task to detach (send this or project_id, not both)' },
+          { name: 'project_id', type: 'uuid', required: false, description: 'The project to detach (send exactly one of project_id, task_id, recurring_work_id)' },
+          { name: 'task_id', type: 'uuid', required: false, description: 'The task to detach' },
+          { name: 'recurring_work_id', type: 'uuid', required: false, description: 'The recurring work row to detach' },
         ],
-        responseExample: { attached: 'boolean', kind: 'project|task', id: 'uuid', name: 'string', initiative_id: 'null' },
+        responseExample: { attached: 'boolean', kind: 'project|task|recurring_work', id: 'uuid', name: 'string', initiative_id: 'null' },
       },
     ],
   },

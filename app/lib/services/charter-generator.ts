@@ -6,7 +6,7 @@
  */
 
 import { prisma } from '@/lib/db/prisma';
-import { TaskStatus } from '@prisma/client';
+import { Prisma, TaskStatus } from '@prisma/client';
 import { closeAsksForTasks } from '@/lib/work/ask-closure'; // Work stage A: the one closure of a finished task's emails
 
 export interface CharterGenerationResult {
@@ -17,12 +17,21 @@ export interface CharterGenerationResult {
   tasksAbandoned: number;
 }
 
+export interface RecurringGenerationResult {
+  recurringWorkId: string;
+  period: string;
+  tasksCreated: number;
+  tasksAbandoned: number;
+}
+
 export interface CharterGenerationSummary {
   totalChartersProcessed: number;
   totalTasksCreated: number;
   totalTasksAbandoned: number;
   results: CharterGenerationResult[];
-  errors: { charterId: string; error: string }[];
+  /** Recurring work with no charter (design.md 2.5 step 6); its tasks are also counted in the totals above. */
+  standalone: RecurringGenerationResult[];
+  errors: { charterId: string | null; recurringWorkId?: string; error: string }[];
 }
 
 type CharterCadence = 'weekly' | 'monthly' | 'quarterly' | 'semi_annually' | 'annually';
@@ -103,19 +112,14 @@ export function getCharterPeriodEndDate(periodString: string, cadence: CharterCa
 }
 
 /**
- * Check if a scheduled task is due for generation
+ * Check if a recurring row is due for generation. The log is unique on (row, period), so one lookup answers it.
  */
-export async function isCharterTaskDue(
-  charterId: string,
-  scheduledTaskId: string,
-  cadence: CharterCadence
-): Promise<boolean> {
+export async function isRecurringTaskDue(scheduledTaskId: string, cadence: CharterCadence): Promise<boolean> {
   const currentPeriod = getCharterPeriodString(new Date(), cadence);
 
   const existingLog = await prisma.charterGenerationLog.findUnique({
     where: {
-      charter_id_scheduled_task_id_period: {
-        charter_id: charterId,
+      scheduled_task_id_period: {
         scheduled_task_id: scheduledTaskId,
         period: currentPeriod,
       },
@@ -123,6 +127,128 @@ export async function isCharterTaskDue(
   });
 
   return !existingLog;
+}
+
+/**
+ * Check if a scheduled task is due for generation (kept for charter callers; the charter id no longer
+ * takes part in the key).
+ */
+export async function isCharterTaskDue(
+  _charterId: string,
+  scheduledTaskId: string,
+  cadence: CharterCadence
+): Promise<boolean> {
+  return isRecurringTaskDue(scheduledTaskId, cadence);
+}
+
+type GeneratableRow = Prisma.RecurringWorkGetPayload<{ include: { sop: true } }>;
+
+interface RowContext {
+  /** null for recurring work with no charter */
+  charterId: string | null;
+  clientId: string;
+  siteId: string | null;
+  isRetainerWork: boolean;
+}
+
+/**
+ * Make one period's task for one recurring row: abandon the earlier periods' open tasks, create the new task
+ * and write the log, all in one transaction. Returns null when the row is not generatable or not due.
+ */
+async function generateForRow(
+  row: GeneratableRow,
+  ctx: RowContext
+): Promise<{ created: number; abandoned: number; period: string } | null> {
+  if (row.kind !== 'citadel_task' || !row.sop || !row.cadence) return null;
+  const sop = row.sop;
+  const cadence = row.cadence as CharterCadence;
+  const currentPeriod = getCharterPeriodString(new Date(), cadence);
+
+  const isDue = await isRecurringTaskDue(row.id, cadence);
+  if (!isDue) return null;
+
+  const dueDate = getCharterPeriodEndDate(currentPeriod, cadence);
+
+  // Earlier tasks of this row: by recurring_work_id, and (charter rows only) the old charter + SOP match for
+  // tasks made before the column existed.
+  const sameRow: Prisma.TaskWhereInput[] = [{ recurring_work_id: row.id }];
+  if (ctx.charterId) sameRow.push({ recurring_work_id: null, charter_id: ctx.charterId, sop_id: sop.id });
+
+  const result = await prisma.$transaction(async (tx) => {
+    // Mark old incomplete tasks from this recurring row as abandoned
+    const previousTasks = await tx.task.findMany({
+      where: {
+        OR: sameRow,
+        status: { notIn: ['done', 'abandoned', 'triage'] }, // a triage task is Mike's to release or drop
+        maintenance_period: { not: currentPeriod },
+      },
+    });
+
+    let abandoned = 0;
+    if (previousTasks.length > 0) {
+      const updateResult = await tx.task.updateMany({
+        where: { id: { in: previousTasks.map((t) => t.id) } },
+        data: { status: TaskStatus.abandoned, updated_at: new Date() },
+      });
+      abandoned = updateResult.count;
+      await closeAsksForTasks(tx, previousTasks.map((t) => t.id), 'abandoned'); // Work stage A
+    }
+
+    if (!sop.is_active) {
+      // Still log even if SOP is inactive, to prevent re-checking
+      await tx.charterGenerationLog.create({
+        data: {
+          charter_id: ctx.charterId,
+          scheduled_task_id: row.id,
+          period: currentPeriod,
+          tasks_created: 0,
+          tasks_abandoned: abandoned,
+        },
+      });
+      return { created: 0, abandoned };
+    }
+
+    await tx.task.create({
+      data: {
+        title: sop.title,
+        description: sop.content ? JSON.stringify(sop.content) : null,
+        status: 'not_started',
+        priority: sop.default_priority,
+        client_id: ctx.clientId,
+        charter_id: ctx.charterId,
+        ...(ctx.siteId ? { site_id: ctx.siteId } : {}),
+        sop_id: sop.id,
+        recurring_work_id: row.id,
+        function_id: sop.function_id,
+        energy_estimate: sop.energy_estimate,
+        mystery_factor: sop.mystery_factor,
+        battery_impact: sop.battery_impact,
+        estimated_minutes: sop.estimated_minutes,
+        needs_review: sop.needs_review,
+        requirements: sop.template_requirements as object | undefined,
+        review_requirements: sop.review_requirements as object | undefined,
+        is_maintenance_task: false,
+        maintenance_period: currentPeriod,
+        due_date: dueDate,
+        is_billable: false,
+        is_retainer_work: ctx.isRetainerWork,
+      },
+    });
+
+    await tx.charterGenerationLog.create({
+      data: {
+        charter_id: ctx.charterId,
+        scheduled_task_id: row.id,
+        period: currentPeriod,
+        tasks_created: 1,
+        tasks_abandoned: abandoned,
+      },
+    });
+
+    return { created: 1, abandoned };
+  });
+
+  return { ...result, period: currentPeriod };
 }
 
 /**
@@ -134,7 +260,7 @@ export async function generateCharterTasks(charterId: string): Promise<CharterGe
     include: {
       client: true,
       scheduled_tasks: {
-        where: { is_active: true },
+        where: { is_active: true, kind: 'citadel_task' },
         include: {
           sop: true,
           charter_ware: true,
@@ -156,88 +282,13 @@ export async function generateCharterTasks(charterId: string): Promise<CharterGe
   let totalAbandoned = 0;
 
   for (const scheduledTask of charter.scheduled_tasks) {
-    const cadence = scheduledTask.cadence as CharterCadence;
-    const currentPeriod = getCharterPeriodString(new Date(), cadence);
-
-    const isDue = await isCharterTaskDue(charterId, scheduledTask.id, cadence);
-    if (!isDue) continue;
-
-    const dueDate = getCharterPeriodEndDate(currentPeriod, cadence);
-
-    const result = await prisma.$transaction(async (tx) => {
-      // Mark old incomplete tasks from this scheduled task as abandoned
-      const previousTasks = await tx.task.findMany({
-        where: {
-          charter_id: charterId,
-          sop_id: scheduledTask.sop_id,
-          status: { notIn: ['done', 'abandoned', 'triage'] }, // a triage task is Mike's to release or drop
-          maintenance_period: { not: currentPeriod },
-        },
-      });
-
-      let abandoned = 0;
-      if (previousTasks.length > 0) {
-        const updateResult = await tx.task.updateMany({
-          where: { id: { in: previousTasks.map((t) => t.id) } },
-          data: { status: TaskStatus.abandoned, updated_at: new Date() },
-        });
-        abandoned = updateResult.count;
-        await closeAsksForTasks(tx, previousTasks.map((t) => t.id), 'abandoned'); // Work stage A
-      }
-
-      const sop = scheduledTask.sop;
-      if (!sop.is_active) {
-        // Still log even if SOP is inactive, to prevent re-checking
-        await tx.charterGenerationLog.create({
-          data: {
-            charter_id: charterId,
-            scheduled_task_id: scheduledTask.id,
-            period: currentPeriod,
-            tasks_created: 0,
-            tasks_abandoned: abandoned,
-          },
-        });
-        return { created: 0, abandoned };
-      }
-
-      await tx.task.create({
-        data: {
-          title: sop.title,
-          description: sop.content ? JSON.stringify(sop.content) : null,
-          status: 'not_started',
-          priority: sop.default_priority,
-          client_id: charter.client_id,
-          charter_id: charterId,
-          sop_id: sop.id,
-          function_id: sop.function_id,
-          energy_estimate: sop.energy_estimate,
-          mystery_factor: sop.mystery_factor,
-          battery_impact: sop.battery_impact,
-          estimated_minutes: sop.estimated_minutes,
-          needs_review: sop.needs_review,
-          requirements: sop.template_requirements as object | undefined,
-          review_requirements: sop.review_requirements as object | undefined,
-          is_maintenance_task: false,
-          maintenance_period: currentPeriod,
-          due_date: dueDate,
-          is_billable: false,
-          is_retainer_work: true,
-        },
-      });
-
-      await tx.charterGenerationLog.create({
-        data: {
-          charter_id: charterId,
-          scheduled_task_id: scheduledTask.id,
-          period: currentPeriod,
-          tasks_created: 1,
-          tasks_abandoned: abandoned,
-        },
-      });
-
-      return { created: 1, abandoned };
+    const result = await generateForRow(scheduledTask, {
+      charterId,
+      clientId: charter.client_id,
+      siteId: null, // charter rows behave exactly as before: the task carries no site
+      isRetainerWork: true,
     });
-
+    if (!result) continue;
     totalCreated += result.created;
     totalAbandoned += result.abandoned;
   }
@@ -249,14 +300,80 @@ export async function generateCharterTasks(charterId: string): Promise<CharterGe
   return {
     charterId,
     charterName: charter.name,
-    period: getCharterPeriodString(new Date(), charter.scheduled_tasks[0].cadence as CharterCadence),
+    period: getCharterPeriodString(new Date(), (charter.scheduled_tasks[0].cadence ?? 'monthly') as CharterCadence),
     tasksCreated: totalCreated,
     tasksAbandoned: totalAbandoned,
   };
 }
 
 /**
- * Generate tasks for all active charters that are due
+ * Indelible's own client: the Client named "Indelible" (case-insensitive). The codebase has no flag or constant for it.
+ * Null when there is none.
+ */
+export async function findIndelibleClientId(): Promise<string | null> {
+  const client = await prisma.client.findFirst({
+    where: { name: { equals: 'Indelible', mode: 'insensitive' }, is_deleted: false },
+    select: { id: true },
+  });
+  return client?.id ?? null;
+}
+
+/**
+ * Generate tasks for active citadel_task recurring work that has no charter (design.md 2.5 step 6). The row's own
+ * client, else Indelible's; never retainer work; no charter on the task. Machine and engine rows are never read.
+ */
+export async function generateStandaloneRecurringTasks(): Promise<{
+  results: RecurringGenerationResult[];
+  errors: { recurringWorkId: string; error: string }[];
+}> {
+  const out = { results: [] as RecurringGenerationResult[], errors: [] as { recurringWorkId: string; error: string }[] };
+
+  const rows = await prisma.recurringWork.findMany({
+    where: {
+      is_active: true,
+      kind: 'citadel_task',
+      charter_id: null,
+      sop_id: { not: null },
+      cadence: { not: null },
+    },
+    include: { sop: true },
+    orderBy: { sort_order: 'asc' },
+  });
+  if (rows.length === 0) return out;
+
+  let indelibleId: string | null | undefined;
+
+  for (const row of rows) {
+    try {
+      let clientId = row.client_id;
+      if (!clientId) {
+        if (indelibleId === undefined) indelibleId = await findIndelibleClientId();
+        if (!indelibleId) {
+          console.warn(`Recurring work ${row.id} has no client and no Indelible client was found; skipped`);
+          continue;
+        }
+        clientId = indelibleId;
+      }
+
+      const result = await generateForRow(row, {
+        charterId: null,
+        clientId,
+        siteId: row.site_id,
+        isRetainerWork: false,
+      });
+      if (result && (result.created > 0 || result.abandoned > 0)) {
+        out.results.push({ recurringWorkId: row.id, period: result.period, tasksCreated: result.created, tasksAbandoned: result.abandoned });
+      }
+    } catch (error) {
+      out.errors.push({ recurringWorkId: row.id, error: error instanceof Error ? error.message : 'Unknown error' });
+    }
+  }
+
+  return out;
+}
+
+/**
+ * Generate tasks for all active charters that are due, then for recurring work with no charter. One cron run covers both.
  */
 export async function generateAllDueCharterTasks(): Promise<CharterGenerationSummary> {
   const summary: CharterGenerationSummary = {
@@ -264,6 +381,7 @@ export async function generateAllDueCharterTasks(): Promise<CharterGenerationSum
     totalTasksCreated: 0,
     totalTasksAbandoned: 0,
     results: [],
+    standalone: [],
     errors: [],
   };
 
@@ -272,7 +390,7 @@ export async function generateAllDueCharterTasks(): Promise<CharterGenerationSum
       is_deleted: false,
       status: 'active',
       scheduled_tasks: {
-        some: { is_active: true },
+        some: { is_active: true, kind: 'citadel_task' },
       },
     },
   });
@@ -292,6 +410,18 @@ export async function generateAllDueCharterTasks(): Promise<CharterGenerationSum
         error: error instanceof Error ? error.message : 'Unknown error',
       });
     }
+  }
+
+  try {
+    const standalone = await generateStandaloneRecurringTasks();
+    for (const r of standalone.results) {
+      summary.standalone.push(r);
+      summary.totalTasksCreated += r.tasksCreated;
+      summary.totalTasksAbandoned += r.tasksAbandoned;
+    }
+    for (const e of standalone.errors) summary.errors.push({ charterId: null, ...e });
+  } catch (error) {
+    summary.errors.push({ charterId: null, error: error instanceof Error ? error.message : 'Unknown error' });
   }
 
   return summary;

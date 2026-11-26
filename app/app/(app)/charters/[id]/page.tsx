@@ -298,7 +298,7 @@ function ScheduleTab({
                     {task.sop?.title ?? 'Unknown SOP'}
                   </td>
                   <td className="px-4 py-3">
-                    <Badge size="sm">{task.cadence}</Badge>
+                    <Badge size="sm">{task.cadence ?? ''}</Badge>
                   </td>
                   <td className="px-4 py-3">
                     <Badge

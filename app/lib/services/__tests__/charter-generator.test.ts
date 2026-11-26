@@ -153,8 +153,7 @@ describe('isCharterTaskDue', () => {
     expect(mockLogFindUnique).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
-          charter_id_scheduled_task_id_period: {
-            charter_id: 'charter-1',
+          scheduled_task_id_period: {
             scheduled_task_id: 'task-1',
             period: expect.any(String),
           },
@@ -184,7 +183,7 @@ describe('isCharterTaskDue', () => {
     await isCharterTaskDue('charter-1', 'task-1', 'weekly');
 
     const call = mockLogFindUnique.mock.calls[0][0];
-    expect(call.where.charter_id_scheduled_task_id_period.period).toMatch(/^\d{4}-W\d{2}$/);
+    expect(call.where.scheduled_task_id_period.period).toMatch(/^\d{4}-W\d{2}$/);
   });
 
   it('queries with correct period string for quarterly cadence', async () => {
@@ -193,6 +192,6 @@ describe('isCharterTaskDue', () => {
     await isCharterTaskDue('charter-1', 'task-1', 'quarterly');
 
     const call = mockLogFindUnique.mock.calls[0][0];
-    expect(call.where.charter_id_scheduled_task_id_period.period).toMatch(/^\d{4}-Q\d$/);
+    expect(call.where.scheduled_task_id_period.period).toMatch(/^\d{4}-Q\d$/);
   });
 });

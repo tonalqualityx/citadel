@@ -32,9 +32,10 @@ export async function POST(
     const body = await request.json();
     const data = createScheduledTaskSchema.parse(body);
 
-    const scheduledTask = await prisma.charterScheduledTask.create({
+    const scheduledTask = await prisma.recurringWork.create({
       data: {
         charter_id: id,
+        kind: 'citadel_task', // client and site are read from the charter, never copied onto the row
         sop_id: data.sop_id,
         charter_ware_id: data.charter_ware_id,
         cadence: data.cadence,

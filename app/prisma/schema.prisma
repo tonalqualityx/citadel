@@ -13,21 +13,22 @@ datasource db {
 // ============================================
 
 model User {
-  id                    String    @id @default(uuid()) @db.Uuid
+  id                    String              @id @default(uuid()) @db.Uuid
   // Initiatives (back-relations)
-  initiatives_owned       Initiative[]        @relation("InitiativeOwner")
-  initiatives_created     Initiative[]        @relation("InitiativeCreatedBy")
-  initiative_check_ins    InitiativeCheckIn[] @relation("InitiativeCheckInAuthor")
-  email                 String    @unique @db.VarChar(255)
-  password_hash         String    @db.VarChar(255)
-  name                  String    @db.VarChar(255)
-  role                  UserRole  @default(tech)
-  avatar_url            String?   @db.VarChar(500)
-  is_active             Boolean   @default(true)
-  target_hours_per_week Int       @default(40) // Target utilization hours per week
+  initiatives_owned     Initiative[]        @relation("InitiativeOwner")
+  initiatives_created   Initiative[]        @relation("InitiativeCreatedBy")
+  initiative_check_ins  InitiativeCheckIn[] @relation("InitiativeCheckInAuthor")
+  recurring_work_owned  RecurringWork[]     @relation("RecurringWorkOwner")
+  email                 String              @unique @db.VarChar(255)
+  password_hash         String              @db.VarChar(255)
+  name                  String              @db.VarChar(255)
+  role                  UserRole            @default(tech)
+  avatar_url            String?             @db.VarChar(500)
+  is_active             Boolean             @default(true)
+  target_hours_per_week Int                 @default(40) // Target utilization hours per week
   last_login_at         DateTime?
-  created_at            DateTime  @default(now())
-  updated_at            DateTime  @updatedAt
+  created_at            DateTime            @default(now())
+  updated_at            DateTime            @updatedAt
 
   // Relations
   preferences                        UserPreference?
@@ -623,6 +624,7 @@ model Client {
   chat_conversations ChatConversation[]
   // Initiatives (back-relation)
   initiatives        Initiative[]
+  recurring_work     RecurringWork[]
   id                 String             @id @default(uuid()) @db.Uuid
   // Portal phase B slice 2 (back-relation)
   client_reports     ClientReport[]
@@ -776,6 +778,7 @@ enum RetainerUsageMode {
 
 model Site {
   pages              SitePage[]
+  recurring_work     RecurringWork[]
   chat_conversations ChatConversation[]
   id                 String             @id @default(uuid()) @db.Uuid
   // Portal phase B slice 2 (back-relation)
@@ -1380,8 +1383,8 @@ model Task {
   created_by    User?    @relation("TaskCreatedBy", fields: [created_by_id], references: [id])
 
   // Self-referential dependencies
-  blocked_by Task[] @relation("TaskDependencies")
-  blocking   Task[] @relation("TaskDependencies")
+  blocked_by           Task[]         @relation("TaskDependencies")
+  blocking             Task[]         @relation("TaskDependencies")
   // Open questions this card waits on, exactly as it waits on a blocker task (Mike, 2026-11-19: "I mean that in the way that dependencies block tasks")
   blocked_by_questions TaskQuestion[] @relation("QuestionBlocks")
 
@@ -1404,6 +1407,11 @@ model Task {
   initiative_id String?     @db.Uuid
   initiative    Initiative? @relation(fields: [initiative_id], references: [id], onDelete: SetNull)
 
+  // Recurring work (design.md 2.5): the record that generated this task, set by the charter generator
+  recurring_work_id String?        @db.Uuid
+  recurring_work    RecurringWork? @relation(fields: [recurring_work_id], references: [id], onDelete: SetNull)
+
+  @@index([recurring_work_id])
   @@index([initiative_id])
   @@index([project_id])
   @@index([client_id])
@@ -1503,8 +1511,8 @@ model Milestone {
   invoiced_by_id  String?                @db.Uuid
 
   // Quarter priority ("rock")
-  rock_quarter    String? @db.VarChar(7) // "2027-Q1"; null = not a rock
-  rock_done_when  String? @db.VarChar(300) // the yes-or-no line that says the rock is done
+  rock_quarter   String? @db.VarChar(7) // "2027-Q1"; null = not a rock
+  rock_done_when String? @db.VarChar(300) // the yes-or-no line that says the rock is done
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -1633,7 +1641,7 @@ model Sop {
   tasks                   Task[]
   recipe_tasks            RecipeTask[]
   maintenance_plan_sops   MaintenancePlanSop[]
-  charter_scheduled_tasks CharterScheduledTask[]
+  charter_scheduled_tasks RecurringWork[]
 
   @@index([function_id])
   @@map("sops")
@@ -2416,7 +2424,7 @@ model Charter {
 
   // Relations
   charter_wares       CharterWare[]
-  scheduled_tasks     CharterScheduledTask[]
+  scheduled_tasks     RecurringWork[]
   generation_logs     CharterGenerationLog[]
   charter_commissions CharterCommission[]
   charter_items       AccordCharterItem[]
@@ -2453,47 +2461,82 @@ model CharterWare {
   updated_at     DateTime  @updatedAt
 
   // Relations
-  scheduled_tasks CharterScheduledTask[]
+  scheduled_tasks RecurringWork[]
 
   @@index([charter_id])
   @@index([ware_id])
   @@map("charter_wares")
 }
 
-model CharterScheduledTask {
+enum RecurringKind {
+  citadel_task // Citadel makes a task each period from an SOP (today's behaviour)
+  machine_job // runs on the Bast machine; Citadel mirrors it from job watch
+  engine // another Citadel engine owns the schedule (Troubador schedules, maintenance plans)
+}
+
+/// Recurring work (design.md 2.5): the charter scheduled task, widened in place. Same table as before.
+model RecurringWork {
   id              String       @id @default(uuid()) @db.Uuid
-  charter_id      String       @db.Uuid
-  charter         Charter      @relation(fields: [charter_id], references: [id], onDelete: Cascade)
+  charter_id      String?      @db.Uuid
+  charter         Charter?     @relation(fields: [charter_id], references: [id], onDelete: Cascade)
   charter_ware_id String?      @db.Uuid
   charter_ware    CharterWare? @relation(fields: [charter_ware_id], references: [id])
-  sop_id          String       @db.Uuid
-  sop             Sop          @relation(fields: [sop_id], references: [id])
-  cadence         String       @db.VarChar(20)
+  sop_id          String?      @db.Uuid
+  sop             Sop?         @relation(fields: [sop_id], references: [id], onDelete: Restrict)
+  cadence         String?      @db.VarChar(20)
   sort_order      Int          @default(0)
   is_active       Boolean      @default(true)
   created_at      DateTime     @default(now())
   updated_at      DateTime     @updatedAt
 
+  kind              RecurringKind @default(citadel_task)
+  title             String?       @db.VarChar(200) // falls back to the SOP title for citadel_task
+  owner_id          String?       @db.Uuid // the person or bot who answers for it
+  owner             User?         @relation("RecurringWorkOwner", fields: [owner_id], references: [id])
+  produces          String?       @db.VarChar(300) // what each run produces
+  client_id         String?       @db.Uuid // set from the charter when there is one
+  client            Client?       @relation(fields: [client_id], references: [id])
+  site_id           String?       @db.Uuid
+  site              Site?         @relation(fields: [site_id], references: [id])
+  initiative_id     String?       @db.Uuid
+  initiative        Initiative?   @relation(fields: [initiative_id], references: [id], onDelete: SetNull)
+  schedule_text     String?       @db.VarChar(120) // human words; cadence stays for citadel_task
+  cron_expr         String?       @db.VarChar(60) // machine_job only
+  job_key           String?       @unique @db.VarChar(120) // job watch id, machine_job only
+  source_kind       String?       @db.VarChar(30) // engine only: troubador_schedule | maintenance_plan
+  source_id         String?       @db.Uuid
+  is_plumbing       Boolean       @default(false) // background job with no output Mike reads
+  last_run_at       DateTime?
+  last_run_ok       Boolean?
+  last_run_note     String?       @db.VarChar(300)
+  next_run_at       DateTime?
+  paused_on_purpose Boolean       @default(false)
+
   // Relations
   generation_logs CharterGenerationLog[]
+  tasks           Task[]
 
   @@index([charter_id])
   @@index([sop_id])
+  @@index([owner_id])
+  @@index([client_id])
+  @@index([initiative_id])
+  @@index([kind])
   @@map("charter_scheduled_tasks")
 }
 
 model CharterGenerationLog {
-  id                String               @id @default(uuid()) @db.Uuid
-  charter_id        String               @db.Uuid
-  charter           Charter              @relation(fields: [charter_id], references: [id], onDelete: Cascade)
-  scheduled_task_id String               @db.Uuid
-  scheduled_task    CharterScheduledTask @relation(fields: [scheduled_task_id], references: [id], onDelete: Cascade)
-  period            String               @db.VarChar(20)
+  id                String        @id @default(uuid()) @db.Uuid
+  charter_id        String?       @db.Uuid
+  charter           Charter?      @relation(fields: [charter_id], references: [id], onDelete: Cascade)
+  scheduled_task_id String        @db.Uuid
+  scheduled_task    RecurringWork @relation(fields: [scheduled_task_id], references: [id], onDelete: Cascade)
+  period            String        @db.VarChar(20)
   tasks_created     Int
-  tasks_abandoned   Int                  @default(0)
-  generated_at      DateTime             @default(now())
+  tasks_abandoned   Int           @default(0)
+  generated_at      DateTime      @default(now())
 
-  @@unique([charter_id, scheduled_task_id, period])
+  @@unique([scheduled_task_id, period])
   @@index([charter_id])
   @@map("charter_generation_logs")
 }
@@ -5980,63 +6023,63 @@ enum TaskQuestionAction {
 /// answered only by Mike's own session or the chat lane relaying his words. `defaulted` means the card was released without an
 /// answer and the recommendation went ahead: it is never his words. Every answer also stays as an internal comment on the task.
 model TaskQuestion {
-  id                    String             @id @default(uuid()) @db.Uuid
+  id                    String               @id @default(uuid()) @db.Uuid
   // A card question has task_id; a PROJECT question (Mike, 2026-11-23: its answer decides which cards get made, so no card exists to hold it) has
   // project_id and no task. Exactly one of the two is set (database check task_questions_one_home).
-  task_id               String?            @db.Uuid
-  task                  Task?              @relation(fields: [task_id], references: [id], onDelete: Cascade)
-  project_id            String?            @db.Uuid
-  project               Project?           @relation("ProjectQuestions", fields: [project_id], references: [id], onDelete: Cascade)
-  position              Int                @default(0)
-  question              String             @db.VarChar(200)
+  task_id               String?              @db.Uuid
+  task                  Task?                @relation(fields: [task_id], references: [id], onDelete: Cascade)
+  project_id            String?              @db.Uuid
+  project               Project?             @relation("ProjectQuestions", fields: [project_id], references: [id], onDelete: Cascade)
+  position              Int                  @default(0)
+  question              String               @db.VarChar(200)
   // Context parts
-  what_it_is            String             @db.Text
+  what_it_is            String               @db.Text
   sources               Json // [{ who, said, at?, url? }]
-  checked               String             @db.Text
-  unknown               String             @db.Text
+  checked               String               @db.Text
+  unknown               String               @db.Text
   options               Json? // [{ id, label, consequence }], none or 2 to 4
-  recommended_option_id String?            @db.VarChar(40)
-  recommend_why         String?            @db.Text
-  if_nobody             String             @db.Text
+  recommended_option_id String?              @db.VarChar(40)
+  recommend_why         String?              @db.Text
+  if_nobody             String               @db.Text
   if_nobody_action      TaskQuestionAction
   // State
-  state                 TaskQuestionState  @default(open)
-  asked_by_user_id      String?            @db.Uuid
-  asked_by_lane         String?            @db.VarChar(40)
-  chat_conversation_id  String?            @db.Uuid
+  state                 TaskQuestionState    @default(open)
+  asked_by_user_id      String?              @db.Uuid
+  asked_by_lane         String?              @db.VarChar(40)
+  chat_conversation_id  String?              @db.Uuid
   // Dox: the underlying cause this question is about. One OPEN question per cause (on the card, or on the project for a project-level cause); a repeat POST returns the open one.
-  cause_key             String?            @db.VarChar(120)
+  cause_key             String?              @db.VarChar(120)
   // His answer (exact words, or the option label he picked)
-  answer_option_id      String?            @db.VarChar(40)
-  answer_text           String?            @db.Text
+  answer_option_id      String?              @db.VarChar(40)
+  answer_text           String?              @db.Text
   answered_at           DateTime?
-  answered_by_id        String?            @db.Uuid
-  answer_comment_id     String?            @db.Uuid
+  answered_by_id        String?              @db.Uuid
+  answer_comment_id     String?              @db.Uuid
   // Released without an answer
   defaulted_at          DateTime?
-  withdrawn_reason      String?            @db.Text
+  withdrawn_reason      String?              @db.Text
   withdrawn_at          DateTime?
   // A question we sent a client contact by email (null: a question for Mike). Who it was for, and the email that carried it.
-  asked_of_contact_id   String?            @db.Uuid
-  asked_of_contact      ClientContact?     @relation("QuestionAskedOf", fields: [asked_of_contact_id], references: [id], onDelete: SetNull)
-  sent_account          String?            @db.VarChar(120)
-  sent_message_id       String?            @db.VarChar(200)
-  sent_thread_id        String?            @db.VarChar(200)
+  asked_of_contact_id   String?              @db.Uuid
+  asked_of_contact      ClientContact?       @relation("QuestionAskedOf", fields: [asked_of_contact_id], references: [id], onDelete: SetNull)
+  sent_account          String?              @db.VarChar(120)
+  sent_message_id       String?              @db.VarChar(200)
+  sent_thread_id        String?              @db.VarChar(200)
   sent_at               DateTime?
   // go_with_recommendation only: when this passes with no answer, the recommendation goes ahead and the cards it blocks are released
   default_at            DateTime?
   // When a short nudge to the client was drafted (never sent) for this question
   nudge_drafted_at      DateTime?
   // The cards waiting on the answer: an open question holds them in `blocked` exactly as an unfinished blocker task does
-  blocks                Task[]             @relation("QuestionBlocks")
+  blocks                Task[]               @relation("QuestionBlocks")
   // Mike tapped "talk it through" on a report page (Mike, 2026-11-25: buttons, or "I can come back and talk through it with you"): the
   // question waits for a chat and never goes ahead on its own (if_nobody_action is set to wait at the same time). The report it came from.
   held_for_chat_at      DateTime?
-  held_report_url       String?            @db.VarChar(500)
+  held_report_url       String?              @db.VarChar(500)
   // Signed one-time links a report page carries for this question (lib/tasks/answer-links.ts)
   answer_links          QuestionAnswerLink[]
-  created_at            DateTime           @default(now())
-  updated_at            DateTime           @updatedAt
+  created_at            DateTime             @default(now())
+  updated_at            DateTime             @updatedAt
 
   // Uniqueness of (task_id, question) among non-withdrawn rows is enforced in code inside the task-locked transaction (Prisma cannot express a partial unique index without drift).
   @@index([task_id, state])
@@ -6125,17 +6168,16 @@ model TriageChange {
   @@map("triage_changes")
 }
 
-
 // ---------------------------------------------------------------------------
 // Initiatives (design.md 2.1 to 2.3). Caps (five active, three numbers) are API rules, not DB constraints.
 // ---------------------------------------------------------------------------
 
 enum InitiativeStatus {
   proposed // being shaped in the chat; not counted against the cap
-  active   // counted against the cap of five
-  paused   // kept, not counted
-  done     // the bet paid off
-  stopped  // the stop condition was met or Mike called it; a decision, not a failure
+  active // counted against the cap of five
+  paused // kept, not counted
+  done // the bet paid off
+  stopped // the stop condition was met or Mike called it; a decision, not a failure
 }
 
 enum InitiativeHealth {
@@ -6173,10 +6215,11 @@ model Initiative {
   created_at       DateTime         @default(now())
   updated_at       DateTime         @updatedAt
 
-  numbers   InitiativeNumber[]
-  check_ins InitiativeCheckIn[]
-  projects  Project[]
-  tasks     Task[]
+  numbers        InitiativeNumber[]
+  check_ins      InitiativeCheckIn[]
+  projects       Project[]
+  tasks          Task[]
+  recurring_work RecurringWork[]
 
   @@index([status])
   @@map("initiatives")

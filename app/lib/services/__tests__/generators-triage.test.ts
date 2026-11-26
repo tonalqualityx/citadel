@@ -23,7 +23,7 @@ beforeEach(() => vi.clearAllMocks());
 
 describe('generators leave triage tasks alone', () => {
   it('charter generator: the previous-period filter excludes triage', async () => {
-    p.charter.findUnique.mockResolvedValue({ id: 'c', status: 'active', is_deleted: false, client: {}, scheduled_tasks: [{ id: 's', sop_id: 'sop', cadence: 'monthly', sop: {}, charter_ware: null }] });
+    p.charter.findUnique.mockResolvedValue({ id: 'c', status: 'active', is_deleted: false, client: {}, scheduled_tasks: [{ id: 's', kind: 'citadel_task', sop_id: 'sop', cadence: 'monthly', sop: {}, charter_ware: null }] });
     p.charterGenerationLog.findUnique.mockResolvedValue(null);
     const txFindMany = vi.fn().mockRejectedValue(new Error('stop'));
     p.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => fn({ task: { findMany: txFindMany } }));

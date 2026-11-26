@@ -38,6 +38,7 @@ export async function POST(request: NextRequest) {
         chartersProcessed: summary.totalChartersProcessed,
         tasksCreated: summary.totalTasksCreated,
         tasksAbandoned: summary.totalTasksAbandoned,
+        recurringWorkProcessed: summary.standalone.length,
         errors: summary.errors.length,
       },
       duration: `${duration}ms`,
