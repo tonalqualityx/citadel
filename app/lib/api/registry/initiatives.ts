@@ -160,6 +160,40 @@ export const initiativeEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/initiatives/:id/attach',
+    group: 'initiatives',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'link one project or one task to this initiative. Send exactly one of project_id or task_id. An item already on another initiative moves here (moved_from names the old one). 404 for an unknown initiative, project or task.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        bodySchema: [
+          { name: 'project_id', type: 'uuid', required: false, description: 'The project to attach (send this or task_id, not both)' },
+          { name: 'task_id', type: 'uuid', required: false, description: 'The task to attach (send this or project_id, not both)' },
+        ],
+        responseExample: { attached: 'boolean', kind: 'project|task', id: 'uuid', name: 'string', initiative_id: 'uuid', moved_from: 'uuid|null' },
+      },
+    ],
+  },
+  {
+    path: '/api/initiatives/:id/detach',
+    group: 'initiatives',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Unlink one project or one task, only when it points at this initiative. Send exactly one of project_id or task_id. 409 not_attached_here when it is attached elsewhere or nowhere.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        bodySchema: [
+          { name: 'project_id', type: 'uuid', required: false, description: 'The project to detach (send this or task_id, not both)' },
+          { name: 'task_id', type: 'uuid', required: false, description: 'The task to detach (send this or project_id, not both)' },
+        ],
+        responseExample: { attached: 'boolean', kind: 'project|task', id: 'uuid', name: 'string', initiative_id: 'null' },
+      },
+    ],
+  },
+  {
     path: '/api/cron/initiative-numbers',
     group: 'initiatives',
     methods: [

@@ -107,6 +107,18 @@ const EXPECTED = [
   'GET /api/waits',
   'GET /api/email-asks',
   'GET /api/waiting-on-me',
+  // Initiatives (Mike, 2026-11-26): the chat's tools, one narrow route each for attach, detach and rock
+  'GET /api/initiatives',
+  'POST /api/initiatives',
+  'GET /api/initiatives/:id',
+  'PATCH /api/initiatives/:id',
+  'POST /api/initiatives/:id/numbers',
+  'PATCH /api/initiatives/:id/numbers/:numberId',
+  'POST /api/initiatives/:id/readings',
+  'POST /api/initiatives/:id/check-ins',
+  'POST /api/initiatives/:id/attach',
+  'POST /api/initiatives/:id/detach',
+  'PATCH /api/milestones/:id/rock',
   'GET /api/sites',
   'GET /api/sops',
   'GET /api/sops/:id',
@@ -133,6 +145,12 @@ const REFUSED = [
   `DELETE /api/clients/${ID}`,
   'POST /api/clients',
   `PATCH /api/projects/${ID}`,
+  // initiatives: no delete, no number delete, and the project, task and full milestone PATCH stay closed (attach and rock have their own narrow routes)
+  `DELETE /api/initiatives/${ID}`,
+  `DELETE /api/initiatives/${ID}/numbers/${ID}`,
+  `PATCH /api/milestones/${ID}`,
+  `PATCH /api/initiatives/${ID}/attach`,
+  `POST /api/cron/initiative-numbers`,
   'POST /api/arcs',
   `PATCH /api/arcs/${ID}`,
   `PATCH /api/sops/${ID}`,
@@ -213,7 +231,7 @@ beforeEach(() => {
 });
 
 describe('lane bast-chat: the list', () => {
-  it('holds exactly the 66 entries of the plan (the sitemap PATCH, the brief POST and PATCH of Dox slice 2b), and nothing else', () => {
+  it('holds exactly the 77 entries of the plan (the sitemap PATCH, the brief POST and PATCH of Dox slice 2b, the eleven initiative lines), and nothing else', () => {
     expect(LANE_ROUTES['bast-chat'].map((r) => `${r.method} ${r.pattern}`)).toEqual(EXPECTED);
   });
 
@@ -226,7 +244,7 @@ describe('lane bast-chat: the list', () => {
     const writes = LANE_ROUTES['bast-chat'].filter((r) => r.method !== 'GET');
     expect(writes.some((r) => r.method === 'DELETE')).toBe(false);
     for (const r of writes) {
-      const ok = r.pattern === '/api/projects/:id/sitemap' || r.pattern.startsWith('/api/bast-chat/worker/') || r.pattern === '/api/tasks' || r.pattern === '/api/tasks/:id' || r.pattern === '/api/tasks/:id/checklist' || r.pattern.startsWith('/api/tasks/:id/questions') || r.pattern.startsWith('/api/projects/:id/questions') || r.pattern === '/api/tasks/:id/triage' || r.pattern === '/api/tasks/:id/triage/shape' || r.pattern.startsWith('/api/tasks/:id/plan') || r.pattern === '/api/projects/:id/engagement-brief' || r.pattern === '/api/engagement-briefs/:id' || r.pattern === '/api/work/attach' || r.pattern === '/api/oracle/clocks';
+      const ok = r.pattern === '/api/projects/:id/sitemap' || r.pattern.startsWith('/api/bast-chat/worker/') || r.pattern === '/api/tasks' || r.pattern === '/api/tasks/:id' || r.pattern === '/api/tasks/:id/checklist' || r.pattern.startsWith('/api/tasks/:id/questions') || r.pattern.startsWith('/api/projects/:id/questions') || r.pattern === '/api/tasks/:id/triage' || r.pattern === '/api/tasks/:id/triage/shape' || r.pattern.startsWith('/api/tasks/:id/plan') || r.pattern === '/api/projects/:id/engagement-brief' || r.pattern === '/api/engagement-briefs/:id' || r.pattern === '/api/work/attach' || r.pattern === '/api/oracle/clocks' || r.pattern.startsWith('/api/initiatives') || r.pattern === '/api/milestones/:id/rock';
       expect(ok, `${r.method} ${r.pattern}`).toBe(true);
     }
   });

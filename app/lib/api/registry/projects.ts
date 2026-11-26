@@ -565,6 +565,22 @@ export const projectEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/milestones/:id/rock',
+    group: 'projects',
+    methods: [
+      {
+        method: 'PATCH',
+        summary: 'Mark a milestone as a quarter priority (rock) or unmark it. The narrow route the Bast chat uses: only rock_quarter and rock_done_when are accepted, anything else is a 400.',
+        auth: 'required',
+        bodySchema: [
+          { name: 'rock_quarter', type: 'string', required: true, description: 'Quarter like 2027-Q1, or null to unmark (also clears rock_done_when). 409 rock_cap when the quarter already has 7' },
+          { name: 'rock_done_when', type: 'string', required: false, description: 'Yes-or-no line that says the rock is done, max 300. Required when marking unless the milestone is already a rock with a line (400 rock_needs_done_when). Defaults target_date to the quarter\'s last day when none.' },
+        ],
+        responseExample: { id: 'uuid', name: 'string', rock_quarter: 'string|null', rock_done_when: 'string|null', rock_status: 'done|off_track|on_track|null', rock_decision: 'string|null', updated_at: 'ISO-8601' },
+      },
+    ],
+  },
+  {
     path: '/api/milestones/:id/trigger',
     group: 'projects',
     methods: [

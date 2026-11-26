@@ -460,6 +460,20 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('GET', '/api/waits'),
     r('GET', '/api/email-asks'),
     r('GET', '/api/waiting-on-me'),
+    // Initiatives (Mike, 2026-11-26: the chat is the main way he works them): read, create, change any field, add a number, correct a number,
+    // record a reading, record a check-in. Attach and detach are one narrow route each (exactly one project or task, link column only), so the
+    // project and task PATCH routes stay closed; rock is a narrow milestone route that takes only the quarter and the done line (the full milestone PATCH carries billing).
+    r('GET', '/api/initiatives'),
+    r('POST', '/api/initiatives'),
+    r('GET', '/api/initiatives/:id'),
+    r('PATCH', '/api/initiatives/:id'),
+    r('POST', '/api/initiatives/:id/numbers'),
+    r('PATCH', '/api/initiatives/:id/numbers/:numberId'),
+    r('POST', '/api/initiatives/:id/readings'),
+    r('POST', '/api/initiatives/:id/check-ins'),
+    r('POST', '/api/initiatives/:id/attach'),
+    r('POST', '/api/initiatives/:id/detach'),
+    r('PATCH', '/api/milestones/:id/rock'),
     // What create-task.py resolves names through
     r('GET', '/api/sites'),
     r('GET', '/api/sops'),
