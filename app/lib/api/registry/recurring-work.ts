@@ -9,7 +9,7 @@ const recurringResponse = {
   client_id: 'uuid|null', client: { id: 'uuid', name: 'string' }, site_id: 'uuid|null', site: { id: 'uuid', name: 'string' },
   initiative_id: 'uuid|null', initiative: { id: 'uuid', name: 'string' }, is_plumbing: 'boolean',
   last_run_at: 'ISO-8601|null', last_run_ok: 'boolean|null', last_run_note: 'string|null', next_run_at: 'ISO-8601|null',
-  paused_on_purpose: 'boolean', sort_order: 'number', is_active: 'boolean', created_at: 'ISO-8601', updated_at: 'ISO-8601',
+  paused_on_purpose: 'boolean', group_label: 'string|null', sort_order: 'number', is_active: 'boolean', created_at: 'ISO-8601', updated_at: 'ISO-8601',
 };
 
 const fieldParams: ParamDef[] = [
@@ -30,6 +30,7 @@ const fieldParams: ParamDef[] = [
   { name: 'initiative_id', type: 'uuid', required: false, description: 'Optional initiative this serves' },
   { name: 'is_plumbing', type: 'boolean', required: false, description: 'Background job with no output Mike reads (hidden from the list by default)' },
   { name: 'paused_on_purpose', type: 'boolean', required: false, description: 'Stopped on purpose' },
+  { name: 'group_label', type: 'string', required: false, description: 'The group the row shows under (max 60); defaults to the client name, else Indelible' },
   { name: 'sort_order', type: 'number', required: false, description: 'Display order' },
   { name: 'is_active', type: 'boolean', required: false, description: 'false deactivates; there is no hard delete' },
 ];
@@ -51,8 +52,13 @@ export const recurringWorkEndpoints: ApiEndpoint[] = [
           { name: 'owner_id', type: 'uuid', required: false, description: 'Filter by owner' },
           { name: 'is_active', type: 'boolean', required: false, description: 'true | false' },
           { name: 'include_plumbing', type: 'boolean', required: false, description: 'true to include background plumbing rows' },
+          { name: 'grouped', type: 'boolean', required: false, description: 'true adds groups (label, count, stopped, rows; stopped rows first) and plumbing { count, stopped } counted from active plumbing rows' },
         ],
-        responseExample: { recurring_work: [recurringResponse], total: 'number' },
+        responseExample: {
+          recurring_work: [recurringResponse], total: 'number',
+          groups: [{ label: 'string (group_label, else client name, else Indelible)', count: 'number', stopped: 'number', rows: [recurringResponse] }],
+          plumbing: { count: 'number', stopped: 'number' },
+        },
       },
       {
         method: 'POST',
@@ -61,6 +67,22 @@ export const recurringWorkEndpoints: ApiEndpoint[] = [
         roles: ['pm', 'admin'],
         bodySchema: [{ name: 'kind', type: 'string', required: false, description: 'citadel_task (default) | machine_job | engine' }, ...fieldParams],
         responseExample: recurringResponse,
+      },
+    ],
+  },
+  {
+    path: '/api/recurring-work/machine-sync',
+    group: 'recurring-work',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'The Bast machine\'s full job list. Upserts machine_job rows by job_key (never touching initiative, client, site or sort_order), marks active machine jobs missing from the list inactive (never deletes), skips a job_key held by a non-machine row. 1 to 500 jobs; an empty list, a duplicate job_key or an unknown owner is a 400.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        bodySchema: [
+          { name: 'jobs', type: 'object', required: true, description: 'Each: job_key, title, owner_id, produces, group_label, schedule_text, cron_expr, is_plumbing, paused_on_purpose, last_run_at, last_run_ok, last_run_note, next_run_at' },
+        ],
+        responseExample: { created: 'number', updated: 'number', deactivated: 'number', skipped: ['job_key'], total: 'number' },
       },
     ],
   },

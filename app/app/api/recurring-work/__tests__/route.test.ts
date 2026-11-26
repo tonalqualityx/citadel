@@ -80,6 +80,40 @@ describe('GET /api/recurring-work', () => {
     expect(body.recurring_work[0].charter).toEqual({ id: CHARTER, name: 'Care plan' });
   });
 
+  it('grouped=true adds groups (label, else client name, else Indelible; stopped rows first) and a plumbing count', async () => {
+    const row = (id: string, title: string, o: Record<string, unknown> = {}) => stored({ id, title, kind: 'machine_job', ...o });
+    p.recurringWork.findMany
+      .mockResolvedValueOnce([
+        row('1', 'Zed', { group_label: 'Client mail' }),
+        row('2', 'Alpha', { group_label: 'Client mail' }),
+        row('3', 'Stopped one', { group_label: 'Client mail', last_run_ok: false }),
+        row('4', 'Paused', { group_label: 'Client mail', last_run_ok: false, paused_on_purpose: true }),
+        row('5', 'Client row', { client_id: CLIENT, client: { id: CLIENT, name: 'Acme' } }),
+        row('6', 'No home'),
+      ])
+      .mockResolvedValueOnce([
+        { last_run_ok: true, paused_on_purpose: false },
+        { last_run_ok: false, paused_on_purpose: false },
+        { last_run_ok: false, paused_on_purpose: true },
+      ]);
+    const body = await (await GET(req('GET', undefined, 'http://localhost/api/recurring-work?grouped=true'))).json();
+    expect(body.groups.map((g: { label: string }) => g.label)).toEqual(['Acme', 'Client mail', 'Indelible']);
+    const mail = body.groups[1];
+    expect(mail).toMatchObject({ count: 4, stopped: 1 });
+    expect(mail.rows.map((r: { title: string }) => r.title)).toEqual(['Stopped one', 'Alpha', 'Paused', 'Zed']);
+    expect(body.plumbing).toEqual({ count: 3, stopped: 1 });
+    expect(p.recurringWork.findMany.mock.calls[0][0].where).toEqual({ is_active: true, is_plumbing: false });
+    expect(p.recurringWork.findMany.mock.calls[1][0].where).toEqual({ is_plumbing: true, is_active: true });
+  });
+
+  it('without grouped the response has no groups', async () => {
+    p.recurringWork.findMany.mockResolvedValue([stored()]);
+    const body = await (await GET(req('GET'))).json();
+    expect(body).not.toHaveProperty('groups');
+    expect(body).not.toHaveProperty('plumbing');
+    expect(p.recurringWork.findMany).toHaveBeenCalledTimes(1);
+  });
+
   it('400 for an unknown kind', async () => {
     const res = await GET(req('GET', undefined, 'http://localhost/api/recurring-work?kind=nope'));
     expect(res.status).toBe(400);
@@ -158,6 +192,14 @@ describe('/api/recurring-work/[id]', () => {
     const res = await PATCH(req('PATCH', { is_active: false }), ctx);
     expect(res.status).toBe(200);
     expect(p.recurringWork.update.mock.calls[0][0].data).toEqual({ is_active: false });
+  });
+
+  it('group_label round trips through create and PATCH', async () => {
+    const created = await POST(req('POST', { kind: 'machine_job', cron_expr: '0 7 * * *', job_key: 'g', group_label: 'Client mail' }));
+    expect((await created.json()).group_label).toBe('Client mail');
+    const res = await PATCH(req('PATCH', { group_label: 'Team' }), ctx);
+    expect(p.recurringWork.update.mock.calls[0][0].data).toEqual({ group_label: 'Team' });
+    expect((await res.json()).group_label).toBe('Team');
   });
 
   it('PATCH cannot change kind', async () => {

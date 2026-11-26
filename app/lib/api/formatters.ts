@@ -882,6 +882,7 @@ export function formatRecurringWorkResponse(rw: RecurringWorkRow) {
     last_run_note: rw.last_run_note ?? null,
     next_run_at: rw.next_run_at ?? null,
     paused_on_purpose: rw.paused_on_purpose ?? false,
+    group_label: (rw.group_label as string | null | undefined) ?? null,
     sort_order: rw.sort_order,
     is_active: rw.is_active,
     created_at: rw.created_at,

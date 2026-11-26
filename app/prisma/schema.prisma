@@ -2517,6 +2517,7 @@ model RecurringWork {
   last_run_note     String?       @db.VarChar(300)
   next_run_at       DateTime?
   paused_on_purpose Boolean       @default(false)
+  group_label       String?       @db.VarChar(60) // the group a row shows under; machine rows get it from the import config
 
   // Relations
   generation_logs CharterGenerationLog[]

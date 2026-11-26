@@ -5,6 +5,8 @@ import { Spinner } from '@/components/ui/spinner';
 import { EmptyState } from '@/components/ui/empty-state';
 import { usePageBastChat, useBastChatShell } from '@/components/domain/bast-chat/BastChatProvider';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { RecurringWorkBoard } from '@/components/domain/recurring-work/RecurringWorkBoard';
+import { useGroupedRecurringWork } from '@/lib/hooks/use-recurring-work';
 import { RetainerMonthsBoard } from '@/components/domain/retainer-months/RetainerMonthsBoard';
 import { useConfirmRetainerMonth, useRetainerMonths } from '@/lib/hooks/use-retainer-months';
 import type { RetainerMonthView } from '@/types/entities';
@@ -112,15 +114,34 @@ function RetainerMonthsTab() {
   );
 }
 
+function RecurringWorkTab() {
+  const { data, isLoading, error } = useGroupedRecurringWork();
+  if (isLoading) {
+    return (
+      <div className="flex justify-center py-12">
+        <Spinner size="lg" />
+      </div>
+    );
+  }
+  if (error || !data) {
+    return <EmptyState title="Recurring work did not load" description="Reload the page to try again." />;
+  }
+  return <RecurringWorkBoard data={data} />;
+}
+
 export default function InitiativesPage() {
   return (
     <Tabs defaultValue="initiatives">
       <TabsList>
         <TabsTrigger value="initiatives">Initiatives</TabsTrigger>
+        <TabsTrigger value="recurring-work">Recurring work</TabsTrigger>
         <TabsTrigger value="retainer-months">Retainer months</TabsTrigger>
       </TabsList>
       <TabsContent value="initiatives" className="mt-4">
         <InitiativesTab />
+      </TabsContent>
+      <TabsContent value="recurring-work" className="mt-4">
+        <RecurringWorkTab />
       </TabsContent>
       <TabsContent value="retainer-months" className="mt-4">
         <RetainerMonthsTab />

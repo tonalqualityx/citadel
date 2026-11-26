@@ -50,6 +50,7 @@ const fields = {
   initiative_id: uuid.nullable().optional(),
   is_plumbing: z.boolean().optional(),
   paused_on_purpose: z.boolean().optional(),
+  group_label: z.string().trim().max(60).nullable().optional(),
   sort_order: z.number().int().optional(),
   is_active: z.boolean().optional(),
 };
@@ -124,4 +125,37 @@ export async function assertLinksExist(ids: LinkIds) {
   }
   if (ids.initiative_id) await assertInitiativeLinkable(ids.initiative_id);
   return { charter };
+}
+
+/** Stopped = the last run failed and the row is not paused on purpose. */
+export function isStopped(row: { last_run_ok?: unknown; paused_on_purpose?: unknown }) {
+  return row.last_run_ok === false && !row.paused_on_purpose;
+}
+
+type GroupableRow = {
+  title: unknown;
+  group_label: string | null;
+  client: { name: string } | null;
+  last_run_ok: unknown;
+  paused_on_purpose: unknown;
+};
+
+/** A row's group: its own label, else its client's name, else Indelible. */
+export function groupLabelFor(row: Pick<GroupableRow, 'group_label' | 'client'>) {
+  return row.group_label || row.client?.name || 'Indelible';
+}
+
+/** Groups ordered by label; inside a group stopped rows first, then title. */
+export function groupRecurringWork<T extends GroupableRow>(rows: T[]) {
+  const byLabel = new Map<string, T[]>();
+  for (const row of rows) {
+    const label = groupLabelFor(row);
+    byLabel.set(label, [...(byLabel.get(label) ?? []), row]);
+  }
+  return [...byLabel.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([label, groupRows]) => {
+      const sorted = [...groupRows].sort((a, b) => Number(isStopped(b)) - Number(isStopped(a)) || String(a.title ?? '').localeCompare(String(b.title ?? '')));
+      return { label, count: sorted.length, stopped: sorted.filter(isStopped).length, rows: sorted };
+    });
 }
