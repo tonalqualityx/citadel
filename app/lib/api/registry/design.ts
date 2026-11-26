@@ -909,7 +909,7 @@ export const designEndpoints: ApiEndpoint[] = [
         responseExample: {
           commands: [{ id: 'uuid', session_id: 'uuid|null', verb: 'stop|publish|rollback|restore|close|resume|refresh_client_files|share_drive_folder|unshare_drive_folder', payload: 'object (share verbs: {folder_id, email, role: writer}; session_id is null for them)', status: 'pending|claimed|done|failed', publish: 'object|undefined' }],
           messages: [{ seq: 'number', session_id: 'uuid', text: 'string', created_at: 'ISO-8601' }],
-          new_sessions: [{ id: 'uuid', task_id: 'uuid', site_id: 'uuid', status: 'pending', track: 'object|null (same shape as the worker session track; null = untracked)' }],
+          new_sessions: [{ id: 'uuid', task_id: 'uuid', site_id: 'uuid', status: 'pending', track: 'object|null (same shape as the worker session track; null = untracked)', base_branch: 'string|null (untracked only: the project design track branch the worktree is cut from; null = the site main branch)' }],
           settings: { enabled: 'boolean', idle_close_minutes: 'number', max_live_sessions: 'number' },
         },
         responseNotes: 'Empty lists when the portal is disabled.',

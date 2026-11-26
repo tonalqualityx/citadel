@@ -390,7 +390,7 @@ describe.skipIf(!SCRATCH)('worker routes (real database)', () => {
       await prisma.project.update({ where: { id: f.projectId }, data: { drive_folder_id: 'pf' } });
       const s = await look();
       expect(s.drive_folder_id).toBe('pf');
-      expect(s).toMatchObject({ id: sid, task_id: tid, site_id: f.siteId, branch: expect.stringMatching(/^design\//), track: null });
+      expect(s).toMatchObject({ id: sid, task_id: tid, site_id: f.siteId, branch: expect.stringMatching(/^design\//), track: null, base_branch: null });
       expect(s).toHaveProperty('preview_url'); // an untracked session keeps its own (null until it has one)
       await prisma.project.update({ where: { id: f.projectId }, data: { drive_folder_id: null } });
       await prisma.client.update({ where: { id: f.clientId }, data: { drive_folder_id: null } });
@@ -497,6 +497,20 @@ describe.skipIf(!SCRATCH)('worker routes (real database)', () => {
       expect((await look()).track).toMatchObject({ stage: 'rest_build', busy: true });
       await prisma.designTrack.update({ where: { id: trackId }, data: { busy_job_id: null, stage: 'refine' } });
       await prisma.designJob.delete({ where: { id: job.id } });
+    });
+
+    it('an untracked page session on the project is cut from the design track branch (base_branch); a tracked one gets none', async () => {
+      const page = await prisma.task.create({ data: { title: `${f.tag} wk page ${crypto.randomUUID().slice(0, 6)}`, client_id: f.clientId, project_id: w.projectId, site_id: w.siteId, status: 'not_started', tags: [] } });
+      f.taskIds.push(page.id);
+      const psid = (await createOrGetSession(f.designer, page.id)).session.id;
+      const items = (await (await inbox.GET(req('GET', `${P}/inbox?max=200`))).json()).new_sessions as Array<{ id: string; track: unknown; base_branch: string | null; branch: string }>;
+      const item = items.find((x) => x.id === psid)!;
+      expect(item).toMatchObject({ track: null, base_branch: `design/t-${slug}`, branch: `design/${page.id.slice(0, 8)}` });
+      expect(items.find((x) => x.id === tsid)?.base_branch).toBeNull();
+      await prisma.designTrack.update({ where: { id: trackId }, data: { stage: 'cancelled' } });
+      expect(((await (await inbox.GET(req('GET', `${P}/inbox?max=200`))).json()).new_sessions as Array<{ id: string; base_branch: string | null }>).find((x) => x.id === psid)?.base_branch).toBeNull();
+      await prisma.designTrack.update({ where: { id: trackId }, data: { stage: 'refine' } });
+      await prisma.designSession.update({ where: { id: psid }, data: { status: 'abandoned' } });
     });
 
     it('the worker session views carry track (object for a tracked session, null for an untracked one)', async () => {

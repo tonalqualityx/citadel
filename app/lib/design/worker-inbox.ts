@@ -48,6 +48,31 @@ export async function resolveDriveFolder(
   return t?.client?.drive_folder_id ?? null;
 }
 
+/**
+ * Where an untracked (v1) page session is cut from (task d3f5d25c): the branch of the design track for the same project
+ * and site, newest first, any stage but `cancelled`. A page started after the home build then has `build:design`, the
+ * home design and the component library. No such track: no entry, and the daemon cuts from the site's main branch as
+ * before. A tracked session never gets one (it works in the track's own worktree).
+ */
+export async function loadSessionBaseBranches(
+  sessions: ReadonlyArray<{ id: string; track_id: string | null; project_id: string | null; site_id: string }>,
+  db: Pick<PrismaClient, 'designTrack'> = defaultDb,
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const untracked = sessions.filter((s) => !s.track_id && s.project_id);
+  if (untracked.length === 0) return out;
+  const rows = await db.designTrack.findMany({
+    where: { project_id: { in: [...new Set(untracked.map((s) => s.project_id!))] }, stage: { not: 'cancelled' } },
+    orderBy: { created_at: 'desc' },
+    select: { project_id: true, site_id: true, branch: true },
+  });
+  for (const s of untracked) {
+    const t = rows.find((r) => r.project_id === s.project_id && r.site_id === s.site_id);
+    if (t) out.set(s.id, t.branch);
+  }
+  return out;
+}
+
 export async function buildInbox(opts: { max?: number } = {}, db: PrismaClient = defaultDb) {
   const settingsRow = await db.designPortalSettings.findUnique({ where: { id: 1 } });
   const settings = {
@@ -104,6 +129,7 @@ export async function buildInbox(opts: { max?: number } = {}, db: PrismaClient =
   // track's `preview_url` (an untracked session keeps its own, normally null while pending).
   const trackIds = [...new Set(fresh.map((s) => s.track_id).filter((x): x is string => !!x))];
   const previews = new Map((trackIds.length ? await db.designTrack.findMany({ where: { id: { in: trackIds } }, select: { id: true, preview_url: true } }) : []).map((t) => [t.id, t.preview_url]));
+  const bases = await loadSessionBaseBranches(fresh, db);
   const new_sessions = [];
   for (const s of fresh) {
     new_sessions.push({
@@ -112,6 +138,8 @@ export async function buildInbox(opts: { max?: number } = {}, db: PrismaClient =
       drive_folder_id: await resolveDriveFolder(s, db),
       preview_url: s.track_id ? previews.get(s.track_id) ?? s.preview_url ?? null : s.preview_url ?? null,
       track: s.track_id ? tracks.get(s.track_id) ?? null : null,
+      // Untracked only: the design track branch the session worktree is cut from (null = the site's main branch).
+      base_branch: bases.get(s.id) ?? null,
     });
   }
 
