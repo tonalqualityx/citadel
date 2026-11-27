@@ -6364,3 +6364,25 @@ model RetainerMonthItem {
   @@index([recurring_work_id])
   @@map("retainer_month_items")
 }
+
+/// The model ledger's daily rollup (task ab418893): one row per Eastern day, model family and task type, pushed by the
+/// Bast machine (model-ledger.py rollup --push). Raw runs stay on the machine; only these totals live here.
+model ModelLedgerDay {
+  id            String   @id @default(uuid()) @db.Uuid
+  day           DateTime @db.Date
+  model         String   @db.VarChar(20)
+  task_type     String   @db.VarChar(60)
+  runs          Int      @default(0) // every Claude run that day (worker passes, Dox, sessions, chat, design jobs)
+  cards         Int      @default(0) // worker cards counted that day (the day they finished, or their last pass)
+  finished      Int      @default(0)
+  first_try     Int      @default(0) // finished on the first pass with the second check passing in round one
+  escalations   Int      @default(0)
+  cost_usd      Decimal  @default(0) @db.Decimal(12, 4) // estimate at API list prices
+  unpriced_runs Int      @default(0)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  @@unique([day, model, task_type])
+  @@index([day])
+  @@map("model_ledger_days")
+}

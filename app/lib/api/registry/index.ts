@@ -58,6 +58,7 @@ import { onboardingEndpoints } from './onboarding';
 import { charterEndpoints } from './charters';
 import { initiativeEndpoints } from './initiatives';
 import { recurringWorkEndpoints } from './recurring-work';
+import { modelLedgerEndpoints } from './model-ledger';
 import { retainerMonthEndpoints } from './retainer-months';
 import { automationEndpoints } from './automation';
 import { addendumEndpoints } from './addendums';
@@ -100,6 +101,7 @@ export const apiRegistry: ApiEndpoint[] = [
   ...charterEndpoints,
   ...initiativeEndpoints,
   ...recurringWorkEndpoints,
+  ...modelLedgerEndpoints,
   ...retainerMonthEndpoints,
   ...automationEndpoints,
   ...addendumEndpoints,

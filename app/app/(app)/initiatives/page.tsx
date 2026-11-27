@@ -6,6 +6,7 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { usePageBastChat, useBastChatShell } from '@/components/domain/bast-chat/BastChatProvider';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { RecurringWorkBoard } from '@/components/domain/recurring-work/RecurringWorkBoard';
+import { ModelScoreboard } from '@/components/domain/recurring-work/ModelScoreboard';
 import { useGroupedRecurringWork } from '@/lib/hooks/use-recurring-work';
 import { RetainerMonthsBoard } from '@/components/domain/retainer-months/RetainerMonthsBoard';
 import { useConfirmRetainerMonth, useRetainerMonths } from '@/lib/hooks/use-retainer-months';
@@ -126,7 +127,12 @@ function RecurringWorkTab() {
   if (error || !data) {
     return <EmptyState title="Recurring work did not load" description="Reload the page to try again." />;
   }
-  return <RecurringWorkBoard data={data} />;
+  return (
+    <div className="space-y-8">
+      <RecurringWorkBoard data={data} />
+      <ModelScoreboard />
+    </div>
+  );
 }
 
 export default function InitiativesPage() {
