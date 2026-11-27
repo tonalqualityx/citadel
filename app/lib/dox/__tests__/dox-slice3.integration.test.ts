@@ -77,13 +77,13 @@ describe.skipIf(!SCRATCH)('Dox slice 3 (real database)', () => {
   describe('A. every released card gives its project a brief', () => {
     const release = async (id: string) => runHomeAct(prisma, MIKE_USER_ID, { action: 'triage_release_card', task_ids: [id], release_version: (await loadCards(prisma, [id]))[0].release_version }, OPTS);
 
-    it('releasing a card linked to a project creates the brief (dry, auto); an existing brief is never changed; Undo does not delete it', async () => {
+    it('releasing a card linked to a project creates the brief (live, auto); an existing brief is never changed; Undo does not delete it', async () => {
       const p1 = await fx.mkProject('Release makes a brief', { status: 'ready' });
       const c1 = await fx.mkTask('Addition', { status: 'triage', triage_kind: 'project_addition', project_id: p1, client_id: fx.clientId });
       expect(await briefOf(p1)).toBeNull();
       const res = await release(c1);
       expect((await row(c1)).status).toBe('not_started');
-      expect(await briefOf(p1)).toMatchObject({ owner_mode: 'dry', cadence: 'auto', client_id: fx.clientId, created_by_id: MIKE_USER_ID });
+      expect(await briefOf(p1)).toMatchObject({ owner_mode: 'live', cadence: 'auto', client_id: fx.clientId, created_by_id: MIKE_USER_ID });
 
       const p2 = await fx.mkProject('Release keeps the brief', { status: 'ready' });
       const mine = await prisma.engagementBrief.create({ data: { project_id: p2, label: 'mine', cadence: 'weekly', owner_mode: 'live', allowed_actions: [] } });
@@ -102,7 +102,7 @@ describe.skipIf(!SCRATCH)('Dox slice 3 (real database)', () => {
       const c = await fx.mkTask('Setup', { status: 'triage', triage_kind: 'project_setup', project_id: p, client_id: fx.clientId });
       await release(c);
       expect((await prisma.project.findUniqueOrThrow({ where: { id: p } })).status).toBe('ready');
-      expect(await briefOf(p)).toMatchObject({ owner_mode: 'dry', cadence: 'auto' });
+      expect(await briefOf(p)).toMatchObject({ owner_mode: 'live', cadence: 'auto' });
     });
 
     it('a released card with no project makes no brief', async () => {
@@ -123,11 +123,11 @@ describe.skipIf(!SCRATCH)('Dox slice 3 (real database)', () => {
       expect((await json(await startBrief(call(forProject(other)), idParams(p)))).body.code).toBe('dox_outside_project');
       expect(await briefOf(p)).toBeNull();
       const made = await json(await startBrief(call(forProject(p)), idParams(p)));
-      expect([made.status, made.body.owner_mode, made.body.cadence]).toEqual([201, 'dry', 'auto']);
-      // a body cannot ask for live; and an existing brief that the owner made live is returned as it is
-      await prisma.engagementBrief.update({ where: { project_id: p }, data: { owner_mode: 'live', cadence: 'daily' } });
+      expect([made.status, made.body.owner_mode, made.body.cadence]).toEqual([201, 'live', 'auto']);
+      // a body cannot change the mode; an existing brief the owner set to dry is returned as it is
+      await prisma.engagementBrief.update({ where: { project_id: p }, data: { owner_mode: 'dry', cadence: 'daily' } });
       const again = await json(await startBrief(call(forProject(p), { owner_mode: 'live' }), idParams(p)));
-      expect([again.status, again.body.owner_mode, again.body.cadence]).toEqual([200, 'live', 'daily']);
+      expect([again.status, again.body.owner_mode, again.body.cadence]).toEqual([200, 'dry', 'daily']);
       // a project that is closed or still queued is not Dox's
       const queued = await fx.mkProject('Queued', { status: 'queue' });
       expect((await json(await startBrief(call(forProject(queued)), idParams(queued)))).body.code).toBe('dox_project_closed');
@@ -227,7 +227,7 @@ describe.skipIf(!SCRATCH)('Dox slice 3 (real database)', () => {
       expect(made.status, JSON.stringify(made.body)).toBe(201);
       fx.projectIds.push(made.body.id);
       expect((await row(c)).project_id).toBe(made.body.id);
-      expect(await briefOf(made.body.id)).toMatchObject({ owner_mode: 'dry', cadence: 'auto' });
+      expect(await briefOf(made.body.id)).toMatchObject({ owner_mode: 'live', cadence: 'auto' });
       // one project per card
       expect((await json(await projectsRoute.POST(call(forCard(c), { ...body, name: `${fx.tag} Second` })))).body.code).toBe('dox_card_closed');
       // now the card is a card of a project: the card pass no longer opens writes to it, the project binding does

@@ -1,5 +1,5 @@
 /**
- * Make sure a project has its Dox brief (EngagementBrief, one per project). Created with the default cadence `auto`, owner_mode `dry` and no
+ * Make sure a project has its Dox brief (EngagementBrief, one per project). Created with the default cadence `auto`, owner_mode `live` and no
  * allowed actions; an existing brief is returned untouched (nothing here edits cadence or mode). Two creators at once: the unique project_id
  * makes the second read the first. Used by Release (a released card linked to a project), by the Dox lane's brief route and by the route that
  * starts a project for a released card. Returns null when the project does not exist or is deleted.
@@ -7,7 +7,8 @@
 import type { EngagementBrief, PrismaClient } from '@prisma/client';
 
 export const DEFAULT_BRIEF_CADENCE = 'auto';
-export const DEFAULT_BRIEF_MODE = 'dry';
+// Dox is live on every project (Mike, 2026-11-27, task fc84f244: "Dox should be live on every project"). Before that a new brief started dry.
+export const DEFAULT_BRIEF_MODE = 'live';
 
 type BriefDb = Pick<PrismaClient, 'project' | 'engagementBrief'>;
 

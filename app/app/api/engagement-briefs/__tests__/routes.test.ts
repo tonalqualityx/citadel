@@ -54,6 +54,17 @@ describe('PUT /api/engagement-briefs', () => {
     expect(res.status).toBe(200);
     expect(db.engagementBrief.update.mock.calls[0][0].data.version).toEqual({ increment: 1 });
     expect((await res.json()).version).toBe(2);
+    // no owner_mode sent: the brief keeps its mode
+    expect(db.engagementBrief.update.mock.calls[0][0].data.owner_mode).toBe('dry');
+  });
+
+  it('a new brief with no owner_mode starts live', async () => {
+    db.charter.findUnique.mockResolvedValue({ client_id: U(1), is_deleted: false });
+    db.engagementBrief.findUnique.mockResolvedValue(null);
+    db.engagementBrief.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => row(data));
+    const res = await PUT(req('PUT', { charter_id: U(2), label: 'Herba' }));
+    expect(res.status).toBe(201);
+    expect(db.engagementBrief.create.mock.calls[0][0].data.owner_mode).toBe('live');
   });
 
   it('refuses a brief with neither project nor charter, and an unknown action', async () => {

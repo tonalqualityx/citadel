@@ -653,9 +653,9 @@ export const projectEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'POST',
-        summary: 'Start the engagement brief of the project (one per project) with cadence auto, owner_mode dry and no allowed actions. Idempotent.',
+        summary: 'Start the engagement brief of the project (one per project) with cadence auto, owner_mode live and no allowed actions. Idempotent.',
         auth: 'required',
-        responseExample: { id: 'uuid', project_id: 'uuid', cadence: 'auto', owner_mode: 'dry', last_pass_at: 'ISO-8601|null' },
+        responseExample: { id: 'uuid', project_id: 'uuid', cadence: 'auto', owner_mode: 'live', last_pass_at: 'ISO-8601|null' },
         responseNotes: '201 created, 200 the existing brief unchanged. GET returns the brief with report_cadence, report_day, report_to, report_source, last_report_at and the computed next_report_on (404 brief_not_found when the project has none; pm or admin, the Dox lane included). The Dox lane (only for the project its x-dox-project header names, which must be live: it makes the brief an older released card never got, with these same defaults and no way to set the mode), the owner session or the owner\'s chat lane only. Releasing a Triage card linked to a project also makes sure the project has this brief. Cadence values (auto, daily, every_2_days, every_3_days, weekly, every_2_weeks, none) are validated by PUT /api/engagement-briefs.',
       },
     ],

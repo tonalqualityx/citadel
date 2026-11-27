@@ -364,7 +364,7 @@ describe.skipIf(!SCRATCH)('Dox slice 1 (real database)', () => {
       // the brief: created once with cadence auto, and the snapshot by brief id carries it
       const made = await json(await startBrief(call(proj), idParams(proj)));
       expect(made.status).toBe(201);
-      expect(made.body).toMatchObject({ project_id: proj, cadence: 'auto', owner_mode: 'dry' });
+      expect(made.body).toMatchObject({ project_id: proj, cadence: 'auto', owner_mode: 'live' });
       const again = await json(await startBrief(call(proj), idParams(proj)));
       expect(again.status).toBe(200);
       expect(again.body.id).toBe(made.body.id);

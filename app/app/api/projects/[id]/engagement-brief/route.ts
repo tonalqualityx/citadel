@@ -32,7 +32,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 }
 
 /**
- * POST /api/projects/[id]/engagement-brief: start the project's brief (one per project) with cadence `auto`, owner_mode `dry` and no allowed actions.
+ * POST /api/projects/[id]/engagement-brief: start the project's brief (one per project) with cadence `auto`, owner_mode `live` and no allowed actions.
  * Idempotent: a project that already has a brief gets it back with 200, unchanged (nothing here replaces or edits an existing brief; the owner changes
  * cadence and mode). The Dox lane (only for the project its x-dox-project header names, which must be live: it creates the brief a released card never got, with these same defaults and no way to set the mode), the owner's own session or the owner's chat lane only. A project that does not exist is 404; a deleted one too.
  */

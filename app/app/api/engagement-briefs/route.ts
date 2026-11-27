@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { briefInputSchema } from '@/lib/engagement/brief';
+import { DEFAULT_BRIEF_MODE } from '@/lib/engagement/ensure-brief';
 import { serializeBrief } from '@/lib/engagement/serialize';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -34,7 +35,8 @@ export async function GET(request: NextRequest) {
 /**
  * PUT /api/engagement-briefs: create or replace the brief for a project or a charter. The unit is
  * the engagement (project_id, else charter_id), so a second PUT is an update and bumps `version`.
- * A brief the owner pass reads and can act on; pm or admin only.
+ * A brief the owner pass reads and can act on; pm or admin only. A new brief with no owner_mode starts live (the default every
+ * new brief has); an update with no owner_mode keeps the brief's mode.
  */
 export async function PUT(request: NextRequest) {
   try {
@@ -67,7 +69,7 @@ export async function PUT(request: NextRequest) {
       allowed_actions: b.allowed_actions ?? [],
       release_owner_role: b.release_owner_role ?? 'pm',
       stall_rules: (b.stall_rules ?? {}) as Prisma.InputJsonValue,
-      owner_mode: b.owner_mode ?? 'off',
+      owner_mode: b.owner_mode ?? existing?.owner_mode ?? DEFAULT_BRIEF_MODE,
       cadence: b.cadence ?? 'weekly',
     };
     const row = existing

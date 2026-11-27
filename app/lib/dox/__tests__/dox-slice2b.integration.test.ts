@@ -241,11 +241,11 @@ describe.skipIf(!SCRATCH)('Dox slice 2b (real database)', () => {
       as(chatLane());
       const made = await json(await startBrief(call(undefined), idParams(proj)));
       expect(made.status, JSON.stringify(made.body)).toBe(201);
-      expect(made.body).toMatchObject({ project_id: proj, owner_mode: 'dry' });
+      expect(made.body).toMatchObject({ project_id: proj, owner_mode: 'live' });
       as(dox());
       const list = await json(await listBriefs(new NextRequest(`http://localhost/api/engagement-briefs?project_id=${proj}`)));
       expect(list.status).toBe(200);
-      expect(list.body.briefs[0]).toMatchObject({ owner_mode: 'dry', last_pass_at: null });
+      expect(list.body.briefs[0]).toMatchObject({ owner_mode: 'live', last_pass_at: null });
     });
   });
 
