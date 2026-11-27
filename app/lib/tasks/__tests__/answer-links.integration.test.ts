@@ -84,10 +84,19 @@ describe.skipIf(!SCRATCH)('answer links (real database)', () => {
     return (await res.json()) as Minted;
   };
   const tokenOf = (url: string) => url.split('/api/question-links/')[1];
-  const tap = async (url: string) => {
-    const r = new NextRequest(`http://localhost/api/question-links/${tokenOf(url)}`, { method: 'POST', headers: { accept: 'application/json' } });
+  type LinkBody = { ok: boolean; code: string; message: string; label?: string; released_task_ids?: string[]; selected?: boolean; report_url?: string };
+  const tap = async (url: string, origin?: string) => {
+    const headers: Record<string, string> = { accept: 'application/json' };
+    if (origin) headers.origin = origin;
+    const r = new NextRequest(`http://localhost/api/question-links/${tokenOf(url)}`, { method: 'POST', headers });
     const res = await redeemLink(r, tParams(tokenOf(url)));
-    return { status: res.status, body: (await res.json()) as { ok: boolean; code: string; message: string; label?: string; released_task_ids?: string[] } };
+    return { status: res.status, body: (await res.json()) as LinkBody, allowOrigin: res.headers.get('access-control-allow-origin') };
+  };
+  // What a reopened report page reads for each button: the link's state as JSON, from the reports site.
+  const peek = async (url: string) => {
+    const r = new NextRequest(`http://localhost/api/question-links/${tokenOf(url)}`, { headers: { accept: 'application/json', origin: 'https://reports.becomeindelible.com' } });
+    const res = await openLink(r, tParams(tokenOf(url)));
+    return { status: res.status, body: (await res.json()) as LinkBody, allowOrigin: res.headers.get('access-control-allow-origin') };
   };
   const q = (id: string) => prisma.taskQuestion.findUniqueOrThrow({ where: { id } });
 
@@ -160,10 +169,22 @@ describe.skipIf(!SCRATCH)('answer links (real database)', () => {
     expect(html).toContain('method="post"');
     expect((await q(row.id)).state).toBe('open');
 
-    const r = await tap(table.url);
+    // Before the tap, a reopened report shows nothing picked.
+    expect((await peek(table.url)).body).toMatchObject({ ok: true, code: 'ready', selected: false, report_url: REPORT });
+
+    // The report page taps from its own site and reads the answer in place.
+    const r = await tap(table.url, 'https://reports.becomeindelible.com');
     expect(r.status).toBe(200);
-    expect(r.body).toMatchObject({ ok: true, code: 'answered', label: 'Table' });
+    expect(r.body).toMatchObject({ ok: true, code: 'answered', label: 'Table', selected: true });
     expect(r.body.released_task_ids).toEqual([blocked]);
+    expect(r.allowOrigin).toBe('https://reports.becomeindelible.com');
+
+    // Reopened later: the picked option shows as selected, the other option and the talk button do not.
+    const seen = await peek(table.url);
+    expect(seen.body).toMatchObject({ ok: false, code: 'used', selected: true });
+    expect(seen.allowOrigin).toBe('https://reports.becomeindelible.com');
+    expect((await peek(m.options.find((o) => o.option_id === 'cards')!.url)).body.selected).toBe(false);
+    expect((await peek(m.talk_it_through.url)).body.selected).toBe(false);
 
     const after = await q(row.id);
     expect(after.state).toBe('answered');
@@ -194,8 +215,17 @@ describe.skipIf(!SCRATCH)('answer links (real database)', () => {
     // The link minted before the hold is the one the report carries.
     const m = await mintOk(t, row.id);
 
+    // A post from another site records nothing, even with a good link.
+    const foreign = await tap(m.talk_it_through.url, 'https://evil.test');
+    expect(foreign.status).toBe(403);
+    expect(foreign.body.code).toBe('foreign_origin');
+    expect((await q(row.id)).held_for_chat_at).toBeNull();
+
     const r = await tap(m.talk_it_through.url);
-    expect(r.body).toMatchObject({ ok: true, code: 'held' });
+    expect(r.body).toMatchObject({ ok: true, code: 'held', selected: true });
+    // Reopened: talk it through shows as picked, and the options still answer.
+    expect((await peek(m.talk_it_through.url)).body.selected).toBe(true);
+    expect((await peek(m.options[0].url)).body).toMatchObject({ ok: true, code: 'ready', selected: false });
     const held = await q(row.id);
     expect(held.state).toBe('open');
     expect(held.held_for_chat_at).not.toBeNull();

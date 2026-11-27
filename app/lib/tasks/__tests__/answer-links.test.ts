@@ -1,7 +1,9 @@
 // @vitest-environment node
 /** The signing half of answer links, and the pages: no database. */
 import { describe, it, expect, beforeAll } from 'vitest';
-import { tokenFor, verifyToken, wordingHash, inspectPage, outcomePage, mayMintLinks, type LinkOutcome } from '../answer-links';
+import { NextRequest } from 'next/server';
+import { tokenFor, verifyToken, wordingHash, inspectPage, outcomePage, mayMintLinks, isSelected, corsHeadersFor, postOriginAllowed, REPORTS_ORIGIN, type LinkOutcome } from '../answer-links';
+import { OPTIONS, POST } from '@/app/api/question-links/[token]/route';
 import { MIKE_USER_ID, BAST_USER_ID } from '@/lib/oracle/projects/gate-constants';
 
 const ID = '11111111-2222-4333-8444-555555555555';
@@ -77,5 +79,73 @@ describe('link pages', () => {
     expect(html).not.toContain('<form');
     expect(html).toContain('Nothing was recorded.');
     expect(outcomePage(no)).toContain('This link was already used');
+  });
+});
+
+describe('the plain-link page leads back to the report', () => {
+  it('shows a back link for an https report page, escaped, and none otherwise', () => {
+    const done: LinkOutcome = { ok: true, code: 'answered', status: 200, title: 'Recorded: Cards', message: 'Saved.', report_url: 'https://reports.becomeindelible.com/for-mike-x--t/?a=1&b=2' };
+    const html = outcomePage(done);
+    expect(html).toContain('>Back to the report</a>');
+    expect(html).toContain('href="https://reports.becomeindelible.com/for-mike-x--t/?a=1&amp;b=2"');
+    expect(outcomePage({ ...done, report_url: undefined })).not.toContain('Back to the report');
+    expect(outcomePage({ ...done, report_url: 'javascript:alert(1)' })).not.toContain('Back to the report');
+    expect(outcomePage({ ...done, report_url: 'https://x.test/"><script>' })).not.toContain('Back to the report');
+  });
+});
+
+describe('which button shows as picked', () => {
+  const open = { state: 'open', answer_option_id: null, held_for_chat_at: null };
+  it('an option is picked only while it is the answer', () => {
+    expect(isSelected({ kind: 'option', option_id: 'cards' }, { ...open, state: 'answered', answer_option_id: 'cards' })).toBe(true);
+    expect(isSelected({ kind: 'option', option_id: 'table' }, { ...open, state: 'answered', answer_option_id: 'cards' })).toBe(false);
+    expect(isSelected({ kind: 'option', option_id: 'cards' }, open)).toBe(false);
+    // A recommendation that went ahead with nobody answering is not Mike's pick.
+    expect(isSelected({ kind: 'option', option_id: 'cards' }, { ...open, state: 'defaulted', answer_option_id: 'cards' })).toBe(false);
+  });
+  it('talk it through is picked while the question is held and still open', () => {
+    const held = { ...open, held_for_chat_at: new Date() };
+    expect(isSelected({ kind: 'hold', option_id: null }, held)).toBe(true);
+    expect(isSelected({ kind: 'hold', option_id: null }, open)).toBe(false);
+    expect(isSelected({ kind: 'hold', option_id: null }, { ...held, state: 'answered', answer_option_id: 'cards' })).toBe(false);
+  });
+});
+
+describe('calls from the report page', () => {
+  it('only the reports site may read the answer', () => {
+    expect(corsHeadersFor(REPORTS_ORIGIN)['Access-Control-Allow-Origin']).toBe('https://reports.becomeindelible.com');
+    expect(corsHeadersFor('https://evil.test')['Access-Control-Allow-Origin']).toBeUndefined();
+    expect(corsHeadersFor('https://reports.becomeindelible.com.evil.test')['Access-Control-Allow-Origin']).toBeUndefined();
+    expect(corsHeadersFor(null)['Access-Control-Allow-Origin']).toBeUndefined();
+    expect(corsHeadersFor(null).Vary).toBe('Origin');
+  });
+
+  it('a post may come from the reports site, Citadel itself, or no origin; never another site', () => {
+    const own = ['citadel.becomeindelible.com'];
+    expect(postOriginAllowed(REPORTS_ORIGIN, own)).toBe(true);
+    expect(postOriginAllowed(null, own)).toBe(true);
+    expect(postOriginAllowed('null', own)).toBe(true);
+    expect(postOriginAllowed('https://citadel.becomeindelible.com', own)).toBe(true);
+    expect(postOriginAllowed('https://evil.test', own)).toBe(false);
+    expect(postOriginAllowed('http://reports.becomeindelible.com', own)).toBe(false);
+    expect(postOriginAllowed('not a url', own)).toBe(false);
+  });
+
+  it('the route answers the preflight for the reports site only, and refuses a post from another site before reading the link', async () => {
+    const pre = await OPTIONS(new NextRequest('http://localhost/api/question-links/x', { method: 'OPTIONS', headers: { origin: REPORTS_ORIGIN } }));
+    expect(pre.status).toBe(204);
+    expect(pre.headers.get('access-control-allow-origin')).toBe(REPORTS_ORIGIN);
+    expect(pre.headers.get('access-control-allow-methods')).toContain('POST');
+    const other = await OPTIONS(new NextRequest('http://localhost/api/question-links/x', { method: 'OPTIONS', headers: { origin: 'https://evil.test' } }));
+    expect(other.headers.get('access-control-allow-origin')).toBeNull();
+    expect(other.headers.get('access-control-allow-methods')).toBeNull();
+
+    const r = await POST(
+      new NextRequest('http://localhost/api/question-links/not-a-token', { method: 'POST', headers: { origin: 'https://evil.test', accept: 'application/json' } }),
+      { params: Promise.resolve({ token: 'not-a-token' }) },
+    );
+    expect(r.status).toBe(403);
+    expect(((await r.json()) as { code: string }).code).toBe('foreign_origin');
+    expect(r.headers.get('access-control-allow-origin')).toBeNull();
   });
 });

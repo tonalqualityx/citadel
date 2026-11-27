@@ -144,7 +144,8 @@ export type LinkCode =
   | 'withdrawn'
   | 'already_answered'
   | 'already_defaulted'
-  | 'changed';
+  | 'changed'
+  | 'foreign_origin';
 
 export interface LinkOutcome {
   ok: boolean;
@@ -158,6 +159,11 @@ export interface LinkOutcome {
   label?: string;
   task_id?: string;
   released_task_ids?: string[];
+  /** Whether this link's choice is the question's current state: its option is the answer, or (talk it through) the question is held for a chat.
+   *  The report page reads it so a reopened report shows the earlier answer as picked. */
+  selected?: boolean;
+  /** The report page the link was minted for, so the plain-link page can lead back to it. */
+  report_url?: string;
 }
 
 const NOTHING = 'Nothing was recorded.';
@@ -181,6 +187,18 @@ function labelOf(link: { kind: string; option_id: string | null }, options: unkn
   if (link.kind === 'hold') return TALK_LABEL;
   const opt = optionOf(options, link.option_id);
   return opt ? opt.label : null;
+}
+
+type QuestionState = { state: string; answer_option_id: string | null; held_for_chat_at: Date | null };
+
+/** Whether the link's choice is what the question holds now: the answered option, or the hold while the question is still open. */
+export function isSelected(link: { kind: string; option_id: string | null }, q: QuestionState): boolean {
+  if (link.kind === 'hold') return q.state === 'open' && q.held_for_chat_at !== null;
+  return q.state === 'answered' && link.option_id !== null && q.answer_option_id === link.option_id;
+}
+
+function withState(o: LinkOutcome, link: { kind: string; option_id: string | null; report_url: string }, q: QuestionState): LinkOutcome {
+  return { ...o, selected: isSelected(link, q), report_url: link.report_url };
 }
 
 /** Every refusal that can be read without writing, in the order a person would want to hear it. Null when the link would record. */
@@ -210,9 +228,13 @@ export async function inspectAnswerLink(token: string, now: Date = new Date()): 
   const link = await loadLink(id);
   if (!link) return ALTERED;
   const no = refusalOf(link, link.question, now);
-  if (no) return no;
+  if (no) return no === ALTERED ? no : withState(no, link, link.question);
   const label = labelOf(link, link.question.options)!;
-  return { ok: true, code: 'ready', status: 200, title: link.kind === 'hold' ? 'Holding this for a chat' : `Recording your answer: ${label}`, message: '', question: link.question.question, label, task_id: link.question.task_id ?? undefined };
+  return withState(
+    { ok: true, code: 'ready', status: 200, title: link.kind === 'hold' ? 'Holding this for a chat' : `Recording your answer: ${label}`, message: '', question: link.question.question, label, task_id: link.question.task_id ?? undefined },
+    link,
+    link.question,
+  );
 }
 
 /** Records the link: the option as Mike's answer, or the question held for a chat. Single use, atomic with the answer itself. */
@@ -224,7 +246,7 @@ export async function redeemAnswerLink(token: string, now: Date = new Date()): P
   const taskId = first.question.task_id;
   if (!taskId) return ALTERED;
   const early = refusalOf(first, first.question, now);
-  if (early) return early;
+  if (early) return early === ALTERED ? early : withState(early, first, first.question);
 
   const out = await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM tasks WHERE id = ${taskId}::uuid FOR UPDATE`;
@@ -233,7 +255,7 @@ export async function redeemAnswerLink(token: string, now: Date = new Date()): P
     if (!link) return { outcome: ALTERED };
     const q = link.question;
     const no = refusalOf(link, q, now);
-    if (no) return { outcome: no };
+    if (no) return { outcome: no === ALTERED ? no : withState(no, link, q) };
     const claimed = await tx.questionAnswerLink.updateMany({ where: { id, used_at: null }, data: { used_at: now, used_outcome: link.kind === 'hold' ? 'held' : 'answered' } });
     if (claimed.count !== 1) return { outcome: refused('used', 410, 'This link was already used', `Each button works once. ${NOTHING}`, { question: q.question, task_id: taskId }) };
     const date = citationDate(now);
@@ -254,7 +276,7 @@ export async function redeemAnswerLink(token: string, now: Date = new Date()): P
         },
       });
       await recordTriageChange(tx, taskId, 'question', 'Question held for a chat by Mike (report page)', { userId: MIKE_USER_ID, lane: null, by: 'Mike' });
-      return { outcome: { ok: true, code: 'held' as const, status: 200, title: 'Held for a chat', message: 'This question will wait for a conversation with you. It will not go ahead on its own.', question: q.question, label: TALK_LABEL, task_id: taskId } };
+      return { outcome: { ok: true, code: 'held' as const, status: 200, title: 'Held for a chat', message: 'This question will wait for a conversation with you. It will not go ahead on its own.', question: q.question, label: TALK_LABEL, task_id: taskId, selected: true, report_url: link.report_url } };
     }
 
     const opt = optionOf(q.options, link.option_id)!;
@@ -285,7 +307,7 @@ export async function redeemAnswerLink(token: string, now: Date = new Date()): P
     await releaseHoldIfLast(tx, taskId);
     await recordTriageChange(tx, taskId, 'question', 'Question answered by Mike (report page)', { userId: MIKE_USER_ID, lane: null, by: 'Mike' });
     return {
-      outcome: { ok: true, code: 'answered' as const, status: 200, title: `Recorded: ${opt.label}`, message: 'Your answer is on the card, and the work waiting on it can go ahead.', question: q.question, label: opt.label, task_id: taskId },
+      outcome: { ok: true, code: 'answered' as const, status: 200, title: `Recorded: ${opt.label}`, message: 'Your answer is on the card, and the work waiting on it can go ahead.', question: q.question, label: opt.label, task_id: taskId, selected: true, report_url: link.report_url },
       answered: { questionId: q.id, askerId: q.asked_by_user_id, askerLane: q.asked_by_lane, question: q.question },
     };
   });
@@ -323,14 +345,21 @@ main{max-width:34rem;margin:0 auto;padding:2.5rem 1.25rem}
 h1{font-size:1.4rem;line-height:1.3;margin:0 0 .75rem}
 p{margin:.5rem 0}.q{color:#555;font-size:1rem}
 button{font:inherit;font-weight:600;padding:.8rem 1.4rem;border-radius:10px;border:0;background:#2f6f4f;color:#fff;cursor:pointer;width:100%;margin-top:1rem}
+a.back{display:block;box-sizing:border-box;text-align:center;font-weight:600;padding:.8rem 1.4rem;border-radius:10px;border:2px solid #1d1d1f;color:#1d1d1f;text-decoration:none;margin-top:1rem}
 </style></head><body><main>${body}</main></body></html>`;
+}
+
+/** A link back to the report the button sat on, only for an https report page. */
+function backLink(reportUrl: string | undefined): string {
+  if (!reportUrl || !/^https:\/\/[^\s"'<>]+$/.test(reportUrl)) return '';
+  return `<a class="back" href="${esc(reportUrl)}">Back to the report</a>`;
 }
 
 /** The confirmation or refusal page for a used link (POST). */
 export function outcomePage(o: LinkOutcome): string {
   const tone = o.ok ? (o.code === 'held' ? '#8a6d1f' : '#2f6f4f') : '#a33a2b';
   const q = o.question ? `<p class="q">Question: ${esc(o.question)}</p>` : '';
-  return page(o.title, `<div class="card" style="--tone:${tone}"><h1>${esc(o.title)}</h1>${q}<p>${esc(o.message)}</p></div>`);
+  return page(o.title, `<div class="card" style="--tone:${tone}"><h1>${esc(o.title)}</h1>${q}<p>${esc(o.message)}</p>${backLink(o.report_url)}</div>`);
 }
 
 /**
@@ -353,3 +382,35 @@ export const LINK_PAGE_HEADERS = {
   'Referrer-Policy': 'no-referrer',
   'X-Robots-Tag': 'noindex, nofollow',
 } as const;
+
+// ---------------------------------------------------------------------------------------------------------------------------------------------
+// Calls from the report page itself (a tap answers in place; Mike, 2026-11-27: "Perhaps we should update the process so the buttons change to
+// visually show my selection and a toast tab pops up?")
+
+/** The one site whose pages may call these links from a script and read the answer. */
+export const REPORTS_ORIGIN = 'https://reports.becomeindelible.com';
+
+/** CORS headers for a call from the reports site; none for any other caller, so another site's script can never read the answer. */
+export function corsHeadersFor(origin: string | null): Record<string, string> {
+  const h: Record<string, string> = { Vary: 'Origin' };
+  if (origin === REPORTS_ORIGIN) h['Access-Control-Allow-Origin'] = REPORTS_ORIGIN;
+  return h;
+}
+
+/**
+ * Whether a POST may record from where it came. The report site, Citadel itself (the plain-link page posts back to its own host), and a request
+ * with no origin or the opaque "null" one (the plain-link page sends no referrer, so its form post carries Origin: null) may. A script or form on
+ * any other site may not, even holding a good link.
+ */
+export function postOriginAllowed(origin: string | null, ownHosts: Array<string | null | undefined>): boolean {
+  if (origin === null || origin === '' || origin === 'null' || origin === REPORTS_ORIGIN) return true;
+  let host: string;
+  try {
+    host = new URL(origin).host;
+  } catch {
+    return false;
+  }
+  return ownHosts.some((h) => !!h && h.toLowerCase() === host.toLowerCase());
+}
+
+export const FOREIGN_ORIGIN: LinkOutcome = refused('foreign_origin', 403, 'This link cannot be used from that site', `Answer buttons work from the report page only. ${NOTHING}`);
