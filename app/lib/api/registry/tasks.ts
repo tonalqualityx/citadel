@@ -476,6 +476,79 @@ export const taskEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/secret-drops',
+    group: 'tasks',
+    methods: [
+      {
+        method: 'POST',
+        summary: "Mint a secret drop: a one-time link Mike pastes a key into from his phone. His browser encrypts the key to the given public key (the private half stays on the Bast machine), so Citadel only ever holds ciphertext, and only until the machine stores the key. With task_id, the waiting task gets awaiting-key (and needs-mike when it lacked it) until the key is stored.",
+        auth: 'required',
+        bodySchema: [
+          { name: 'key_name', type: 'string', required: true, description: 'The name the key is stored under: capitals, digits and underscores, 2 to 64 characters (DATAFORSEO_PASSWORD).' },
+          { name: 'label', type: 'string', required: false, description: 'What Mike reads on the page (DataForSEO password). Defaults to key_name.' },
+          { name: 'task_id', type: 'uuid', required: false, description: 'The task waiting on the key.' },
+          { name: 'mike_task_id', type: 'uuid', required: false, description: "Mike's own task asking for the key; closed when the key is stored." },
+          { name: 'public_key', type: 'object', required: true, description: 'RSA-OAEP-256 public JWK { kty: RSA, n, e }, 2048 to 4096 bits.' },
+          { name: 'expires_in_minutes', type: 'number', required: false, description: '5 to 1440, default 60.' },
+          { name: 'replaces_existing', type: 'boolean', required: false, description: 'The page tells Mike the key replaces one already stored under that name.' },
+        ],
+        responseExample: { id: 'uuid', key_name: 'string', url: 'string', expires_at: 'string', task_id: 'uuid|null' },
+        responseNotes: 'Mike, or the Bast worker key (lane bast) only; 403 drop_not_allowed otherwise. 404 task_not_found or mike_task_not_found. 500 link_secret_missing when the server has no signing secret.',
+      },
+    ],
+  },
+  {
+    path: '/api/secret-drops/:id',
+    group: 'tasks',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'The machine reads a secret drop: its status, and the ciphertext while the key is received and not yet stored.',
+        auth: 'required',
+        responseExample: { id: 'uuid', key_name: 'string', status: 'waiting|received|stored|failed|expired', ciphertext: { v: 1, ek: 'string', iv: 'string', ct: 'string' }, expires_at: 'string', submitted_at: 'string|null', stored_at: 'string|null', failed_reason: 'string|null' },
+        responseNotes: 'Mike, or the Bast worker key only. ciphertext is present only while status is received.',
+      },
+    ],
+  },
+  {
+    path: '/api/secret-drops/:id/result',
+    group: 'tasks',
+    methods: [
+      {
+        method: 'POST',
+        summary: "The machine stored the key, or says why it could not. The ciphertext is wiped either way. Storing takes awaiting-key off the waiting task (needs-mike too when the link put it on, or when mike_task_id was given), leaves an internal note on it written as Bast, closes Mike's own task asking for the key, and releases what that held.",
+        auth: 'required',
+        bodySchema: [
+          { name: 'ok', type: 'boolean', required: true, description: 'true: stored. false: not stored.' },
+          { name: 'stored_where', type: 'string', required: false, description: 'With ok true: where the key went, in words, never the value (the machine key store, ~/.config/bast/secrets.env).' },
+          { name: 'reason', type: 'string', required: false, description: 'With ok false: why, shown to Mike on the page.' },
+        ],
+        responseExample: { id: 'uuid', status: 'stored|failed', released_task_ids: ['uuid'] },
+        responseNotes: 'Idempotent once stored or failed. 409 not_received when no key has arrived on the link.',
+      },
+    ],
+  },
+  {
+    path: '/api/secret-drop-links/:token',
+    group: 'tasks',
+    methods: [
+      {
+        method: 'GET',
+        summary: "The page Mike opens from a secret drop link: a box for the key that encrypts it in his browser before sending, then shows Stored once the machine says so. Expired, used and altered links say so.",
+        auth: 'none',
+        responseExample: { ok: 'boolean', status: 'waiting|received|stored|failed|expired|altered', key_name: 'string', label: 'string', replaces_existing: 'boolean', failed_reason: 'string|null' },
+        responseNotes: 'HTML by default (a strict Content-Security-Policy with a per-response script nonce); JSON status with Accept: application/json, never the ciphertext. 400 altered, 410 expired.',
+      },
+      {
+        method: 'POST',
+        summary: 'The key, already encrypted in the browser: { v: 1, ek, iv, ct } (an AES-256-GCM key wrapped with RSA-OAEP-256, the IV, and the ciphertext). Taken once.',
+        auth: 'none',
+        responseExample: { ok: 'boolean', code: 'received|altered|used|expired|bad_envelope|foreign_origin', status: 'string', message: 'string' },
+        responseNotes: 'The signed token is the permission. 400 altered or bad_envelope, 410 used or expired, 403 foreign_origin (only no Origin, Origin null and Citadel itself may post). The body is never logged or echoed.',
+      },
+    ],
+  },
+  {
     path: '/api/question-links/:token',
     group: 'tasks',
     methods: [

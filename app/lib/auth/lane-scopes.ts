@@ -213,6 +213,10 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('GET', '/api/questions'),
     // Report pages (Mike, 2026-11-25: "My tap is still my answer"): mike_report.py mints the signed one-time answer links its buttons carry.
     r('POST', '/api/tasks/:id/questions/:qid/links'),
+    // Secret drop (task 0f36c806): ~/.claude/tools/secret-drop mints a one-time link Mike pastes a key into, collects the ciphertext, says stored.
+    r('POST', '/api/secret-drops'),
+    r('GET', '/api/secret-drops/:id'),
+    r('POST', '/api/secret-drops/:id/result'),
     r('GET', '/api/contacts/resolve'),
     r('GET', '/api/projects'),
     // The plan of a card: read only (after release; a Triage card's plan is the owner's, the chat's and Dox's)

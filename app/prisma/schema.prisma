@@ -6386,3 +6386,32 @@ model ModelLedgerDay {
   @@index([day])
   @@map("model_ledger_days")
 }
+
+/// Secret drop (task 0f36c806; Mike, 2026-11-27: "Make it so I can give it to you and you can put it where it can be accessed."). A one-time
+/// link Mike pastes a key into from his phone. His browser encrypts the key to a public key whose private half never leaves the Bast machine,
+/// so this table only ever holds ciphertext, and only until the machine stores the key and wipes it. Task ids are plain columns, no relation.
+model SecretDrop {
+  id                String    @id @default(uuid()) @db.Uuid
+  key_name          String    @db.VarChar(64)
+  label             String    @db.VarChar(120)
+  // the task waiting on the key, and Mike's own task asking for it (closed once the key is stored)
+  task_id           String?   @db.Uuid
+  mike_task_id      String?   @db.Uuid
+  // RSA-OAEP-256 public key (JWK); the private half is on the Bast machine only
+  public_key        Json
+  replaces_existing Boolean   @default(false)
+  // whether minting put needs-mike on the waiting task (only then does storing take it off)
+  added_needs_mike  Boolean   @default(false)
+  ciphertext        String?   @db.Text
+  submitted_at      DateTime?
+  stored_at         DateTime?
+  stored_where      String?   @db.VarChar(200)
+  failed_at         DateTime?
+  failed_reason     String?   @db.VarChar(300)
+  expires_at        DateTime
+  minted_by_id      String?   @db.Uuid
+  created_at        DateTime  @default(now())
+
+  @@index([task_id])
+  @@map("secret_drops")
+}
