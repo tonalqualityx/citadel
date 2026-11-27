@@ -72,6 +72,7 @@ import {
 } from '@/lib/calculations/status';
 import { formatDuration } from '@/lib/calculations/energy';
 import { isClientVisibleTask } from '@/lib/portal/visibility';
+import '@/components/domain/tasks/task-fill.css';
 
 // ============================================
 // INLINE EDITABLE TEXT COMPONENT
@@ -213,7 +214,7 @@ export function TaskPeekDrawer({ taskId, open, onOpenChange }: TaskPeekDrawerPro
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent side="right" size="xl" data-testid="task-peek-drawer">
+      <DrawerContent side="right" size="xl" className="max-sm:w-full" data-testid="task-peek-drawer" data-task-fill>
         <DrawerHeader>
           <DrawerTitle className="flex-1 pr-8">
             {isLoading ? (

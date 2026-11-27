@@ -1,0 +1,22 @@
+/*
+ * Task page and task drawer below desktop (lg, 64rem): the text uses the screen width.
+ *
+ * On a 390px phone the description ran in a 132px column: the shell's 24px, the page's own 24px, the card's 24px and
+ * the editor's 54px side indent all stacked on each side. The page now drops its own padding and sits on a 16px side
+ * gutter, cards pad 16px, and the editor loses its indent (it only makes room for the drag handle, which a finger
+ * does not use). Desktop keeps every value it had. Scoped by the data-task-fill marker so no other page moves.
+ */
+@media (width < 64rem) {
+  [data-task-fill] [data-card-pad] {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  [data-task-fill] [data-card-pad='header'] {
+    padding-top: 1rem;
+  }
+
+  [data-task-fill] .bn-editor {
+    padding-inline: 0;
+  }
+}

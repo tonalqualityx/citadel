@@ -85,6 +85,7 @@ import { useTaskPlan } from '@/lib/hooks/use-task-plan';
 import { PlanTab } from '@/components/domain/tasks/PlanTab';
 import { MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import { isClientVisibleTask } from '@/lib/portal/visibility';
+import '@/components/domain/tasks/task-fill.css';
 
 // ============================================
 // INLINE EDITABLE TEXT COMPONENT
@@ -357,7 +358,7 @@ export default function QuestDetailPage() {
   const isBlocking = task.blocking && task.blocking.length > 0;
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-6 max-lg:-mx-2 lg:p-6" data-task-fill>
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-3" data-testid="task-header">
         <div className="flex min-w-0 items-start gap-4">
@@ -683,7 +684,7 @@ export default function QuestDetailPage() {
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" style={bodyGridStyle}>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6" style={bodyGridStyle} data-testid="task-body-grid">
         {/* Main Content */}
         <div className="lg:col-span-2 space-y-6" style={bodyMainStyle}>
           {/* Description */}
