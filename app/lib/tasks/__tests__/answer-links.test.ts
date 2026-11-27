@@ -2,7 +2,7 @@
 /** The signing half of answer links, and the pages: no database. */
 import { describe, it, expect, beforeAll } from 'vitest';
 import { NextRequest } from 'next/server';
-import { tokenFor, verifyToken, wordingHash, inspectPage, outcomePage, mayMintLinks, isSelected, corsHeadersFor, postOriginAllowed, REPORTS_ORIGIN, type LinkOutcome } from '../answer-links';
+import { tokenFor, verifyToken, wordingHash, inspectPage, outcomePage, mayMintLinks, isSelected, mayChangeAnswer, corsHeadersFor, postOriginAllowed, REPORTS_ORIGIN, type LinkOutcome } from '../answer-links';
 import { OPTIONS, POST } from '@/app/api/question-links/[token]/route';
 import { MIKE_USER_ID, BAST_USER_ID } from '@/lib/oracle/projects/gate-constants';
 
@@ -147,5 +147,31 @@ describe('calls from the report page', () => {
     expect(r.status).toBe(403);
     expect(((await r.json()) as { code: string }).code).toBe('foreign_origin');
     expect(r.headers.get('access-control-allow-origin')).toBeNull();
+  });
+});
+
+describe('changing a tapped answer from the same report', () => {
+  const at = new Date('2026-11-27T19:00:00.000Z');
+  const answered = { state: 'answered', answer_option_id: 'a', answered_at: at };
+  const link = { batch_id: 'b1', kind: 'option', option_id: 'c' };
+  const db = (owner: { id: string } | null) => {
+    const calls: unknown[] = [];
+    return { calls, db: { questionAnswerLink: { findFirst: async (args: unknown) => { calls.push(args); return owner; } } } as never };
+  };
+
+  it('allows another option of the batch whose tap holds the answer, matching on the answer time', async () => {
+    const d = db({ id: 'x' });
+    expect(await mayChangeAnswer(d.db, link, answered)).toBe(true);
+    expect(d.calls[0]).toMatchObject({ where: { batch_id: 'b1', kind: 'option', option_id: 'a', used_at: at, used_outcome: { in: ['answered', 'reanswered'] } } });
+  });
+
+  it('refuses when the answer came from elsewhere, the link is the answer already, a hold link, or the question is not answered', async () => {
+    expect(await mayChangeAnswer(db(null).db, link, answered)).toBe(false);
+    const never = db({ id: 'x' });
+    expect(await mayChangeAnswer(never.db, { ...link, option_id: 'a' }, answered)).toBe(false);
+    expect(await mayChangeAnswer(never.db, { ...link, kind: 'hold', option_id: null }, answered)).toBe(false);
+    expect(await mayChangeAnswer(never.db, link, { ...answered, state: 'open' })).toBe(false);
+    expect(await mayChangeAnswer(never.db, link, { ...answered, answered_at: null })).toBe(false);
+    expect(never.calls).toHaveLength(0);
   });
 });

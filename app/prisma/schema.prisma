@@ -6141,7 +6141,7 @@ model QuestionAnswerLink {
   wording_hash String       @db.VarChar(64)
   expires_at   DateTime
   used_at      DateTime?
-  used_outcome String?      @db.VarChar(20) // answered | held | spent (another link of the batch answered)
+  used_outcome String?      @db.VarChar(20) // answered | held | spent (another link of the batch answered) | reanswered (changed the answer)
   minted_by_id String?      @db.Uuid
   created_at   DateTime     @default(now())
 

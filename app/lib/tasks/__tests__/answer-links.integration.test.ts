@@ -20,6 +20,7 @@ import { MIKE_USER_ID, BOT_USER_IDS } from '@/lib/oracle/projects/gate-constants
 import { POST as addQ } from '@/app/api/tasks/[id]/questions/route';
 import { PATCH as patchQ } from '@/app/api/tasks/[id]/questions/[qid]/route';
 import { POST as mintQ } from '@/app/api/tasks/[id]/questions/[qid]/links/route';
+import { POST as answerQ } from '@/app/api/tasks/[id]/questions/[qid]/answer/route';
 import { GET as openLink, POST as redeemLink } from '@/app/api/question-links/[token]/route';
 import { defaultDueQuestions, HELD_TAG } from '../questions';
 
@@ -198,14 +199,54 @@ describe.skipIf(!SCRATCH)('answer links (real database)', () => {
     expect(c.content).toMatch(/From Mike, \d{4}-\d{2}-\d{2}: "tapped Table on the report page" \(https:\/\/reports\.becomeindelible\.com\/r\/abc123\/\)/);
     expect((await prisma.task.findUniqueOrThrow({ where: { id: blocked } })).status).toBe('not_started');
 
-    // Used: the same link again, and the other option link of the same batch, record nothing.
+    // Used: the same link again records nothing, and neither does the talk button once the question is answered.
     const again = await tap(table.url);
     expect(again.status).toBe(410);
     expect(again.body.code).toBe('used');
-    const other = await tap(m.options.find((o) => o.option_id === 'cards')!.url);
-    expect(other.body.ok).toBe(false);
+    expect((await tap(m.talk_it_through.url)).body.ok).toBe(false);
     expect((await q(row.id)).answer_option_id).toBe('table');
     expect(await prisma.comment.count({ where: { task_id: t, chat_meta: { path: ['question', 'id'], equals: row.id } } })).toBe(1);
+  });
+
+  it('another option of the same report changes a tapped answer, back and forth, but never an answer given on the card', async () => {
+    const t = await mkTask('change');
+    const row = await ask(t, withOptions('Cards or a table for the change test?', 'wait'));
+    const m = await mintOk(t, row.id);
+    const cards = m.options.find((o) => o.option_id === 'cards')!;
+    const table = m.options.find((o) => o.option_id === 'table')!;
+    expect((await tap(table.url, 'https://reports.becomeindelible.com')).body.code).toBe('answered');
+
+    // The other option still reads as a live button (ready, not picked), so the page keeps it tappable.
+    expect((await peek(cards.url)).body).toMatchObject({ ok: true, code: 'ready', selected: false });
+    const ch = await tap(cards.url, 'https://reports.becomeindelible.com');
+    expect(ch.status).toBe(200);
+    expect(ch.body).toMatchObject({ ok: true, code: 'reanswered', label: 'Cards', selected: true });
+    let now = await q(row.id);
+    expect(now.state).toBe('answered');
+    expect(now.answer_option_id).toBe('cards');
+    expect(now.answer_text).toBe('Cards');
+    const c = await prisma.comment.findUniqueOrThrow({ where: { id: now.answer_comment_id! } });
+    expect(c.content).toContain('Answer on "Cards or a table for the change test?": Cards');
+    expect(c.content).toContain('changed the answer from Table to Cards on the report page');
+    expect((await peek(cards.url)).body.selected).toBe(true);
+    expect((await peek(table.url)).body).toMatchObject({ ok: true, code: 'ready', selected: false });
+
+    // And back again with the first button.
+    expect((await tap(table.url)).body.code).toBe('reanswered');
+    expect((await q(row.id)).answer_option_id).toBe('table');
+    // Tapping the current answer again records nothing.
+    expect((await tap(table.url)).body.code).toBe('used');
+
+    // Mike answers on the card instead: the report's buttons can no longer change it.
+    as(mike());
+    const res = await answerQ(req({ option_id: 'cards', version: (await q(row.id)).updated_at.toISOString() }), qParams(t, row.id));
+    expect(res.status, JSON.stringify(await res.clone().json())).toBe(200);
+    now = await q(row.id);
+    expect(now.answer_option_id).toBe('cards');
+    const blocked = await tap(table.url);
+    expect(blocked.body).toMatchObject({ ok: false, code: 'used' });
+    expect((await q(row.id)).answer_option_id).toBe('cards');
+    expect((await peek(table.url)).body.ok).toBe(false);
   });
 
   it('talk it through holds the question for a chat and the go-ahead sweep never defaults it; an option link still answers later', async () => {

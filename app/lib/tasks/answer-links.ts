@@ -10,6 +10,10 @@
  * from Citadel. Each row is single use; answering with any link of a batch spends the rest of that batch. A link answers only the wording the report
  * showed (a hash of the question and its options is kept at mint), and only questions for Mike (never a question we sent a client) can be minted.
  *
+ * One exception to single use: while the answer on the question is still the one a tap from this batch recorded, another option link of the same
+ * batch changes it (Mike answers big reports over several sittings and may change his mind; task 0c524c21: "a changed answer gets its own toast
+ * line"). An answer given on the card or in the chat, or from another report, is never changed from a report.
+ *
  * An option link records the option as Mike's answer, through the same steps as his own answer on the card: the answer fields, an internal
  * comment ("From Mike, <date>: \"tapped <option> on the report page\" (<report link>)"), the held-for-questions hold lifted when it was the last
  * open question, the asker told, and the cards the question blocked released. The "talk it through" link never answers and never defaults: it
@@ -145,6 +149,7 @@ export type LinkCode =
   | 'already_answered'
   | 'already_defaulted'
   | 'changed'
+  | 'reanswered'
   | 'foreign_origin';
 
 export interface LinkOutcome {
@@ -201,17 +206,33 @@ function withState(o: LinkOutcome, link: { kind: string; option_id: string | nul
   return { ...o, selected: isSelected(link, q), report_url: link.report_url };
 }
 
+type Db = Pick<typeof prisma, 'questionAnswerLink'>;
+
+/**
+ * Whether this option link may change the answer: the question is answered, the answer is still the one a link of this same batch recorded (its
+ * use time is the answer time, so an answer given later on the card or in the chat breaks the match), and this link names a different option.
+ */
+export async function mayChangeAnswer(db: Db, link: { batch_id: string; kind: string; option_id: string | null }, q: { state: string; answer_option_id: string | null; answered_at: Date | null }): Promise<boolean> {
+  if (link.kind !== 'option' || !link.option_id || q.state !== 'answered' || !q.answer_option_id || !q.answered_at) return false;
+  if (link.option_id === q.answer_option_id) return false;
+  const owner = await db.questionAnswerLink.findFirst({
+    where: { batch_id: link.batch_id, kind: 'option', option_id: q.answer_option_id, used_at: q.answered_at, used_outcome: { in: ['answered', 'reanswered'] } },
+    select: { id: true },
+  });
+  return owner !== null;
+}
+
 /** Every refusal that can be read without writing, in the order a person would want to hear it. Null when the link would record. */
-function refusalOf(link: LinkRow, q: LinkRow['question'], now: Date): LinkOutcome | null {
+function refusalOf(link: LinkRow, q: LinkRow['question'], now: Date, changeable = false): LinkOutcome | null {
   const extra = { question: q.question, task_id: q.task_id ?? undefined };
   if (!q.task || q.task.is_deleted) return ALTERED;
-  if (link.used_at) {
+  if (link.used_at && !changeable) {
     const now_ = q.state === 'answered' && q.answer_text ? ` The answer on the card is: ${q.answer_text}.` : q.held_for_chat_at ? ' The question is held for a chat.' : '';
     return refused('used', 410, 'This link was already used', `Each button works once.${now_} ${NOTHING}`, extra);
   }
   if (link.expires_at.getTime() <= now.getTime()) return refused('expired', 410, 'This link has expired', `${NOTHING} Answer on the card or in the chat instead.`, extra);
   if (q.state === 'withdrawn') return refused('withdrawn', 409, 'That question was withdrawn', `It no longer needs an answer. ${NOTHING}`, extra);
-  if (q.state === 'answered') return refused('already_answered', 409, 'That question is already answered', `The answer on the card is: ${q.answer_text ?? ''}. ${NOTHING}`, extra);
+  if (q.state === 'answered' && !changeable) return refused('already_answered', 409, 'That question is already answered', `The answer on the card is: ${q.answer_text ?? ''}. ${NOTHING}`, extra);
   if (link.kind === 'hold' && q.state === 'defaulted') {
     return refused('already_defaulted', 409, 'That question already went ahead', `Nobody answered in time, so the recommendation went ahead. ${NOTHING} Answer with a button or in the chat to change it.`, extra);
   }
@@ -227,11 +248,13 @@ export async function inspectAnswerLink(token: string, now: Date = new Date()): 
   if (!id) return ALTERED;
   const link = await loadLink(id);
   if (!link) return ALTERED;
-  const no = refusalOf(link, link.question, now);
+  const change = await mayChangeAnswer(prisma, link, link.question);
+  const no = refusalOf(link, link.question, now, change);
   if (no) return no === ALTERED ? no : withState(no, link, link.question);
   const label = labelOf(link, link.question.options)!;
+  const title = link.kind === 'hold' ? 'Holding this for a chat' : change ? `Changing your answer to: ${label}` : `Recording your answer: ${label}`;
   return withState(
-    { ok: true, code: 'ready', status: 200, title: link.kind === 'hold' ? 'Holding this for a chat' : `Recording your answer: ${label}`, message: '', question: link.question.question, label, task_id: link.question.task_id ?? undefined },
+    { ok: true, code: 'ready', status: 200, title, message: '', question: link.question.question, label, task_id: link.question.task_id ?? undefined },
     link,
     link.question,
   );
@@ -245,7 +268,7 @@ export async function redeemAnswerLink(token: string, now: Date = new Date()): P
   if (!first) return ALTERED;
   const taskId = first.question.task_id;
   if (!taskId) return ALTERED;
-  const early = refusalOf(first, first.question, now);
+  const early = refusalOf(first, first.question, now, await mayChangeAnswer(prisma, first, first.question));
   if (early) return early === ALTERED ? early : withState(early, first, first.question);
 
   const out = await prisma.$transaction(async (tx) => {
@@ -254,11 +277,46 @@ export async function redeemAnswerLink(token: string, now: Date = new Date()): P
     const link = await tx.questionAnswerLink.findUnique({ where: { id }, include: { question: { include: { task: { select: { id: true, is_deleted: true } } } } } });
     if (!link) return { outcome: ALTERED };
     const q = link.question;
-    const no = refusalOf(link, q, now);
+    const change = await mayChangeAnswer(tx, link, q);
+    const no = refusalOf(link, q, now, change);
     if (no) return { outcome: no === ALTERED ? no : withState(no, link, q) };
+    const date = citationDate(now);
+
+    if (change) {
+      // A changed answer: this link becomes the one that holds the answer; the batch stays spent otherwise.
+      const was = q.answer_text ?? '';
+      const opt = optionOf(q.options, link.option_id)!;
+      await tx.questionAnswerLink.update({ where: { id }, data: { used_at: now, used_outcome: 'reanswered' } });
+      const sourced = sourcedAnswerComment(q.question, opt.label, { who: 'Mike', said: `changed the answer from ${was} to ${opt.label} on the report page`, at: date, url: link.report_url });
+      const othersWaiting = await tx.taskQuestion.count({ where: { task_id: taskId, state: 'open', if_nobody_action: 'wait', id: { not: q.id } } });
+      const quiet = othersWaiting > 0;
+      const comment = await tx.comment.create({
+        data: {
+          task_id: taskId,
+          user_id: quiet ? BAST_USER_ID : MIKE_USER_ID,
+          content: quiet ? `${HELD_ANSWER_PREFIX}${sourced}` : sourced,
+          mentioned_user_ids: [],
+          is_internal: true,
+          client_visible: false,
+          client_question: false,
+          chat_meta: { question: { id: q.id } },
+        },
+        select: { id: true },
+      });
+      await tx.taskQuestion.update({
+        where: { id: q.id },
+        data: { answer_option_id: opt.id, answer_text: opt.label, answered_at: now, answered_by_id: MIKE_USER_ID, answer_comment_id: comment.id },
+      });
+      await recordTriageChange(tx, taskId, 'question', 'Answer changed by Mike (report page)', { userId: MIKE_USER_ID, lane: null, by: 'Mike' });
+      return {
+        outcome: { ok: true, code: 'reanswered' as const, status: 200, title: `Changed: ${opt.label}`, message: `Your answer is now ${opt.label}. It was ${was}.`, question: q.question, label: opt.label, task_id: taskId, selected: true, report_url: link.report_url },
+        answered: { questionId: q.id, askerId: q.asked_by_user_id, askerLane: q.asked_by_lane, question: q.question },
+        changed: true,
+      };
+    }
+
     const claimed = await tx.questionAnswerLink.updateMany({ where: { id, used_at: null }, data: { used_at: now, used_outcome: link.kind === 'hold' ? 'held' : 'answered' } });
     if (claimed.count !== 1) return { outcome: refused('used', 410, 'This link was already used', `Each button works once. ${NOTHING}`, { question: q.question, task_id: taskId }) };
-    const date = citationDate(now);
 
     if (link.kind === 'hold') {
       await tx.taskQuestion.update({ where: { id: q.id }, data: { held_for_chat_at: now, held_report_url: link.report_url, if_nobody_action: 'wait', default_at: null } });
@@ -316,7 +374,7 @@ export async function redeemAnswerLink(token: string, now: Date = new Date()): P
   const a = out.answered;
   if (a.askerId && a.askerId !== MIKE_USER_ID && !BOT_USER_IDS.includes(a.askerId)) {
     try {
-      await createNotification({ userId: a.askerId, type: 'comment_added', title: 'Mike answered your question', message: a.question, entityType: 'task', entityId: taskId, actorUserId: MIKE_USER_ID });
+      await createNotification({ userId: a.askerId, type: 'comment_added', title: 'changed' in out && out.changed ? 'Mike changed his answer' : 'Mike answered your question', message: a.question, entityType: 'task', entityId: taskId, actorUserId: MIKE_USER_ID });
     } catch {
       // the answer is saved; a missed notice is not a failed answer
     }
@@ -326,6 +384,8 @@ export async function redeemAnswerLink(token: string, now: Date = new Date()): P
   } catch {
     // the answer is saved; the scheduled Dox sweep still reads the card
   }
+  // A changed answer released its cards the first time; Dox and the asker are told again so the work follows the new answer.
+  if ('changed' in out && out.changed) return out.outcome;
   const released = await releaseQuestionDependents(a.questionId);
   return { ...out.outcome, released_task_ids: released };
 }
