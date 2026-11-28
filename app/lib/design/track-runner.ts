@@ -9,7 +9,7 @@ import { prisma } from '@/lib/db/prisma';
 import { ApiError } from '@/lib/api/errors';
 import { briefBodySchema, MAX_BRIEF_BYTES } from './brief-schema';
 import { loadTrack, lockTrack, queueJob, trackTx, type Tx } from './track-core';
-import { maybeEnterArtDirection } from './track-stage';
+import { maybeEnterArtDirection, queueAddedDesigns } from './track-stage';
 import { statementScope, statementView, MAX_FIGMA_REFERENCES_PER_TRACK, type ClientStatement } from './track-board';
 import { parseFigmaLink } from './figma-link';
 import { referenceRole } from './reference-role';
@@ -336,7 +336,8 @@ export async function addReferences(trackId: string, items: ReferenceInput[]) {
     if (!f || !f.node_id) throw new ApiError('A Figma item needs a link to one frame (it must carry a node id)', 400, 'bad_figma_link');
     figmaOf.set(it, { file_key: f.file_key, node_id: f.node_id, canonical_url: f.canonical_url });
   }
-  return trackTx(async ({ tx }) => {
+  return trackTx(async (scope) => {
+    const { tx } = scope;
     await lockTrack(tx, trackId);
     const track = await loadTrack(tx, trackId);
     const last = await tx.designReference.aggregate({ where: { track_id: trackId }, _max: { sort_order: true } });
@@ -366,6 +367,9 @@ export async function addReferences(trackId: string, items: ReferenceInput[]) {
       if (url) await queueJob(tx, track, 'capture', { payload: { reference_id: ref.id, url, ...(fg ? { figma: { file_key: fg.file_key, node_id: fg.node_id }, by: 'runner' } : {}) }, taskId: null });
       created.push(ref);
     }
+    // Frames a pasted Figma link brings in during a build stage are her designs too: built as drawn unless a build that
+    // will read them is already queued or running (track-stage.ts `queueAddedDesigns`).
+    if (created.some((r) => r.source === 'designer_figma')) await queueAddedDesigns(scope, trackId);
     return { references: created, skipped, left_out };
   });
 }

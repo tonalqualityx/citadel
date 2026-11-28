@@ -38,6 +38,7 @@ export const DESIGNER_ROUTES: readonly DesignerRoute[] = [
   { method: 'GET', pattern: '/api/design/sessions/:id/assets/:assetId' },
   { method: 'POST', pattern: '/api/design/sessions/:id/client-files/refresh' },
   { method: 'POST', pattern: '/api/design/sessions/:id/home-ready' },
+  { method: 'POST', pattern: '/api/design/sessions/:id/infer-rest' },
   { method: 'GET', pattern: '/api/design/sessions/:id/brief' },
   { method: 'POST', pattern: '/api/design/sessions/:id/brief/reactions' },
   { method: 'GET', pattern: '/api/design/sessions/:id/references' },

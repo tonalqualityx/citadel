@@ -212,3 +212,69 @@ describe('uploads', () => {
   });
 });
 
+
+describe('Keep building: "Infer the rest" beside "Add more of my designs" at every build stage', () => {
+  const trackAt = (stage: string, over: Record<string, unknown> = {}) => ({ id: 't', stage, busy: false, busy_line: null, preview_alias: 'p', preview_url: null, finish: null, ...over });
+
+  it('shows at home, refine, rest of site and review, and nowhere else', async () => {
+    for (const stage of ['home_build', 'refine', 'rest_build', 'review']) {
+      const { unmount } = mount({ track: trackAt(stage) });
+      const box = await screen.findByTestId('build-controls');
+      expect(within(box).getByRole('button', { name: 'Infer the rest' })).toBeTruthy();
+      expect(within(box).getByRole('button', { name: 'Add more of my designs' })).toBeTruthy();
+      expect(box.textContent).toContain('builds only the pages nobody has drawn or built yet');
+      unmount();
+    }
+    for (const stage of ['research', 'art_direction', 'done']) {
+      const { unmount } = mount({ track: trackAt(stage) });
+      await screen.findByText('Nothing here yet. Paste a Figma link or upload your designs to start.');
+      expect(screen.queryByTestId('build-controls')).toBeNull();
+      unmount();
+    }
+  });
+
+  it('confirms, then posts infer-rest; in refine the dialog says it also moves on from the home page', async () => {
+    post.mockResolvedValue({ stage: 'rest_build', busy: true, job_id: 'j1' });
+    mount({ track: trackAt('refine') });
+    fireEvent.click(await screen.findByRole('button', { name: 'Infer the rest' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog.textContent).toContain('the home page is ready');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Infer the rest' }));
+    await waitFor(() => expect(post).toHaveBeenCalledWith(`/design/sessions/${S}/infer-rest`, {}));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
+  it('while the home build runs she can still tap it: the dialog says it starts when the build finishes', async () => {
+    post.mockResolvedValue({ stage: 'home_build', busy: true, job_id: null, after_build: true });
+    mount({ track: trackAt('home_build', { busy: true, busy_line: 'Bast is building the home page' }) });
+    expect(screen.getByTestId('build-running').textContent).toBe('Bast is building the home page. If you tap Infer the rest now, it starts when this build finishes.');
+    const btn = (await screen.findByRole('button', { name: 'Infer the rest' })) as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+    fireEvent.click(btn);
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog.textContent).toContain('This starts when it finishes.');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Infer the rest' }));
+    await waitFor(() => expect(post).toHaveBeenCalledWith(`/design/sessions/${S}/infer-rest`, {}));
+  });
+
+  it('once tapped during a build it shows as waiting for that build', async () => {
+    mount({ track: trackAt('review', { busy: true, busy_line: 'Bast is building your new designs', infer_requested: true }) });
+    const btn = (await screen.findByRole('button', { name: 'Infer the rest' })) as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    expect(screen.getByTestId('build-running').textContent).toBe('Bast is building your new designs. Infer the rest starts when this build finishes.');
+  });
+
+  it('a refusal from the server is shown in its own words', async () => {
+    post.mockRejectedValue(new Error('"Infer the rest" is not open in done'));
+    mount({ track: trackAt('rest_build') });
+    fireEvent.click(await screen.findByRole('button', { name: 'Infer the rest' }));
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Infer the rest' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('is not open in done');
+  });
+
+  it('"Add more of my designs" takes her to the Figma link field', async () => {
+    mount({ track: trackAt('refine') });
+    fireEvent.click(await screen.findByRole('button', { name: 'Add more of my designs' }));
+    expect(document.activeElement).toBe(screen.getByLabelText('Add a Figma link'));
+  });
+});

@@ -9,10 +9,11 @@ import { prisma } from '@/lib/db/prisma';
 import { ApiError } from '@/lib/api/errors';
 import { FORBIDDEN_PROJECTION_KEYS } from './projections';
 import { isUuid } from './helpers';
-import { ACTIVE_JOB_STATUSES, loadTrack, lockTrack, queueJob, trackTx, type Tx } from './track-core';
+import { ACTIVE_JOB_STATUSES, loadTrack, lockTrack, queueJob, trackTx, type TrackScope, type Tx } from './track-core';
 import { isBrowserServable, trackAssetView } from './track-assets';
 import { isFigmaHost, parseFigmaLink } from './figma-link';
 import { referenceRole } from './reference-role';
+import { ADDED_DESIGNS_LINE, queueAddedDesigns, recordTrackStage } from './track-stage';
 
 export const REACTIONS = ['useful', 'not_relevant'] as const;
 export const MARKUP_SENTIMENTS = ['like', 'dislike', 'note'] as const;
@@ -237,7 +238,14 @@ export async function addDesignerReference(
     }
   }
   const uploadIds = input.upload_asset_ids ? [...new Set(input.upload_asset_ids)] : [];
-  const id = await trackTx(async ({ tx }) => {
+  let built: { stage: string } | null = null;
+  // In a build stage a design the designer adds is built as drawn (track-stage.ts `queueAddedDesigns`): queued here, in
+  // the transaction that adds it, or by the adopt that ends a build already running. The stage never moves.
+  const queueBuild = async (scope: TrackScope) => {
+    if (await queueAddedDesigns(scope, trackId)) built = { stage: (await loadTrack(scope.tx, trackId)).stage };
+  };
+  const id = await trackTx(async (scope) => {
+    const { tx } = scope;
     await lockTrack(tx, trackId);
     const track = await loadTrack(tx, trackId);
     const last = await tx.designReference.aggregate({ where: { track_id: trackId }, _max: { sort_order: true } });
@@ -254,6 +262,7 @@ export async function addDesignerReference(
           await tx.designReference.update({ where: { id: dup.id }, data: { capture_status: 'queued', capture_error: null } });
           await queueJob(tx, track, 'capture', { payload: { reference_id: dup.id, url, figma }, taskId: null });
         }
+        await queueBuild(scope);
         return dup.id;
       }
       if (dup) throw new ApiError('That site is already on the board', 409, 'duplicate_url');
@@ -261,6 +270,7 @@ export async function addDesignerReference(
       const title = (input.title?.trim() || (figma ? 'Figma design' : new URL(url).hostname.replace(/^www\./, ''))).slice(0, 200);
       const ref = await tx.designReference.create({ data: { track_id: trackId, source: figma ? 'designer_figma' : 'designer_url', url, title, capture_status: 'queued', sort_order } });
       await queueJob(tx, track, 'capture', { payload: { reference_id: ref.id, url, ...(figma ? { figma } : {}) }, taskId: null });
+      if (figma) await queueBuild(scope);
       return ref.id;
     }
     const assets = await tx.designTrackAsset.findMany({ where: { id: { in: uploadIds }, track_id: trackId, kind: 'upload', purpose: 'board', source: 'designer' } });
@@ -270,8 +280,11 @@ export async function addDesignerReference(
     const first = assets.find((a) => a.id === uploadIds[0]);
     const title = (input.title?.trim() || first?.original_name || 'Uploaded sample').slice(0, 200);
     const ref = await tx.designReference.create({ data: { track_id: trackId, source: 'designer_upload', title, upload_asset_ids: uploadIds, sort_order } });
+    await queueBuild(scope);
     return ref.id;
   });
+  const queued = built as { stage: string } | null;
+  if (queued) await recordTrackStage(trackId, { stage: queued.stage, busy: true, line: ADDED_DESIGNS_LINE });
   return oneReference(trackId, id, sessionId);
 }
 

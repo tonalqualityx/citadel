@@ -5109,6 +5109,8 @@ model DesignTrack {
   brief_id          String?          @db.Uuid
   art_direction_id  String?          @db.Uuid
   busy_job_id       String?          @db.Uuid
+  /// "Infer the rest" tapped while a build ran: queued when that build ends (track-stage.ts queueNextBuild).
+  infer_requested_at DateTime?
   finish_command_id String?          @db.Uuid
   finish_result     Json?
   finished_at       DateTime?

@@ -18,7 +18,7 @@ import { prisma } from '@/lib/db/prisma';
 import { ApiError } from '@/lib/api/errors';
 import { appendWorkerEvents } from './events';
 import { loadTrack, lockTrack, queueJob, trackTx, type TrackScope, type Tx } from './track-core';
-import { rebuildHome, signDirection, type HomeBuildInput } from './track-stage';
+import { rebuildHome, signDirection, usableDesignReferenceIds, type HomeBuildInput, type HomeStart } from './track-stage';
 import { clientStatementsFor, stripForbidden } from './track-board';
 
 export const MAX_DIRECTION_BYTES = 128 * 1024;
@@ -312,7 +312,7 @@ export type SignMode = 'refinements' | 'rebuild';
  * that one row. `freeze` then signs only if the row still holds that revision, under the lock every writer takes, so a
  * write that lands between the read and the freeze makes the whole move 409 `version_moved` and nothing is queued.
  */
-export async function signArtDirection(trackId: string, designerId: string, input: { base_version: number; base_revision: string; mode?: SignMode }) {
+export async function signArtDirection(trackId: string, designerId: string, input: { base_version: number; base_revision: string; mode?: SignMode; start?: HomeStart }) {
   const track = await loadTrack(prisma, trackId);
   const draft = await prisma.designArtDirection.findFirst({ where: { track_id: trackId, status: 'draft' } });
   if (!draft) {
@@ -330,12 +330,24 @@ export async function signArtDirection(trackId: string, designerId: string, inpu
   if (missing.length > 0) throw new ApiError(`${missing.length} client request(s) are not answered yet`, 409, 'client_requests_missing');
 
   const mode: SignMode = input.mode ?? 'refinements';
+  // How the home build starts (the designer's choice when a home build is queued): a starting point from the inspiration
+  // files, or her own design as drawn. Her own design needs a usable design file on the board (409 `no_design_file`).
+  // Left out, the home build payload carries no start and the runner builds as it did before the choice existed.
+  const buildsHome = track.stage === 'art_direction' || mode === 'rebuild';
+  let startPayload: Record<string, unknown> = {};
+  if (buildsHome && input.start === 'own_design') {
+    const designIds = await trackTx(({ tx }) => usableDesignReferenceIds(tx, trackId));
+    if (designIds.length === 0) throw new ApiError('There is no design of yours on the board to follow yet. Add a Figma link or an upload on the Board first.', 409, 'no_design_file');
+    startPayload = { start: 'own_design', design_reference_ids: designIds };
+  } else if (buildsHome && input.start === 'inspiration') {
+    startPayload = { start: 'inspiration' };
+  }
   const prior = await prisma.designArtDirection.findFirst({ where: { track_id: trackId, status: 'signed' }, orderBy: { version: 'desc' } });
   const modules = (body.features ?? []).filter((f) => f.build_as === 'module').map((f) => ({ art_direction_id: draft.id, feature_id: f.id, name: f.name, what: f.what ?? null, pages: f.pages ?? [], a11y: f.a11y ?? null }));
   const common: Omit<HomeBuildInput, 'designerId'> = {
     modules,
     clientEmailPayload: { art_direction_id: draft.id, version: draft.version },
-    buildPayload: { art_direction_id: draft.id, version: draft.version, mode: track.stage === 'art_direction' ? 'first' : 'rebuild' },
+    buildPayload: { art_direction_id: draft.id, version: draft.version, mode: track.stage === 'art_direction' ? 'first' : 'rebuild', ...startPayload },
     onQueued: (scope, r) => freeze(scope, { trackId, draftId: draft.id, version: draft.version, updatedAt: draft.updated_at, designerId, emailJobId: r.clientEmailJobId }),
   };
 

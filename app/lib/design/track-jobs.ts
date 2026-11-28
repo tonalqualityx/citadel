@@ -19,6 +19,7 @@ import {
   ACTIVE_JOB_STATUSES, ADOPT_KINDS, BRIEF_DELAY_MINUTES, BUILD_KINDS, JOB_ATTEMPT_LIMIT, JOB_LEASE_SECONDS, NEEDS_MIKE_TAG,
   addInternalComment, addTaskTag, clearBusy, completeStageTask, errorTail, loadTrack, lockTrack, queueJob, removeTaskTag, trackTx, type TrackScope,
 } from './track-core';
+import { refreshBuildPayloadAtClaim } from './track-stage';
 
 // Columns are `timestamp without time zone` holding UTC, so compare against UTC now (lib/tasks/claims.ts precedent).
 const NOW = Prisma.sql`(now() AT TIME ZONE 'UTC')`;
@@ -44,7 +45,11 @@ export function jobView(j: DesignJob) {
 async function park(scope: TrackScope, job: DesignJob, error: string, actorId: string): Promise<void> {
   const { tx } = scope;
   await clearBusy(tx, job.track_id, job.id);
-  if (BUILD_KINDS.includes(job.kind)) scope.freed?.add(job.track_id);
+  if (BUILD_KINDS.includes(job.kind)) {
+    scope.freed?.add(job.track_id);
+    // An "Infer the rest" held for this build is dropped with it: her button opens again and she taps it afresh.
+    await tx.designTrack.updateMany({ where: { id: job.track_id, infer_requested_at: { not: null } }, data: { infer_requested_at: null } });
+  }
   if (!job.task_id) return;
   await addTaskTag(tx, job.task_id, NEEDS_MIKE_TAG);
   await addInternalComment(tx, job.task_id, actorId, `The ${job.kind.replace(/_/g, ' ')} job failed after ${job.attempts} attempts and needs Mike.\n\n${errorTail(error)}`);
@@ -137,7 +142,10 @@ export async function claimJob(input: { userId: string; runnerId: string; kinds?
       )
       RETURNING id`;
     if (rows.length === 0) return null;
-    const job = await tx.designJob.findUniqueOrThrow({ where: { id: rows[0].id } });
+    let job = await tx.designJob.findUniqueOrThrow({ where: { id: rows[0].id } });
+    // A build's lists are brought up to now as the runner takes it (track-stage.ts refreshBuildPayloadAtClaim).
+    const refreshed = await refreshBuildPayloadAtClaim(tx, job);
+    if (refreshed) job = await tx.designJob.update({ where: { id: job.id }, data: { payload: refreshed } });
     if (job.task_id) {
       await tx.task.updateMany({ where: { id: job.task_id, status: 'not_started', is_deleted: false }, data: { status: 'in_progress', started_at: new Date() } });
       await tx.task.updateMany({ where: { id: job.task_id, assignee_id: null, is_deleted: false }, data: { assignee_id: input.userId } });

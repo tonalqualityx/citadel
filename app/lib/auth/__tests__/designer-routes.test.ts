@@ -32,6 +32,7 @@ describe('DESIGNER_ROUTES', () => {
       'GET /api/design/sessions/:id/assets/:assetId',
       'POST /api/design/sessions/:id/client-files/refresh',
       'POST /api/design/sessions/:id/home-ready',
+      'POST /api/design/sessions/:id/infer-rest',
       'GET /api/design/sessions/:id/brief',
       'POST /api/design/sessions/:id/brief/reactions',
       'GET /api/design/sessions/:id/references',
@@ -49,7 +50,7 @@ describe('DESIGNER_ROUTES', () => {
       'GET /api/design/me/auto-timer',
       'PATCH /api/design/me/auto-timer',
     ]);
-    expect(DESIGNER_ROUTES).toHaveLength(40);
+    expect(DESIGNER_ROUTES).toHaveLength(41);
   });
 
   it.each(DESIGNER_ROUTES.map((r) => [r.method, concrete(r.pattern)]))('allows %s %s', (method, path) => {

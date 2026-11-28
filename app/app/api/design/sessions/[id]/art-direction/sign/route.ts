@@ -10,11 +10,13 @@ const schema = z.object({
   base_version: z.number().int().min(1).max(10_000),
   base_revision: z.string().min(1).max(40),
   mode: z.enum(['refinements', 'rebuild']).optional(),
+  start: z.enum(['inspiration', 'own_design']).optional(), // HOME_STARTS in lib/design/track-stage.ts
 }).strict();
 
 // POST /api/design/sessions/:id/art-direction/sign (SPEC 4.4, 2.5, 4.11 #12): the session's designer or a tech user (an admin is
 // 403 designer_only). Freezes the draft and queues the build jobs. `base_revision` is the `revision` her screen showed: only
-// that revision is signed (409 version_moved otherwise). `mode` matters only for a later version.
+// that revision is signed (409 version_moved otherwise). `mode` matters only for a later version. `start` (inspiration |
+// own_design) is how the home build starts when the sign queues one; own_design needs a usable design file (409 no_design_file).
 export async function POST(request: NextRequest, { params }: IdParams) {
   try {
     const blocked = guardMutation(request);

@@ -7,6 +7,7 @@ import {
   DirectionError, directionKey, patchDirection, reviseDirection, useDirection,
   type DirectionBody, type DirectionResponse,
 } from '@/lib/hooks/use-design-direction';
+import { hasDesignFile, useBoardReferences } from '@/lib/hooks/use-design-board';
 import type { TrackTabProps } from '../track-tab-props';
 import { DirectionForm } from './DirectionForm';
 import { FieldContext, type FieldContextValue } from './fields';
@@ -43,6 +44,10 @@ export function DirectionTab({ sessionId, track, feed }: TrackTabProps) {
   const data = query.data;
   const direction = data?.direction ?? null;
   const readOnly = direction?.status === 'signed';
+  // "Follow my own design" is offered at sign-off only when the board holds a usable design file of hers.
+  const board = useBoardReferences(sessionId);
+  const boardRefs = board.data?.references;
+  const hasDesign = Array.isArray(boardRefs) && hasDesignFile(boardRefs);
 
   const [pending, setPendingState] = React.useState<Pending>({});
   const pendingRef = React.useRef<Pending>({});
@@ -248,7 +253,7 @@ export function DirectionTab({ sessionId, track, feed }: TrackTabProps) {
       </FieldContext.Provider>
 
       {!readOnly && direction && (
-        <SignOff sessionId={sessionId} direction={direction} stage={track.stage} missing={missing} reasons={reasons} onAnswer={answer} />
+        <SignOff sessionId={sessionId} direction={direction} stage={track.stage} missing={missing} reasons={reasons} onAnswer={answer} hasDesign={hasDesign} />
       )}
       {!readOnly && !direction && (
         <p className="text-sm text-text-sub">Sign off becomes available once the first notes are saved.</p>

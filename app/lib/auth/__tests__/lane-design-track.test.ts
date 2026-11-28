@@ -91,6 +91,7 @@ describe('lane design-track', () => {
       ['POST', '/api/design/sessions'],
       ['GET', '/api/design/sessions/x'],
       ['POST', '/api/design/sessions/x/home-ready'],
+      ['POST', '/api/design/sessions/x/infer-rest'],
       ['GET', '/api/tasks'],
       ['PATCH', '/api/tasks/x'],
       ['POST', '/api/tasks/x/comments'],

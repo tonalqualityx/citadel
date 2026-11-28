@@ -109,10 +109,16 @@ export const fetchDirection = (sessionId: string) => request<DirectionResponse>(
 export const patchDirection = (sessionId: string, patch: Record<string, unknown>, baseVersion: number, baseRevision?: string) =>
   request<{ direction: DirectionVersion }>('PATCH', sessionId, '', { patch, base_version: baseVersion, ...(baseRevision ? { base_revision: baseRevision } : {}) });
 
-/** Sign the draft. `baseRevision` is the revision on screen; the server signs only that revision (else `version_moved`). */
-export const signDirection = (sessionId: string, baseVersion: number, mode?: 'refinements' | 'rebuild', baseRevision?: string) =>
+/** How the home build starts: a starting point from the inspiration files, or the designer's own design as drawn. */
+export type HomeStart = 'inspiration' | 'own_design';
+
+/**
+ * Sign the draft. `baseRevision` is the revision on screen; the server signs only that revision (else `version_moved`).
+ * `start` is how the home build starts, sent when the sign queues one (first sign-off, or a rebuild).
+ */
+export const signDirection = (sessionId: string, baseVersion: number, mode?: 'refinements' | 'rebuild', baseRevision?: string, start?: HomeStart) =>
   request<{ direction: DirectionVersion; stage: string }>('POST', sessionId, '/sign', {
-    base_version: baseVersion, ...(mode ? { mode } : {}), ...(baseRevision ? { base_revision: baseRevision } : {}),
+    base_version: baseVersion, ...(mode ? { mode } : {}), ...(baseRevision ? { base_revision: baseRevision } : {}), ...(start ? { start } : {}),
   });
 
 export const reviseDirection = (sessionId: string) => request<{ direction: DirectionVersion }>('POST', sessionId, '/revise', {});

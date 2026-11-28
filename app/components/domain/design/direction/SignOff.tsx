@@ -5,7 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Modal, ModalBody, ModalContent, ModalDescription, ModalFooter, ModalHeader, ModalTitle } from '@/components/ui/modal';
 import { designKeys } from '@/lib/hooks/use-design';
-import { DirectionError, directionKey, signDirection, type DirectionVersion, type MissingClientRequest } from '@/lib/hooks/use-design-direction';
+import { DirectionError, directionKey, signDirection, type DirectionVersion, type HomeStart, type MissingClientRequest } from '@/lib/hooks/use-design-direction';
 
 export interface SignOffProps {
   sessionId: string;
@@ -16,7 +16,15 @@ export interface SignOffProps {
   reasons: string[];
   /** Start an answer for a missing client request. */
   onAnswer: (id: string) => void;
+  /** The track has a usable design file of hers (a captured Figma frame or an upload with a picture): "Follow my own design" is offered. */
+  hasDesign?: boolean;
 }
+
+/** The two ways the home build can start, in her words. */
+export const START_LABELS: Record<HomeStart, string> = {
+  inspiration: 'Build me a starting point from the inspiration files',
+  own_design: 'Follow my own design',
+};
 
 const POLARITY: Record<string, string> = { require: 'The client needs this', avoid: 'The client wants this avoided' };
 
@@ -27,18 +35,23 @@ export function signErrorMessage(error: unknown): string {
   if (error instanceof DirectionError) {
     if (error.code === 'designer_only') return 'Only the designer on this project can sign off.';
     if (error.code === 'version_moved') return MOVED_MESSAGE;
+    if (error.code === 'no_design_file') return 'There is no design of yours on the Board yet. Add a Figma link or an upload there, or start from the inspiration files.';
     return error.message;
   }
   return 'Could not sign off. Try again.';
 }
 
-export function SignOff({ sessionId, direction, stage, missing, reasons, onAnswer }: SignOffProps) {
+export function SignOff({ sessionId, direction, stage, missing, reasons, onAnswer, hasDesign = false }: SignOffProps) {
   const qc = useQueryClient();
   const [open, setOpen] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [mode, setMode] = React.useState<'refinements' | 'rebuild'>('refinements');
   const later = stage !== 'art_direction';
+  // A home build is queued on the first sign-off and on a rebuild: then she chooses how it starts.
+  const buildsHome = !later || mode === 'rebuild';
+  const [start, setStart] = React.useState<HomeStart>(hasDesign ? 'own_design' : 'inspiration');
+  const chosenStart: HomeStart = start === 'own_design' && !hasDesign ? 'inspiration' : start;
   const reasonsId = React.useId();
   // The version and revision on screen when the dialog opened: that is what she agrees to, so that is what is signed,
   // even if a newer one is fetched while the dialog is open.
@@ -65,7 +78,7 @@ export function SignOff({ sessionId, direction, stage, missing, reasons, onAnswe
     setBusy(true);
     setError(null);
     try {
-      await signDirection(sessionId, shown.version, later ? mode : undefined, shown.revision);
+      await signDirection(sessionId, shown.version, later ? mode : undefined, shown.revision, buildsHome ? chosenStart : undefined);
       setOpen(false);
       await Promise.all([qc.invalidateQueries({ queryKey: directionKey(sessionId) }), qc.invalidateQueries({ queryKey: designKeys.session(sessionId) })]);
     } catch (e) {
@@ -137,6 +150,25 @@ export function SignOff({ sessionId, direction, stage, missing, reasons, onAnswe
                   <input type="radio" name="sign-mode" checked={mode === 'rebuild'} onChange={() => setMode('rebuild')} />
                   Rebuild the home page from this direction
                 </label>
+              </fieldset>
+            )}
+            {buildsHome && (
+              <fieldset className={later ? 'mt-4 space-y-2' : 'space-y-2'} data-testid="start-choice">
+                <legend className="text-sm font-medium text-text-main">How should the build start?</legend>
+                <label className="flex min-h-[44px] items-center gap-2 text-sm text-text-main">
+                  <input type="radio" name="build-start" checked={chosenStart === 'inspiration'} onChange={() => setStart('inspiration')} />
+                  {START_LABELS.inspiration}
+                </label>
+                {hasDesign ? (
+                  <label className="flex min-h-[44px] items-center gap-2 text-sm text-text-main">
+                    <input type="radio" name="build-start" checked={chosenStart === 'own_design'} onChange={() => setStart('own_design')} />
+                    {START_LABELS.own_design}
+                  </label>
+                ) : (
+                  <p className="text-sm text-text-sub" data-testid="start-add-design">
+                    To have the build follow your own design, add a Figma link or upload your design on the Board first.
+                  </p>
+                )}
               </fieldset>
             )}
             {error && <p role="alert" className="mt-3 text-sm text-red-700">{error}</p>}

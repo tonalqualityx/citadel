@@ -107,6 +107,24 @@ export function useStartDesignWork() {
   });
 }
 
+/** Build stages of a design track: "Infer the rest" and "Add more of my designs" are open in each. Mirrors lib/design/track-stage.ts. */
+export const TRACK_BUILD_STAGES: readonly string[] = ['home_build', 'refine', 'rest_build', 'review'];
+
+/**
+ * POST /api/design/sessions/:id/infer-rest: the designer taps "Infer the rest". Builds only the pages nobody has drawn or
+ * built yet; while a build runs it is held and starts when that build ends (`after_build`). The session reloads so the
+ * stage strip and busy line follow; the error is shown by the caller.
+ */
+export function useInferRest(sessionId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiClient.post<{ stage: string; busy: boolean; job_id: string | null; after_build: boolean }>(`/design/sessions/${sessionId}/infer-rest`, {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: designKeys.session(sessionId) });
+    },
+  });
+}
+
 // ---------------------------------------------------------------------------------------------------------
 // Workspace: session load and feed poll (design 7.1)
 // ---------------------------------------------------------------------------------------------------------
@@ -143,6 +161,8 @@ export interface DesignSessionTrack {
   stage: string;
   busy: boolean;
   busy_line: string | null;
+  /** "Infer the rest" was tapped while a build ran: it starts when that build ends. */
+  infer_requested?: boolean;
   preview_alias: string;
   preview_url: string | null;
   finish: { green: boolean; finished_at: string | null } | null;

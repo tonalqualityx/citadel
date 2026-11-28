@@ -5,14 +5,22 @@ import { Button } from '@/components/ui/button';
 import { referenceRole, useBoardReferences } from '@/lib/hooks/use-design-board';
 import type { TrackTabProps } from '../track-tab-props';
 import { AddFigma } from './AddFigma';
+import { BuildControls } from './BuildControls';
 import { ReferenceList } from './ReferenceList';
 import { UploadPanel, useBoardUploads } from './UploadZone';
 
 /** The Board tab: the designer's own design files. Figma frames and uploads, yes and no, markup (SPEC 4.3). Sites are on the Inspiration tab. */
-export function BoardTab({ sessionId }: TrackTabProps) {
+export function BoardTab({ sessionId, track }: TrackTabProps) {
   const { data, isLoading, isError, refetch } = useBoardReferences(sessionId);
   const [announce, setAnnounce] = React.useState('');
   const [dragging, setDragging] = React.useState(false);
+  const addRef = React.useRef<HTMLDivElement | null>(null);
+  const toAdd = () => {
+    const el = addRef.current;
+    if (!el) return;
+    el.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+    el.querySelector<HTMLInputElement>('input[type="text"]')?.focus();
+  };
 
   const all = data?.references ?? [];
   const refs = all.filter((r) => referenceRole(r) === 'design_file');
@@ -38,8 +46,11 @@ export function BoardTab({ sessionId }: TrackTabProps) {
       {dragging && <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-10 rounded-lg border-2 border-dashed border-primary bg-primary/10" />}
       <p role="status" aria-live="polite" className="sr-only">{announce}</p>
 
-      <AddFigma sessionId={sessionId} onAdded={setAnnounce} />
-      <UploadPanel controls={uploads} />
+      {track && <BuildControls sessionId={sessionId} track={track} onAddDesigns={toAdd} />}
+      <div ref={addRef} className="space-y-4" data-testid="board-add-designs">
+        <AddFigma sessionId={sessionId} onAdded={setAnnounce} />
+        <UploadPanel controls={uploads} />
+      </div>
 
       {isLoading && <p className="text-sm text-text-sub">Loading the board.</p>}
       {isError && (

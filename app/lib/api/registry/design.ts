@@ -50,7 +50,7 @@ const sessionExample = {
   created_at: 'ISO-8601',
   updated_at: 'ISO-8601',
   closed_at: 'ISO-8601|null',
-  track: { id: 'uuid', stage: 'research|art_direction|home_build|refine|rest_build|review|done|cancelled', busy: 'boolean', busy_line: 'string|null', preview_alias: 'string', preview_url: 'string|null', finish: { green: 'boolean', finished_at: 'ISO-8601|null' } },
+  track: { id: 'uuid', stage: 'research|art_direction|home_build|refine|rest_build|review|done|cancelled', busy: 'boolean', busy_line: 'string|null', infer_requested: 'boolean', preview_alias: 'string', preview_url: 'string|null', finish: { green: 'boolean', finished_at: 'ISO-8601|null' } },
 };
 
 const trackAssetExample = {
@@ -1256,6 +1256,21 @@ export const designEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/design/sessions/:id/infer-rest',
+    group: 'design',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'The designer taps "Infer the rest" at any build stage (home_build, refine, rest_build, review). Queues one rest_build job with payload start "infer_rest", the pages already built and her design file ids, so only pages nobody has drawn or built are built. In refine the track moves to rest_build and her refine task is completed; elsewhere the stage stays. While a build runs the request is held on the track and queued (beside the stage) when that build ends. Tracked sessions only.',
+        auth: 'required',
+        roles: DESIGNER,
+        queryParams: [sessionIdParam],
+        responseExample: { stage: 'rest_build', busy: true, job_id: 'uuid|null', after_build: 'boolean' },
+        responseNotes: '202. Strict empty body. after_build true (job_id null) when a build was running: the request is held and queued when it ends; a second tap while held changes nothing. 404 for an untracked session; 409 illegal_transition outside a build stage.',
+      },
+    ],
+  },
+  {
     path: '/api/design/sessions/:id/preview-link',
     group: 'design',
     methods: [
@@ -1491,9 +1506,10 @@ export const designEndpoints: ApiEndpoint[] = [
           { name: 'base_version', type: 'number', required: true, description: 'The draft version being signed' },
           { name: 'base_revision', type: 'string', required: true, description: 'The opaque revision the designer\'s screen showed; only that revision is signed' },
           { name: 'mode', type: 'string', required: false, description: 'Later versions only: refinements (default) | rebuild' },
+          { name: 'start', type: 'string', required: false, description: 'How the home build starts when this sign queues one (first sign-off or rebuild): inspiration (a starting point from the inspiration files) | own_design (her design as drawn; needs a usable design file). Stored as start on the home_build job payload.' },
         ],
         responseExample: { direction: { id: 'uuid', version: 'number', status: 'signed', body: 'object' }, stage: 'home_build', build_job_id: 'uuid|null', client_email_job_id: 'uuid' },
-        responseNotes: '403 designer_only for anyone but the designer or a tech user (an admin included); 409 direction_signed, version_moved (the draft moved past base_revision, also when it moves between the check and the freeze; nothing is queued), no_draft, direction_incomplete (nav and container unfilled), client_requests_missing, illegal_transition, track_done.',
+        responseNotes: '403 designer_only for anyone but the designer or a tech user (an admin included); 409 direction_signed, version_moved (the draft moved past base_revision, also when it moves between the check and the freeze; nothing is queued), no_draft, direction_incomplete (nav and container unfilled), client_requests_missing, illegal_transition, track_done, no_design_file (start own_design with no usable design file on the board).',
       },
     ],
   },

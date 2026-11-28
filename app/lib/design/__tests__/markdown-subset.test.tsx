@@ -98,9 +98,9 @@ describe('markdown subset: bounds', () => {
     'hashes': '#'.repeat(20_000),
     'spaces': ' '.repeat(20_000) + 'x',
   };
-  it.each(Object.keys(shapes))('pathological input %s finishes under 200 ms', (name) => {
-    // The bound catches a quadratic blow-up (seconds), not machine load: one warm-up render, then the best of three, so a busy full-suite
-    // run (dozens of test processes) does not fail a linear render that took 250 ms once.
+  it.each(Object.keys(shapes))('pathological input %s finishes under 1 s', (name) => {
+    // The bound catches a quadratic blow-up (many seconds on 20,000 characters), not machine load: one warm-up render, then the best
+    // of three, and a 1 s limit, so a busy full-suite run (dozens of test processes) does not fail a linear render that took 300 ms.
     const c = html(shapes[name]);
     expect(c).toBeTruthy();
     let best = Infinity;
@@ -109,6 +109,6 @@ describe('markdown subset: bounds', () => {
       html(shapes[name]);
       best = Math.min(best, performance.now() - t);
     }
-    expect(best).toBeLessThan(200);
+    expect(best).toBeLessThan(1000);
   });
 });

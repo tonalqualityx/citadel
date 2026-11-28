@@ -75,3 +75,15 @@ describe('POST /api/design/sessions/:id/art-direction/sign', () => {
     expect(sign).not.toHaveBeenCalled();
   });
 });
+
+describe('POST art-direction/sign: how the home build starts', () => {
+  it('passes start through; anything but inspiration or own_design is 400 and signs nothing', async () => {
+    const uid = signIn(auth, userFind, 'designer');
+    expect((await call({ ...BODY, start: 'own_design' })).status).toBe(200);
+    expect(sign).toHaveBeenCalledWith('track-1', uid, { ...BODY, start: 'own_design' });
+    sign.mockClear();
+    signIn(auth, userFind, 'designer');
+    expect((await call({ ...BODY, start: 'infer_rest' })).status).toBe(400);
+    expect(sign).not.toHaveBeenCalled();
+  });
+});

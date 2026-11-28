@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { TRACK_STAGES, TRACK_TRANSITIONS, assertMove, canMove } from '../track-stage';
+import { ADDED_DESIGNS_LINE, BUILD_STAGES, HOME_STARTS, INFER_LINE, TRACK_STAGES, TRACK_TRANSITIONS, assertMove, canMove, payloadStart } from '../track-stage';
+import { busyLineFor } from '../track-session';
 import { ADOPT_KINDS, TASK_JOB_KINDS } from '../track-core';
 import { adoptResultSchema, isFinishGreen, jobBranchRe } from '../track-adopt';
 import { briefBodySchema } from '../brief-schema';
@@ -7,17 +8,26 @@ import { newSlug } from '../track-runner';
 
 describe('stage transition table (SPEC 2.5)', () => {
   it('has exactly the legal moves', () => {
-    const moves = TRACK_STAGES.flatMap((from) => Object.entries(TRACK_TRANSITIONS[from]).map(([to, trigger]) => `${from} -> ${to} (${trigger})`));
+    const moves = TRACK_STAGES.flatMap((from) => Object.entries(TRACK_TRANSITIONS[from]).flatMap(([to, triggers]) => (triggers ?? []).map((trigger) => `${from} -> ${to} (${trigger})`)));
     expect(moves).toEqual([
       'research -> art_direction (brief_and_outline)',
       'art_direction -> home_build (direction_signed)',
       'home_build -> refine (home_build_adopted)',
       'home_build -> home_build (direction_rebuild)',
+      'home_build -> home_build (infer_rest)',
+      'home_build -> home_build (designs_added)',
       'refine -> rest_build (home_ready)',
+      'refine -> rest_build (infer_rest)',
       'refine -> home_build (direction_rebuild)',
+      'refine -> refine (designs_added)',
+      'refine -> refine (infer_rest)',
       'rest_build -> review (rest_build_adopted)',
+      'rest_build -> rest_build (infer_rest)',
+      'rest_build -> rest_build (designs_added)',
       'review -> done (finish_green)',
       'review -> home_build (direction_rebuild)',
+      'review -> review (infer_rest)',
+      'review -> review (designs_added)',
     ]);
   });
 
@@ -38,8 +48,49 @@ describe('stage transition table (SPEC 2.5)', () => {
 
   it('a legal move with the wrong trigger is a 409 illegal_transition', () => {
     expect(() => assertMove('refine', 'rest_build', 'home_ready')).not.toThrow();
+    expect(() => assertMove('refine', 'rest_build', 'infer_rest')).not.toThrow();
     expect(() => assertMove('refine', 'rest_build', 'finish_green')).toThrow(expect.objectContaining({ statusCode: 409, code: 'illegal_transition' }));
     expect(() => assertMove('research', 'done', 'finish_green')).toThrow(expect.objectContaining({ code: 'illegal_transition' }));
+  });
+
+  it('"infer the rest" and added designs are open at every build stage and never move the stage backwards', () => {
+    expect([...BUILD_STAGES]).toEqual(['home_build', 'refine', 'rest_build', 'review']);
+    const order = TRACK_STAGES.slice(0, 6);
+    for (const from of TRACK_STAGES) {
+      for (const to of TRACK_STAGES) {
+        for (const trigger of ['infer_rest', 'designs_added'] as const) {
+          if (!TRACK_TRANSITIONS[from]?.[to]?.includes(trigger)) continue;
+          expect(BUILD_STAGES).toContain(from);
+          expect(order.indexOf(to)).toBeGreaterThanOrEqual(order.indexOf(from));
+        }
+      }
+      if (BUILD_STAGES.includes(from)) {
+        expect(Object.values(TRACK_TRANSITIONS[from]).some((t) => t?.includes('infer_rest'))).toBe(true);
+        expect(Object.values(TRACK_TRANSITIONS[from]).some((t) => t?.includes('designs_added'))).toBe(true);
+      }
+    }
+    for (const from of ['research', 'art_direction', 'done', 'cancelled'] as const) {
+      expect(() => assertMove(from, from, 'infer_rest')).toThrow(expect.objectContaining({ code: 'illegal_transition' }));
+    }
+  });
+});
+
+describe('build starts', () => {
+  it('reads the start a build payload names; anything else (an older payload) is null', () => {
+    expect([...HOME_STARTS]).toEqual(['inspiration', 'own_design']);
+    expect(payloadStart({ start: 'inspiration' })).toBe('inspiration');
+    expect(payloadStart({ start: 'own_design', design_reference_ids: [] })).toBe('own_design');
+    expect(payloadStart({ start: 'infer_rest' })).toBe('infer_rest');
+    for (const p of [{}, null, [], 'infer_rest', { start: 'rest' }, { start: 1 }]) expect(payloadStart(p as never)).toBeNull();
+  });
+  it('the busy line says which build is running', () => {
+    expect(busyLineFor('home_build')).toBe('Bast is building the home page');
+    expect(busyLineFor('rest_build')).toBe('Bast is building the remaining pages');
+    expect(busyLineFor('rest_build', 'infer_rest')).toBe('Bast is building the pages nobody has drawn yet');
+    expect(busyLineFor('rest_build', 'own_design')).toBe('Bast is building your new designs');
+    expect(busyLineFor(null)).toBeNull();
+    expect(busyLineFor('rest_build', 'infer_rest')).toBe(INFER_LINE);
+    expect(busyLineFor('rest_build', 'own_design')).toBe(ADDED_DESIGNS_LINE);
   });
 });
 

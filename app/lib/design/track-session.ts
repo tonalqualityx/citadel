@@ -94,6 +94,8 @@ export interface SessionTrackView {
   stage: string;
   busy: boolean;
   busy_line: string | null;
+  /** "Infer the rest" was tapped while a build ran: it starts when that build ends. */
+  infer_requested?: boolean;
   preview_alias: string;
   preview_url: string | null;
   /** The track's own build, shown by a session that has no preview of its own yet (projections.sessionPreview). */
@@ -102,11 +104,17 @@ export interface SessionTrackView {
   finish: { green: boolean; finished_at: Date | null } | null;
 }
 
-export function busyLineFor(kind: string | null | undefined): string | null {
+/** The busy line for a build job; a rest_build says what its start is ("infer the rest" or her added designs). */
+export function busyLineFor(kind: string | null | undefined, start?: unknown): string | null {
   if (kind === 'home_build') return 'Bast is building the home page';
+  if (kind === 'rest_build' && start === 'infer_rest') return 'Bast is building the pages nobody has drawn yet';
+  if (kind === 'rest_build' && start === 'own_design') return 'Bast is building your new designs';
   if (kind === 'rest_build') return 'Bast is building the remaining pages';
   return kind ? 'Bast is building' : null;
 }
+
+const startOf = (payload: unknown): unknown =>
+  payload && typeof payload === 'object' && !Array.isArray(payload) ? (payload as Record<string, unknown>).start : undefined;
 
 /** The track view for a session row, or null when it has no track. */
 export async function loadSessionTrackView(
@@ -116,12 +124,13 @@ export async function loadSessionTrackView(
   if (!session.track_id) return null;
   const t = await db.designTrack.findUnique({ where: { id: session.track_id } });
   if (!t) return null;
-  const job = t.busy_job_id ? await db.designJob.findUnique({ where: { id: t.busy_job_id }, select: { kind: true } }) : null;
+  const job = t.busy_job_id ? await db.designJob.findUnique({ where: { id: t.busy_job_id }, select: { kind: true, payload: true } }) : null;
   return {
     id: t.id,
     stage: t.stage,
     busy: t.busy_job_id !== null,
-    busy_line: t.busy_job_id ? busyLineFor(job?.kind) ?? 'Bast is building' : null,
+    busy_line: t.busy_job_id ? busyLineFor(job?.kind, startOf(job?.payload)) ?? 'Bast is building' : null,
+    infer_requested: t.infer_requested_at !== null,
     preview_alias: t.preview_alias,
     preview_url: t.preview_url,
     preview_sha: t.preview_sha,

@@ -20,6 +20,7 @@ let patchError: { status: number; error: string; code: string } | null;
 let signError: { status: number; error: string; code: string } | null;
 let reviseError: { status: number; error: string; code: string } | null;
 let saves: number;
+let boardRefs: Array<Record<string, unknown>>;
 
 const direction = (body: DirectionBody, over: Record<string, unknown> = {}) => ({
   id: 'd1', version: 3, status: 'draft', body, drafted_by: 'designer', signed_at: null, created_at: '2026-11-01T00:00:00Z', updated_at: '2026-11-01T00:00:00Z', revision: 'rev-1', ...over,
@@ -32,11 +33,13 @@ beforeEach(() => {
   signError = null;
   reviseError = null;
   saves = 0;
+  boardRefs = [];
   state = { direction: direction(FULL) as never, signed: null, missing_client_requests: [], sign_gaps: [] };
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     const method = init?.method ?? 'GET';
     const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : null;
     calls.push({ method, url, body });
+    if (method === 'GET' && url.includes('/references')) return respond(200, { references: boardRefs });
     if (method === 'GET') return respond(200, state);
     if (url.endsWith('/sign')) {
       if (signError) return respond(signError.status, signError);
@@ -238,7 +241,58 @@ describe('Direction tab: sign off', () => {
     expect(dialog.textContent).toContain('Signing fixes the direction. The home page build starts, and the client and Mike receive the direction by email.');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Sign off' }));
     await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/art-direction/sign'))).toBe(true));
-    expect(calls.find((c) => c.url.endsWith('/sign'))!.body).toEqual({ base_version: 3, base_revision: 'rev-1' });
+    expect(calls.find((c) => c.url.endsWith('/sign'))!.body).toEqual({ base_version: 3, base_revision: 'rev-1', start: 'inspiration' });
+  });
+
+  it('with no design of hers on the board, the build starts from the inspiration files and the dialog says she can add one', async () => {
+    mount();
+    await screen.findByTestId('sign-off');
+    fireEvent.click(signButton());
+    const dialog = await screen.findByRole('dialog');
+    const choice = within(dialog).getByTestId('start-choice');
+    expect(choice.textContent).toContain('How should the build start?');
+    expect((within(choice).getByLabelText('Build me a starting point from the inspiration files') as HTMLInputElement).checked).toBe(true);
+    expect(within(choice).queryByLabelText('Follow my own design')).toBeNull();
+    expect(within(choice).getByTestId('start-add-design').textContent).toContain('add a Figma link or upload your design on the Board first');
+  });
+
+  it('with a usable design file she can follow her own design (chosen first), or switch to the inspiration files', async () => {
+    boardRefs = [{
+      id: 'f1', source: 'designer_figma', role: 'design_file', decision: 'pending', capture_status: 'captured', uploads: [], markups: [],
+    }];
+    mount();
+    await screen.findByTestId('sign-off');
+    await waitFor(() => expect(calls.some((c) => c.url.includes('/references'))).toBe(true));
+    fireEvent.click(signButton());
+    const dialog = await screen.findByRole('dialog');
+    const own = (await within(dialog).findByLabelText('Follow my own design')) as HTMLInputElement;
+    expect(own.checked).toBe(true);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Sign off' }));
+    await waitFor(() => expect(calls.find((c) => c.url.endsWith('/sign'))).toBeTruthy());
+    expect(calls.find((c) => c.url.endsWith('/sign'))!.body).toEqual({ base_version: 3, base_revision: 'rev-1', start: 'own_design' });
+  });
+
+  it('a Figma frame still being imported, or one set aside, is not a design to follow', async () => {
+    boardRefs = [
+      { id: 'f1', source: 'designer_figma', role: 'design_file', decision: 'pending', capture_status: 'queued', uploads: [], markups: [] },
+      { id: 'f2', source: 'designer_figma', role: 'design_file', decision: 'no', capture_status: 'captured', uploads: [], markups: [] },
+    ];
+    mount();
+    await screen.findByTestId('sign-off');
+    await waitFor(() => expect(calls.some((c) => c.url.includes('/references'))).toBe(true));
+    fireEvent.click(signButton());
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).queryByLabelText('Follow my own design')).toBeNull();
+  });
+
+  it('no_design_file from the server is said plainly', async () => {
+    signError = { status: 409, error: 'There is no design', code: 'no_design_file' };
+    mount();
+    await screen.findByTestId('sign-off');
+    fireEvent.click(signButton());
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Sign off' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('There is no design of yours on the Board yet.');
   });
 
   it('designer_only shows the plain refusal', async () => {
@@ -260,14 +314,30 @@ describe('Direction tab: sign off', () => {
     fireEvent.click(within(dialog).getByLabelText('Rebuild the home page from this direction'));
     fireEvent.click(within(dialog).getByRole('button', { name: 'Sign off' }));
     await waitFor(() => expect(calls.find((c) => c.url.endsWith('/sign'))).toBeTruthy());
-    expect(calls.find((c) => c.url.endsWith('/sign'))!.body).toEqual({ base_version: 3, mode: 'rebuild', base_revision: 'rev-1' });
+    expect(calls.find((c) => c.url.endsWith('/sign'))!.body).toEqual({ base_version: 3, mode: 'rebuild', base_revision: 'rev-1', start: 'inspiration' });
+  });
+
+  it('refinements keep the home page, so there is no start to choose and none is sent', async () => {
+    mount({ stage: 'refine' });
+    await screen.findByTestId('sign-off');
+    fireEvent.click(signButton());
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).queryByTestId('start-choice')).toBeNull();
+    fireEvent.click(within(dialog).getByLabelText('Rebuild the home page from this direction'));
+    expect(within(dialog).getByTestId('start-choice')).toBeTruthy();
+    fireEvent.click(within(dialog).getByLabelText('Apply the changes to the current home page'));
+    expect(within(dialog).queryByTestId('start-choice')).toBeNull();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Sign off' }));
+    await waitFor(() => expect(calls.find((c) => c.url.endsWith('/sign'))).toBeTruthy());
+    expect(calls.find((c) => c.url.endsWith('/sign'))!.body).toEqual({ base_version: 3, mode: 'refinements', base_revision: 'rev-1' });
   });
 });
 
 describe('Direction tab: revisions (the designer signs what her screen shows)', () => {
   const signButton = () => screen.getAllByRole('button', { name: 'Sign off' })[0] as HTMLButtonElement;
   const signs = () => calls.filter((c) => c.method === 'POST' && c.url.endsWith('/sign'));
-  const gets = () => calls.filter((c) => c.method === 'GET').length;
+  // GETs of the direction itself (the board read for the start choice is its own query).
+  const gets = () => calls.filter((c) => c.method === 'GET' && !c.url.includes('/references')).length;
 
   it('a refetch with a new revision and no unsaved edits shows the new body, and Sign off then signs that revision', async () => {
     mount({}, 50);
@@ -278,7 +348,7 @@ describe('Direction tab: revisions (the designer signs what her screen shows)', 
     const dialog = await screen.findByRole('dialog');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Sign off' }));
     await waitFor(() => expect(signs()).toHaveLength(1));
-    expect(signs()[0].body).toEqual({ base_version: 3, base_revision: 'rev-2' });
+    expect(signs()[0].body).toEqual({ base_version: 3, base_revision: 'rev-2', start: 'inspiration' });
   });
 
   it('an art_direction feed line refetches the direction at once', async () => {
@@ -304,7 +374,7 @@ describe('Direction tab: revisions (the designer signs what her screen shows)', 
     state = { ...state, direction: direction({ ...FULL, summary: 'Saved behind the dialog.' }, { revision: 'rev-2' }) as never };
     fireEvent.click(within(dialog).getByRole('button', { name: 'Sign off' }));
     await waitFor(() => expect(signs()).toHaveLength(1));
-    expect(signs()[0].body).toEqual({ base_version: 3, base_revision: 'rev-1' });
+    expect(signs()[0].body).toEqual({ base_version: 3, base_revision: 'rev-1', start: 'inspiration' });
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect((await screen.findByRole('alert')).textContent).toBe('This was just updated. Here is the latest.');
     await waitFor(() => expect(field('summary').value).toBe('Saved behind the dialog.'));

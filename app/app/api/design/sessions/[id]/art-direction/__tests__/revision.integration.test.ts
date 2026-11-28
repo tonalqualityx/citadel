@@ -138,6 +138,34 @@ describe.skipIf(!SCRATCH)('art direction revisions (real database)', () => {
     expect(t).toMatchObject({ stage: 'art_direction', busy_job_id: null, art_direction_id: null });
   });
 
+  it('start own_design with no usable design file is 409 no_design_file and queues nothing; start inspiration lands on the home build', async () => {
+    const { track, session, r1 } = await started('st1');
+    // a Figma frame still being read is not a design to follow
+    await prisma.designReference.create({ data: { track_id: track.id, source: 'designer_figma', url: 'https://www.figma.com/design/ABCDEFGHIJ0001/x?node-id=1-1', title: 'Frame', capture_status: 'queued' } });
+    const refused = await signIt(session.id, { base_version: 1, base_revision: r1, start: 'own_design' });
+    expect(refused.status).toBe(409);
+    expect(await code(refused)).toBe('no_design_file');
+    expect(await signJobs(track.id)).toBe(0);
+    expect((await prisma.designTrack.findUniqueOrThrow({ where: { id: track.id } })).stage).toBe('art_direction');
+    expect((await signIt(session.id, { base_version: 1, base_revision: r1, start: 'somewhere' })).status).toBe(400);
+
+    const ok = await signIt(session.id, { base_version: 1, base_revision: r1, start: 'inspiration' });
+    expect(ok.status).toBe(200);
+    const home = await prisma.designJob.findFirstOrThrow({ where: { track_id: track.id, kind: 'home_build' } });
+    expect(home.payload).toMatchObject({ mode: 'first', start: 'inspiration' });
+  });
+
+  it('start own_design names her usable design files on the home build, in board order', async () => {
+    const { track, session, r1 } = await started('st2');
+    const a = await prisma.designReference.create({ data: { track_id: track.id, source: 'designer_figma', url: 'https://www.figma.com/design/ABCDEFGHIJ0002/x?node-id=1-1', title: 'Home', capture_status: 'captured', sort_order: 1 } });
+    await prisma.designReference.create({ data: { track_id: track.id, source: 'designer_figma', url: 'https://www.figma.com/design/ABCDEFGHIJ0002/x?node-id=1-2', title: 'Set aside', capture_status: 'captured', decision: 'no', sort_order: 2 } });
+    await prisma.designReference.create({ data: { track_id: track.id, source: 'bast_pick', url: 'https://inspiration.example.com/', title: 'A site', capture_status: 'captured', sort_order: 0 } });
+    const ok = await signIt(session.id, { base_version: 1, base_revision: r1, start: 'own_design' });
+    expect(ok.status).toBe(200);
+    const home = await prisma.designJob.findFirstOrThrow({ where: { track_id: track.id, kind: 'home_build' } });
+    expect(home.payload).toMatchObject({ mode: 'first', start: 'own_design', design_reference_ids: [a.id] });
+  });
+
   it('a second sign of a signed version is still direction_signed', async () => {
     const { session, r1 } = await started('rv3');
     expect((await signIt(session.id, { base_version: 1, base_revision: r1 })).status).toBe(200);
