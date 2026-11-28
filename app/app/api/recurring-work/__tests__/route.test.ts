@@ -202,6 +202,51 @@ describe('/api/recurring-work/[id]', () => {
     expect((await res.json()).group_label).toBe('Team');
   });
 
+  it('PATCH stores each usage, destination, last-used and priority field, with BigInt tokens', async () => {
+    const res = await PATCH(
+      req('PATCH', {
+        usage_week_tokens: 5_000_000_000, usage_month_tokens: 20_000_000_000, usage_week_usd: 12.5, usage_month_usd: 50,
+        usage_week_share: 77.35, usage_state: 'measured', usage_note: 'from the ledger', usage_updated_at: '2026-11-28T09:00:00Z',
+        destinations: ['email_mike', 'file_only', 'email_mike'], destination_note: 'weekly digest',
+        last_used_at: '2026-11-26T09:00:00Z', last_used_signal: 'email opened Nov 26', priority: 'low',
+      }),
+      ctx,
+    );
+    expect(res.status).toBe(200);
+    const data = p.recurringWork.update.mock.calls[0][0].data;
+    expect(data).toMatchObject({
+      usage_week_tokens: BigInt(5_000_000_000), usage_month_tokens: BigInt(20_000_000_000), usage_week_usd: 12.5, usage_month_usd: 50,
+      usage_week_share: 77.35, usage_state: 'measured', usage_note: 'from the ledger', destinations: ['email_mike', 'file_only'],
+      destination_note: 'weekly digest', last_used_signal: 'email opened Nov 26', priority: 'low',
+    });
+    expect(data.usage_updated_at).toBeInstanceOf(Date);
+    expect(data.last_used_at).toBeInstanceOf(Date);
+    const body = await res.json();
+    expect(body).toMatchObject({ usage_week_tokens: 5_000_000_000, usage_week_usd: 12.5, usage_week_share: 77.35, priority: 'low', file_only: false });
+    expect(() => JSON.stringify(body)).not.toThrow();
+  });
+
+  it('PATCH destinations null clears to [] and file_only is true only when every destination is file_only', async () => {
+    const cleared = await PATCH(req('PATCH', { destinations: null }), ctx);
+    expect(p.recurringWork.update.mock.calls[0][0].data).toEqual({ destinations: [] });
+    expect((await cleared.json())).toMatchObject({ destinations: [], file_only: false });
+    expect((await (await PATCH(req('PATCH', { destinations: ['file_only'] }), ctx)).json()).file_only).toBe(true);
+    expect((await (await PATCH(req('PATCH', { destinations: ['file_only', 'slack'] }), ctx)).json()).file_only).toBe(false);
+  });
+
+  it('PATCH rejects a bad destination, a null priority and too many destinations', async () => {
+    expect((await PATCH(req('PATCH', { destinations: ['fax'] }), ctx)).status).toBe(400);
+    expect((await PATCH(req('PATCH', { priority: null }), ctx)).status).toBe(400);
+    expect((await PATCH(req('PATCH', { usage_week_share: 1001 }), ctx)).status).toBe(400);
+    expect(p.recurringWork.update).not.toHaveBeenCalled();
+  });
+
+  it('POST create accepts the new fields', async () => {
+    const res = await POST(req('POST', { kind: 'machine_job', cron_expr: '0 7 * * *', job_key: 'n', usage_month_tokens: 3_000_000_000, destinations: ['slack'] }));
+    expect(res.status).toBe(201);
+    expect(p.recurringWork.create.mock.calls[0][0].data).toMatchObject({ usage_month_tokens: BigInt(3_000_000_000), destinations: ['slack'] });
+  });
+
   it('PATCH cannot change kind', async () => {
     expect((await PATCH(req('PATCH', { kind: 'engine' }), ctx)).status).toBe(400);
   });

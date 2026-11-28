@@ -2509,6 +2509,11 @@ enum RecurringKind {
   engine // another Citadel engine owns the schedule (Troubador schedules, maintenance plans)
 }
 
+enum RecurringPriority {
+  normal
+  low // may pause at 80% of the weekly Claude limit
+}
+
 /// Recurring work (design.md 2.5): the charter scheduled task, widened in place. Same table as before.
 model RecurringWork {
   id              String       @id @default(uuid()) @db.Uuid
@@ -2547,6 +2552,21 @@ model RecurringWork {
   next_run_at       DateTime?
   paused_on_purpose Boolean       @default(false)
   group_label       String?       @db.VarChar(60) // the group a row shows under; machine rows get it from the import config
+
+  // Claude usage, where the output goes, who last used it, and priority (task b2d301d7)
+  usage_week_tokens  BigInt? // tokens over the last 7 days (exceeds 2^31)
+  usage_month_tokens BigInt? // last 30 days
+  usage_week_usd     Decimal?          @db.Decimal(10, 2) // rough dollars, 7 days
+  usage_month_usd    Decimal?          @db.Decimal(10, 2) // 30 days
+  usage_week_share   Decimal?          @db.Decimal(6, 2) // percent of the weekly Claude limit
+  usage_state        String?           @db.VarChar(20) // measured | unmeasured | no_claude
+  usage_note         String?           @db.VarChar(200)
+  usage_updated_at   DateTime?
+  destinations       String[]          @default([]) // where the output goes
+  destination_note   String?           @db.VarChar(300)
+  last_used_at       DateTime? // when a person last used the output
+  last_used_signal   String?           @db.VarChar(200)
+  priority           RecurringPriority @default(normal)
 
   // Relations
   generation_logs CharterGenerationLog[]

@@ -9,7 +9,13 @@ const recurringResponse = {
   client_id: 'uuid|null', client: { id: 'uuid', name: 'string' }, site_id: 'uuid|null', site: { id: 'uuid', name: 'string' },
   initiative_id: 'uuid|null', initiative: { id: 'uuid', name: 'string' }, is_plumbing: 'boolean',
   last_run_at: 'ISO-8601|null', last_run_ok: 'boolean|null', last_run_note: 'string|null', next_run_at: 'ISO-8601|null',
-  paused_on_purpose: 'boolean', group_label: 'string|null', sort_order: 'number', is_active: 'boolean', created_at: 'ISO-8601', updated_at: 'ISO-8601',
+  paused_on_purpose: 'boolean', group_label: 'string|null',
+  usage_week_tokens: 'number|null', usage_month_tokens: 'number|null', usage_week_usd: 'number|null', usage_month_usd: 'number|null',
+  usage_week_share: 'number|null (percent of the weekly Claude limit)', usage_state: 'measured|unmeasured|no_claude|null', usage_note: 'string|null',
+  usage_updated_at: 'ISO-8601|null', destinations: ['email_mike|citadel_card|citadel_data|slack|client_send|site_deploy|file_only|machine_plumbing'],
+  destination_note: 'string|null', file_only: 'boolean (derived: destinations is non-empty and every one is file_only)',
+  last_used_at: 'ISO-8601|null', last_used_signal: 'string|null', priority: 'normal|low',
+  sort_order: 'number', is_active: 'boolean', created_at: 'ISO-8601', updated_at: 'ISO-8601',
 };
 
 const fieldParams: ParamDef[] = [
@@ -33,6 +39,19 @@ const fieldParams: ParamDef[] = [
   { name: 'group_label', type: 'string', required: false, description: 'The group the row shows under (max 60); defaults to the client name, else Indelible' },
   { name: 'sort_order', type: 'number', required: false, description: 'Display order' },
   { name: 'is_active', type: 'boolean', required: false, description: 'false deactivates; there is no hard delete' },
+  { name: 'usage_week_tokens', type: 'number', required: false, description: 'Claude tokens over the last 7 days (integer, null clears)' },
+  { name: 'usage_month_tokens', type: 'number', required: false, description: 'Claude tokens over the last 30 days (integer, null clears)' },
+  { name: 'usage_week_usd', type: 'number', required: false, description: 'Rough dollars, 7 days (null clears)' },
+  { name: 'usage_month_usd', type: 'number', required: false, description: 'Rough dollars, 30 days (null clears)' },
+  { name: 'usage_week_share', type: 'number', required: false, description: 'Percent of the weekly Claude limit, 0 to 1000 (null clears)' },
+  { name: 'usage_state', type: 'string', required: false, description: 'measured | unmeasured | no_claude' },
+  { name: 'usage_note', type: 'string', required: false, description: 'Why unmeasured, etc. (max 200)' },
+  { name: 'usage_updated_at', type: 'ISO-8601', required: false, description: 'When the usage numbers were measured' },
+  { name: 'destinations', type: 'string[]', required: false, description: 'Where the output goes, max 8, duplicates removed: email_mike | citadel_card | citadel_data | slack | client_send | site_deploy | file_only | machine_plumbing. null clears to []' },
+  { name: 'destination_note', type: 'string', required: false, description: 'Max 300' },
+  { name: 'last_used_at', type: 'ISO-8601', required: false, description: 'When a person last used the output' },
+  { name: 'last_used_signal', type: 'string', required: false, description: 'The signal that showed it, e.g. "email opened Nov 26" (max 200)' },
+  { name: 'priority', type: 'string', required: false, description: 'normal (default) | low (may pause at 80% of the weekly limit); not nullable' },
 ];
 
 export const recurringWorkEndpoints: ApiEndpoint[] = [
@@ -80,7 +99,7 @@ export const recurringWorkEndpoints: ApiEndpoint[] = [
         auth: 'required',
         roles: ['pm', 'admin'],
         bodySchema: [
-          { name: 'jobs', type: 'object', required: true, description: 'Each: job_key, title, owner_id, produces, group_label, schedule_text, cron_expr, is_plumbing, paused_on_purpose, last_run_at, last_run_ok, last_run_note, next_run_at' },
+          { name: 'jobs', type: 'object', required: true, description: 'Each: job_key, title, owner_id, produces, group_label, schedule_text, cron_expr, is_plumbing, paused_on_purpose, last_run_at, last_run_ok, last_run_note, next_run_at, and the usage fields (usage_week_tokens, usage_month_tokens, usage_week_usd, usage_month_usd, usage_week_share, usage_state, usage_note, usage_updated_at), destinations, destination_note, last_used_at, last_used_signal, priority. A key the item leaves out keeps its stored value unchanged.' },
         ],
         responseExample: { created: 'number', updated: 'number', deactivated: 'number', skipped: ['job_key'], total: 'number' },
       },

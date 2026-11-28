@@ -8,6 +8,7 @@ import {
   assertKindFields,
   assertLinksExist,
   assertNoCopyOfCharter,
+  convertUsageFields,
   recurringWorkUpdateSchema,
 } from '@/lib/recurring-work/service';
 
@@ -43,7 +44,10 @@ export async function PATCH(request: NextRequest, { params }: Ctx) {
     assertNoCopyOfCharter(data);
     await assertLinksExist(data);
 
-    const updateData: Record<string, unknown> = Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined));
+    const updateData: Record<string, unknown> = {
+      ...Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined)),
+      ...convertUsageFields(data),
+    };
     // a row moved onto a charter drops its own client and site: from then on they are the charter's
     if (data.charter_id) Object.assign(updateData, { client_id: null, site_id: null });
     // a client or site set on a charter row would be a second copy

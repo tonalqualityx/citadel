@@ -115,4 +115,46 @@ describe('POST /api/recurring-work/machine-sync', () => {
   it('rejects unknown fields', async () => {
     expect((await POST(req({ jobs: [job('a', { initiative_id: OWNER })] }))).status).toBe(400);
   });
+
+  const NEW_KEYS = [
+    'usage_week_tokens', 'usage_month_tokens', 'usage_week_usd', 'usage_month_usd', 'usage_week_share', 'usage_state', 'usage_note',
+    'usage_updated_at', 'destinations', 'destination_note', 'last_used_at', 'last_used_signal', 'priority',
+  ];
+
+  it('writes the usage, destination, last-used and priority fields on create', async () => {
+    const res = await POST(req({ jobs: [job('a', {
+      usage_week_tokens: 4_000_000_000, usage_month_tokens: 9_000_000_000, usage_week_usd: 10, usage_month_usd: 40, usage_week_share: 77.35,
+      usage_state: 'measured', usage_note: 'ok', usage_updated_at: '2026-11-28T09:00:00Z', destinations: ['slack', 'slack', 'file_only'],
+      destination_note: 'n', last_used_at: '2026-11-26T09:00:00Z', last_used_signal: 'opened', priority: 'low',
+    })] }));
+    expect(res.status).toBe(200);
+    const data = p.recurringWork.create.mock.calls[0][0].data;
+    expect(data).toMatchObject({
+      usage_week_tokens: BigInt(4_000_000_000), usage_month_tokens: BigInt(9_000_000_000), usage_week_usd: 10, usage_week_share: 77.35,
+      usage_state: 'measured', destinations: ['slack', 'file_only'], priority: 'low', last_used_signal: 'opened',
+    });
+    expect(data.usage_updated_at).toBeInstanceOf(Date);
+  });
+
+  it('writes the new fields on update, and destinations null clears to []', async () => {
+    p.recurringWork.findMany.mockResolvedValueOnce([{ id: 'row-1', job_key: 'a', kind: 'machine_job' }]);
+    await POST(req({ jobs: [job('a', { usage_week_tokens: 7, destinations: null, priority: 'normal' })] }));
+    expect(p.recurringWork.update.mock.calls[0][0].data).toMatchObject({ usage_week_tokens: BigInt(7), destinations: [], priority: 'normal' });
+  });
+
+  it('an item without the new keys sends none of them, so stored values stay as they were', async () => {
+    p.recurringWork.findMany.mockResolvedValueOnce([{ id: 'row-1', job_key: 'a', kind: 'machine_job' }]);
+    await POST(req({ jobs: [job('a'), job('b')] }));
+    for (const k of NEW_KEYS) {
+      expect(p.recurringWork.update.mock.calls[0][0].data).not.toHaveProperty(k);
+      expect(p.recurringWork.create.mock.calls[0][0].data).not.toHaveProperty(k);
+    }
+  });
+
+  it('rejects an invalid destination or priority', async () => {
+    expect((await POST(req({ jobs: [job('a', { destinations: ['fax'] })] }))).status).toBe(400);
+    expect((await POST(req({ jobs: [job('a', { priority: 'high' })] }))).status).toBe(400);
+    expect((await POST(req({ jobs: [job('a', { priority: null })] }))).status).toBe(400);
+    expect(p.recurringWork.create).not.toHaveBeenCalled();
+  });
 });

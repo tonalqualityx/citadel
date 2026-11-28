@@ -845,7 +845,10 @@ type RecurringWorkRow = Record<string, unknown> & {
   initiative?: { id: string; name: string } | null;
 };
 
+const numOrNull = (v: unknown) => (v === null || v === undefined ? null : Number(v));
+
 export function formatRecurringWorkResponse(rw: RecurringWorkRow) {
+  const destinations = Array.isArray(rw.destinations) ? (rw.destinations as string[]) : [];
   const named = (r?: { id: string; name: string } | null) => (r ? { id: r.id, name: r.name } : null);
   // a charter row's client and site are the charter's own, read live so a charter that changes client moves its rows
   const fromCharter = Boolean(rw.charter_id && rw.charter && 'client_id' in rw.charter);
@@ -884,6 +887,21 @@ export function formatRecurringWorkResponse(rw: RecurringWorkRow) {
     next_run_at: rw.next_run_at ?? null,
     paused_on_purpose: rw.paused_on_purpose ?? false,
     group_label: (rw.group_label as string | null | undefined) ?? null,
+    // BigInt and Decimal columns leave as plain numbers (JSON cannot carry a BigInt)
+    usage_week_tokens: numOrNull(rw.usage_week_tokens),
+    usage_month_tokens: numOrNull(rw.usage_month_tokens),
+    usage_week_usd: numOrNull(rw.usage_week_usd),
+    usage_month_usd: numOrNull(rw.usage_month_usd),
+    usage_week_share: numOrNull(rw.usage_week_share),
+    usage_state: (rw.usage_state as string | null | undefined) ?? null,
+    usage_note: (rw.usage_note as string | null | undefined) ?? null,
+    usage_updated_at: rw.usage_updated_at ?? null,
+    destinations,
+    destination_note: (rw.destination_note as string | null | undefined) ?? null,
+    file_only: destinations.length > 0 && destinations.every((d) => d === 'file_only'),
+    last_used_at: rw.last_used_at ?? null,
+    last_used_signal: (rw.last_used_signal as string | null | undefined) ?? null,
+    priority: (rw.priority as string | undefined) ?? 'normal',
     sort_order: rw.sort_order,
     is_active: rw.is_active,
     created_at: rw.created_at,

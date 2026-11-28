@@ -11,6 +11,10 @@ export const KIND_VALUES = ['citadel_task', 'machine_job', 'engine'] as const;
 export const CADENCE_VALUES = ['weekly', 'monthly', 'quarterly', 'semi_annually', 'annually'] as const;
 export const ENGINE_SOURCE_KINDS = ['troubador_schedule', 'maintenance_plan'] as const;
 
+export const DESTINATION_VALUES = ['email_mike', 'citadel_card', 'citadel_data', 'slack', 'client_send', 'site_deploy', 'file_only', 'machine_plumbing'] as const;
+export const PRIORITY_VALUES = ['normal', 'low'] as const;
+export const USAGE_STATE_VALUES = ['measured', 'unmeasured', 'no_claude'] as const;
+
 export const RECURRING_WORK_INCLUDE = {
   sop: { select: { id: true, title: true } },
   // a charter row's client and site are the charter's (read, never copied), so the charter brings them along
@@ -31,6 +35,43 @@ export const RECURRING_WORK_INCLUDE = {
 };
 
 const uuid = z.string().uuid();
+const isoDateTime = z.string().datetime({ offset: true }).nullable().optional();
+const tokenCount = z.number().int().nonnegative().nullable().optional();
+const money = z.number().nonnegative().nullable().optional();
+
+/** Usage, destination, last-used and priority fields (task b2d301d7), shared by PATCH, create and machine-sync. */
+export const usageFields = {
+  usage_week_tokens: tokenCount,
+  usage_month_tokens: tokenCount,
+  usage_week_usd: money,
+  usage_month_usd: money,
+  usage_week_share: z.number().nonnegative().max(1000).nullable().optional(),
+  usage_state: z.enum(USAGE_STATE_VALUES).nullable().optional(),
+  usage_note: z.string().trim().max(200).nullable().optional(),
+  usage_updated_at: isoDateTime,
+  destinations: z.array(z.enum(DESTINATION_VALUES)).max(8).nullable().optional(),
+  destination_note: z.string().trim().max(300).nullable().optional(),
+  last_used_at: isoDateTime,
+  last_used_signal: z.string().trim().max(200).nullable().optional(),
+  priority: z.enum(PRIORITY_VALUES).optional(),
+};
+
+/**
+ * Turns parsed usage input into what Prisma takes: tokens to BigInt, datetimes to Date, destinations de-duplicated
+ * (null clears to []). Only keys that were sent come back, so an absent key leaves the stored value alone.
+ */
+export function convertUsageFields(input: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(usageFields)) {
+    const v = input[key];
+    if (v === undefined) continue;
+    if (key === 'usage_week_tokens' || key === 'usage_month_tokens') out[key] = v === null ? null : BigInt(v as number);
+    else if (key === 'usage_updated_at' || key === 'last_used_at') out[key] = v === null ? null : new Date(v as string);
+    else if (key === 'destinations') out[key] = v === null ? [] : [...new Set(v as string[])];
+    else out[key] = v;
+  }
+  return out;
+}
 
 const fields = {
   title: z.string().trim().min(1).max(200).nullable().optional(),
@@ -53,6 +94,7 @@ const fields = {
   group_label: z.string().trim().max(60).nullable().optional(),
   sort_order: z.number().int().optional(),
   is_active: z.boolean().optional(),
+  ...usageFields,
 };
 
 export const recurringWorkCreateSchema = z.object({ kind: z.enum(KIND_VALUES).default('citadel_task'), ...fields }).strict();

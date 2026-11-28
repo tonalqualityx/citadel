@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError } from '@/lib/api/errors';
@@ -10,6 +11,7 @@ import {
   assertKindFields,
   assertLinksExist,
   assertNoCopyOfCharter,
+  convertUsageFields,
   groupRecurringWork,
   isStopped,
   recurringWorkCreateSchema,
@@ -99,7 +101,8 @@ export async function POST(request: NextRequest) {
         group_label: data.group_label,
         sort_order: data.sort_order,
         is_active: data.is_active,
-      },
+        ...convertUsageFields(data),
+      } as Prisma.RecurringWorkUncheckedCreateInput,
       include: RECURRING_WORK_INCLUDE,
     });
 

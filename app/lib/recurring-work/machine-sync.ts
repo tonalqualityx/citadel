@@ -7,6 +7,7 @@ import { z } from 'zod';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db/prisma';
 import { ApiError } from '@/lib/api/errors';
+import { convertUsageFields, usageFields } from '@/lib/recurring-work/service';
 
 const isoDate = z.string().datetime({ offset: true }).nullable().optional();
 
@@ -25,6 +26,7 @@ export const machineJobItemSchema = z
     last_run_ok: z.boolean().nullable().optional(),
     last_run_note: z.string().trim().max(300).nullable().optional(),
     next_run_at: isoDate,
+    ...usageFields,
   })
   .strict();
 
@@ -43,7 +45,8 @@ export interface MachineSyncResult {
 
 const toDate = (v: string | null | undefined) => (v === undefined ? undefined : v === null ? null : new Date(v));
 
-/** The fields the sync owns. Only keys the item carried are written (an absent key leaves the stored value alone). */
+/** The fields the sync owns. Only keys the item carried are written (an absent key leaves the stored value alone,
+ * including the usage, destination and priority fields). */
 function syncedFields(item: MachineJobItem) {
   const out: Record<string, unknown> = {
     title: item.title,
@@ -58,6 +61,7 @@ function syncedFields(item: MachineJobItem) {
     last_run_ok: item.last_run_ok,
     last_run_note: item.last_run_note,
     next_run_at: toDate(item.next_run_at),
+    ...convertUsageFields(item),
   };
   for (const k of Object.keys(out)) if (out[k] === undefined) delete out[k];
   return out;
