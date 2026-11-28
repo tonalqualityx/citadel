@@ -19,7 +19,7 @@ import {
   ACTIVE_JOB_STATUSES, ADOPT_KINDS, BRIEF_DELAY_MINUTES, BUILD_KINDS, JOB_ATTEMPT_LIMIT, JOB_LEASE_SECONDS, NEEDS_MIKE_TAG,
   addInternalComment, addTaskTag, clearBusy, completeStageTask, errorTail, loadTrack, lockTrack, queueJob, removeTaskTag, trackTx, type TrackScope,
 } from './track-core';
-import { refreshBuildPayloadAtClaim } from './track-stage';
+import { queueNextBuild, refreshBuildPayloadAtClaim } from './track-stage';
 
 // Columns are `timestamp without time zone` holding UTC, so compare against UTC now (lib/tasks/claims.ts precedent).
 const NOW = Prisma.sql`(now() AT TIME ZONE 'UTC')`;
@@ -62,8 +62,9 @@ async function park(scope: TrackScope, job: DesignJob, error: string, actorId: s
  */
 export async function failOrRequeue(
   scope: TrackScope, job: DesignJob, error: string, actorId: string, extra: { cost_usd?: number | null; log_asset_id?: string | null } = {},
-): Promise<'requeued' | 'failed' | null> {
+): Promise<'requeued' | 'failed' | 'done' | null> {
   const { tx } = scope;
+  if (isNothingToBuild(job, error)) return closeNothingToBuild(scope, job, error, extra);
   const forGood = job.attempts >= JOB_ATTEMPT_LIMIT;
   const data: Prisma.DesignJobUncheckedUpdateManyInput = {
     error: error.slice(0, MAX_JOB_ERROR_BYTES),
@@ -79,6 +80,42 @@ export async function failOrRequeue(
   await park(scope, job, error, actorId);
   await failCaptureReference(tx, job);
   return 'failed';
+}
+
+/**
+ * The build of the other pages drawn in the files she signed with (an own-design rest_build carrying `signed_with`, queued
+ * when an own-design home build is adopted, track-stage.ts `queueAddedDesigns`) answers `no_pages` when those files draw
+ * only the home page, which the home build already built. That is not a failure.
+ */
+function isNothingToBuild(job: DesignJob, error: string): boolean {
+  const p = job.payload;
+  const o = p && typeof p === 'object' && !Array.isArray(p) ? (p as Record<string, unknown>) : {};
+  return job.kind === 'rest_build' && o.start === 'own_design' && o.signed_with === true && /^no_pages\b/.test(error);
+}
+
+/**
+ * Close a signed-with build that found nothing to build: done with no pages (so nothing joins built_pages or the reviews),
+ * busy cleared, and the next build queued as after an adopt (designs added meanwhile, then a held "Infer the rest").
+ */
+async function closeNothingToBuild(
+  scope: TrackScope, job: DesignJob, error: string, extra: { cost_usd?: number | null; log_asset_id?: string | null },
+): Promise<'done' | null> {
+  const { tx } = scope;
+  await lockTrack(tx, job.track_id);
+  const res = await tx.designJob.updateMany({
+    where: { id: job.id, status: { in: ['claimed', 'running'] }, attempts: job.attempts },
+    data: {
+      status: 'done', finished_at: new Date(), claimed_by: null, lease_until: null, error: null,
+      result: { pages: [], nothing_to_build: error.slice(0, 500) },
+      ...(extra.cost_usd != null ? { cost_usd: extra.cost_usd } : {}),
+      ...(extra.log_asset_id ? { log_asset_id: extra.log_asset_id } : {}),
+    },
+  });
+  if (res.count !== 1) return null;
+  await clearBusy(tx, job.track_id, job.id);
+  scope.freed?.add(job.track_id);
+  await queueNextBuild(scope, job.track_id);
+  return 'done';
 }
 
 /**

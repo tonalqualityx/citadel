@@ -231,19 +231,25 @@ export async function rebuildHome(trackId: string, input: Omit<HomeBuildInput, '
 // ---------------------------------------------------------------------------------------------------------------
 
 /** The home_build adopt is done: build task completed by Bast, the track moves to refine, busy cleared. */
-export async function onHomeBuildAdopted(scope: TrackScope, trackId: string, job: { id: string; task_id: string | null }, actorId: string): Promise<boolean> {
+export async function onHomeBuildAdopted(
+  scope: TrackScope, trackId: string,
+  job: { id: string; task_id: string | null; payload?: Prisma.JsonValue | null; started_at?: Date | null; created_at?: Date },
+  actorId: string,
+): Promise<boolean> {
   const { tx } = scope;
   await lockTrack(tx, trackId);
   const track = await loadTrack(tx, trackId);
   if (job.task_id) await completeStageTask(job.task_id, actorId, scope);
   await clearBusy(tx, trackId, job.id);
+  // An own-design home build builds only the home page: the other pages drawn in the files she signed with are built next.
+  const signedWith = await signedWithDesignIds(tx, trackId, job);
   if (track.stage !== 'home_build') { // a rebuild or a hand edit already moved it
-    await queueNextBuild(scope, trackId);
+    await queueNextBuild(scope, trackId, { signedWith });
     return false;
   }
   await moveStage(tx, track, 'refine', 'home_build_adopted');
   await moveTrackSession(tx, track, 'design-stage:refine');
-  await queueNextBuild(scope, trackId);
+  await queueNextBuild(scope, trackId, { signedWith });
   return true;
 }
 
@@ -454,6 +460,30 @@ export async function addedDesignIds(tx: Tx, trackId: string, opts: { exceptJobI
   return refs.map((r) => r.id).filter((id) => !named.has(id)).slice(0, MAX_PAYLOAD_IDS);
 }
 
+/**
+ * The design files an adopted home build with `start: own_design` followed: the usable ones its payload names, and every
+ * usable design file that was on the board when it started (frames that arrived before the claim are hers too, as the home
+ * build reads them). The home build builds only the home page, so the other pages these files draw are built next, as
+ * drawn, by an own-design rest build (`queueAddedDesigns`). A file an earlier finished own-design rest build already built
+ * is left out, so a home rebuild does not redraw pages built from it. Any other home build: none.
+ */
+export async function signedWithDesignIds(
+  tx: Tx, trackId: string, home: { payload?: Prisma.JsonValue | null; started_at?: Date | null; created_at?: Date },
+): Promise<string[]> {
+  if (payloadStart(home.payload) !== 'own_design') return [];
+  const usable = await usableDesignReferenceIds(tx, trackId);
+  if (usable.length === 0) return [];
+  const at = home.started_at ?? home.created_at ?? new Date();
+  const onBoard = new Set((await tx.designReference.findMany({
+    where: { id: { in: usable }, created_at: { lte: at } }, select: { id: true },
+  })).map((r) => r.id));
+  const named = new Set(payloadReferenceIds(home.payload));
+  const built = new Set<string>();
+  const done = await tx.designJob.findMany({ where: { track_id: trackId, kind: 'rest_build', status: 'done' }, select: { payload: true } });
+  for (const j of done) if (payloadStart(j.payload) === 'own_design') for (const id of payloadReferenceIds(j.payload)) built.add(id);
+  return usable.filter((id) => (onBoard.has(id) || named.has(id)) && !built.has(id));
+}
+
 async function activeBuildCount(tx: Tx, trackId: string): Promise<number> {
   return tx.designJob.count({ where: { track_id: trackId, kind: { in: BUILD_JOB_KINDS }, status: { in: ACTIVE } } });
 }
@@ -463,17 +493,23 @@ async function activeBuildCount(tx: Tx, trackId: string): Promise<number> {
  * caller's transaction under the track lock, when a design is added and after every build adopt. Nothing is queued while a
  * build runs (the adopt that ends it calls this again), outside a build stage, or when nothing new was added. The stage
  * never moves. The job carries the rest build's recipe task only in rest_build; elsewhere it runs beside the stage.
+ * `signedWith` (after an own-design home build adopt, `signedWithDesignIds`) adds the files she signed with, so the other
+ * pages they draw are built in the same job; the payload then carries `signed_with: true`, and a `no_pages` answer (the
+ * files draw only the home page) closes the job with nothing built instead of failing it (track-jobs.ts).
  * Returns the queued job id, or null.
  */
-export async function queueAddedDesigns(scope: TrackScope, trackId: string): Promise<string | null> {
+export async function queueAddedDesigns(scope: TrackScope, trackId: string, opts: { signedWith?: string[] } = {}): Promise<string | null> {
   const { tx } = scope;
   const track = await loadTrack(tx, trackId);
   if (!BUILD_STAGES.includes(track.stage) || track.busy_job_id !== null) return null;
   if ((await activeBuildCount(tx, trackId)) > 0) return null;
-  const ids = await addedDesignIds(tx, trackId);
+  const signed = opts.signedWith ?? [];
+  const ids = [...new Set([...signed, ...(await addedDesignIds(tx, trackId))])].slice(0, MAX_PAYLOAD_IDS);
   if (ids.length === 0) return null;
   assertMove(track.stage, track.stage, 'designs_added');
-  const payload = { start: 'own_design', design_reference_ids: ids, built_pages: await builtPages(tx, trackId) };
+  const payload = {
+    start: 'own_design', design_reference_ids: ids, built_pages: await builtPages(tx, trackId), ...(signed.length > 0 ? { signed_with: true } : {}),
+  };
   const job = await queueJob(tx, track, 'rest_build', { payload: payload as never, ...(track.stage === 'rest_build' ? {} : { taskId: null }) });
   await setBusy(tx, trackId, job!.id);
   return job!.id;
@@ -524,12 +560,12 @@ export async function inferRest(trackId: string, designerId: string): Promise<In
 }
 
 /**
- * After a build ends (every home_build and rest_build adopt): designs she added while it ran are built first
- * (`queueAddedDesigns`); otherwise an "Infer the rest" she tapped while it ran is queued now. A held request runs beside
+ * After a build ends (every home_build and rest_build adopt): designs she added while it ran, and after an own-design home
+ * build the other pages drawn in the files she signed with (`signedWith`), are built first (`queueAddedDesigns`); otherwise an "Infer the rest" she tapped while it ran is queued now. A held request runs beside
  * the stage, in refine too: it never completes her refine task for her. Returns the queued job id, or null.
  */
-export async function queueNextBuild(scope: TrackScope, trackId: string): Promise<string | null> {
-  const added = await queueAddedDesigns(scope, trackId);
+export async function queueNextBuild(scope: TrackScope, trackId: string, opts: { signedWith?: string[] } = {}): Promise<string | null> {
+  const added = await queueAddedDesigns(scope, trackId, opts);
   if (added) return added;
   const { tx } = scope;
   const track = await loadTrack(tx, trackId);

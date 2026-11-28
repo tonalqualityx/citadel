@@ -88,6 +88,7 @@ describe('build starts', () => {
     expect(busyLineFor('rest_build')).toBe('Bast is building the remaining pages');
     expect(busyLineFor('rest_build', 'infer_rest')).toBe('Bast is building the pages nobody has drawn yet');
     expect(busyLineFor('rest_build', 'own_design')).toBe('Bast is building your new designs');
+    expect(busyLineFor('rest_build', 'own_design', true)).toBe('Bast is building the other pages you drew');
     expect(busyLineFor(null)).toBeNull();
     expect(busyLineFor('rest_build', 'infer_rest')).toBe(INFER_LINE);
     expect(busyLineFor('rest_build', 'own_design')).toBe(ADDED_DESIGNS_LINE);

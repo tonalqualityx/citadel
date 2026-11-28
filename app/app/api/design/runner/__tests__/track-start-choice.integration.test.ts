@@ -35,7 +35,7 @@ const BRIEF = {
   sections: [{ id: 'brand', title: 'Brand', cards: [{ id: 'brand-01', headline: 'Warm and plain', summary: 'Short summary of the finding.', image_asset_ids: [], detail_md: 'Detail.', sources: [{ kind: 'file', path: 'CL/x/profile/brand.md' }], confidence: 'evidenced' }] }],
 };
 
-type Payload = { start?: string; design_reference_ids?: string[]; built_pages?: Array<{ path: string; title: string }> };
+type Payload = { start?: string; design_reference_ids?: string[]; built_pages?: Array<{ path: string; title: string }>; signed_with?: boolean };
 
 describe.skipIf(!SCRATCH)('design track: start choice, infer the rest, added designs (real database)', () => {
   let f: DesignFixture;
@@ -320,6 +320,92 @@ describe.skipIf(!SCRATCH)('design track: start choice, infer the rest, added des
     const after = await row(t.id);
     expect([after.stage, after.busy_job_id]).toEqual(['refine', null]); // nothing left on the board unbuilt
     expect(await trackTx(({ tx }) => addedDesignIds(tx, t.id))).toEqual([]);
+  });
+
+  /** Her Figma frames, captured (usable) with their capture jobs out of the way, so a build claim does not wait on them. */
+  async function framesOnBoard(t: { id: string }, sessionId: string, ns: number[]) {
+    asDesigner();
+    const out = [];
+    for (const n of ns) out.push(await addDesignerReference(t.id, sessionId, { url: figma(n), expect: 'figma' }));
+    await prisma.designReference.updateMany({ where: { id: { in: out.map((r) => r.id) } }, data: { capture_status: 'captured' } });
+    await prisma.designJob.updateMany({ where: { track_id: t.id, kind: 'capture', status: 'queued' }, data: { status: 'cancelled' } });
+    return out;
+  }
+
+  it('an own-design home build queues a build of the other pages drawn in the files she signed with', async () => {
+    const { t, sess } = await toHomeBuild('signed', { art_direction_id: 'x', start: 'own_design', design_reference_ids: [] });
+    // her frames on the board before the home build starts (one set aside); nothing is queued while the home build waits
+    const [r1, r2, r3] = await framesOnBoard(t, sess.id, [21, 22, 23]);
+    await prisma.designReference.update({ where: { id: r3.id }, data: { decision: 'no' } });
+    expect(await prisma.designJob.count({ where: { track_id: t.id, kind: 'rest_build' } })).toBe(0);
+    const hb = await claim(['home_build']);
+    // a frame added while the home build runs is built with them
+    const [r4] = await framesOnBoard(t, sess.id, [24]);
+    expect(await prisma.designJob.count({ where: { track_id: t.id, kind: 'rest_build' } })).toBe(0);
+
+    await adoptDone(t, hb!.id, [{ path: '/', title: 'Home' }], [{ path: '/', title: 'Home' }]);
+    const after = await row(t.id);
+    expect(after.stage).toBe('refine');
+    const j = await jobRow(after.busy_job_id!);
+    expect([j.kind, j.task_id]).toEqual(['rest_build', null]);
+    expect(j.payload).toEqual({
+      start: 'own_design', design_reference_ids: [r1.id, r2.id, r4.id], built_pages: [{ path: '/', title: 'Home' }], signed_with: true,
+    });
+    expect((await loadSessionTrackView({ track_id: t.id }))?.busy_line).toBe('Bast is building the other pages you drew');
+
+    // the runner builds exactly those pages; once adopted nothing is left to queue
+    const rb = await claim(['rest_build']);
+    expect(rb!.id).toBe(j.id);
+    expect([rb!.payload.start, rb!.payload.design_reference_ids, rb!.payload.signed_with]).toEqual(['own_design', [r1.id, r2.id, r4.id], true]);
+    const drawn = [{ path: '/', title: 'Home' }, { path: '/about/', title: 'About' }, { path: '/contact/', title: 'Contact' }];
+    await adoptDone(t, rb!.id, drawn, drawn.slice(1));
+    const done = await row(t.id);
+    expect([done.stage, done.busy_job_id]).toEqual(['refine', null]);
+    expect((await trackTx(({ tx }) => builtPages(tx, t.id))).map((p) => p.path)).toEqual(['/', '/about/', '/contact/']);
+    expect(await trackTx(({ tx }) => addedDesignIds(tx, t.id))).toEqual([]);
+  });
+
+  it('an inspiration home build queues no build of the design files on the board', async () => {
+    const { t, sess } = await toHomeBuild('insponly');
+    await framesOnBoard(t, sess.id, [31]);
+    const hb = await claim(['home_build']);
+    await adoptDone(t, hb!.id, [{ path: '/', title: 'Home' }], [{ path: '/', title: 'Home' }]);
+    const after = await row(t.id);
+    expect([after.stage, after.busy_job_id]).toEqual(['refine', null]);
+    expect(await prisma.designJob.count({ where: { track_id: t.id, kind: 'rest_build' } })).toBe(0);
+  });
+
+  it('a signed-with build whose files draw only the home page closes with nothing built, then the held infer the rest runs', async () => {
+    const { w, t, sess } = await toHomeBuild('signednone', { art_direction_id: 'x', start: 'own_design', design_reference_ids: [] });
+    const [r1] = await framesOnBoard(t, sess.id, [41]);
+    expect((await (await infer(sess.id)).json()).after_build).toBe(true);
+    const hb = await claim(['home_build']);
+    await adoptDone(t, hb!.id, [{ path: '/', title: 'Home' }], [{ path: '/', title: 'Home' }]);
+    // her files come first; the held infer the rest waits for that build
+    const s1 = await row(t.id);
+    expect(s1.infer_requested_at).not.toBeNull();
+    const rb = await claim(['rest_build']);
+    expect([rb!.payload.signed_with, rb!.payload.design_reference_ids]).toEqual([true, [r1.id]]);
+
+    const res = await report(rb!.id, { action: 'failed', error: 'no_pages: there is nothing for this job to build: the designs this job names draw no page a rest build may write' });
+    expect(res.status).toBe(200);
+    const closed = await jobRow(rb!.id);
+    expect([closed.status, closed.error, (closed.result as { pages: unknown }).pages]).toEqual(['done', null, []]);
+    const s2 = await row(t.id);
+    expect([s2.stage, s2.infer_requested_at]).toEqual(['refine', null]);
+    const next = await jobRow(s2.busy_job_id!);
+    expect((next.payload as Payload).start).toBe('infer_rest');
+    expect((next.payload as Payload).built_pages).toEqual([{ path: '/', title: 'Home' }]);
+    expect((await task(w.t.refine)).tags).not.toContain('needs-mike');
+  });
+
+  it('an added-designs build that answers no pages still fails as before', async () => {
+    const { t, sess } = await toRefine('addednone');
+    await framesOnBoard(t, sess.id, [51]);
+    const rb = await claim(['rest_build']);
+    expect(rb!.payload.signed_with).toBeUndefined();
+    expect((await report(rb!.id, { action: 'failed', error: 'no_pages: nothing' })).status).toBe(200);
+    expect((await jobRow(rb!.id)).status).toBe('queued');
   });
 
   it('a build stores only the pages it made: outline pages and the components page stay out of built_pages and the reviews', async () => {

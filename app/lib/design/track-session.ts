@@ -104,17 +104,21 @@ export interface SessionTrackView {
   finish: { green: boolean; finished_at: Date | null } | null;
 }
 
-/** The busy line for a build job; a rest_build says what its start is ("infer the rest" or her added designs). */
-export function busyLineFor(kind: string | null | undefined, start?: unknown): string | null {
+/**
+ * The busy line for a build job; a rest_build says what its start is ("infer the rest", her added designs, or the other
+ * pages drawn in the files she signed with, `signed_with`).
+ */
+export function busyLineFor(kind: string | null | undefined, start?: unknown, signedWith?: unknown): string | null {
   if (kind === 'home_build') return 'Bast is building the home page';
   if (kind === 'rest_build' && start === 'infer_rest') return 'Bast is building the pages nobody has drawn yet';
+  if (kind === 'rest_build' && start === 'own_design' && signedWith === true) return 'Bast is building the other pages you drew';
   if (kind === 'rest_build' && start === 'own_design') return 'Bast is building your new designs';
   if (kind === 'rest_build') return 'Bast is building the remaining pages';
   return kind ? 'Bast is building' : null;
 }
 
-const startOf = (payload: unknown): unknown =>
-  payload && typeof payload === 'object' && !Array.isArray(payload) ? (payload as Record<string, unknown>).start : undefined;
+const payloadField = (payload: unknown, key: string): unknown =>
+  payload && typeof payload === 'object' && !Array.isArray(payload) ? (payload as Record<string, unknown>)[key] : undefined;
 
 /** The track view for a session row, or null when it has no track. */
 export async function loadSessionTrackView(
@@ -129,7 +133,7 @@ export async function loadSessionTrackView(
     id: t.id,
     stage: t.stage,
     busy: t.busy_job_id !== null,
-    busy_line: t.busy_job_id ? busyLineFor(job?.kind, startOf(job?.payload)) ?? 'Bast is building' : null,
+    busy_line: t.busy_job_id ? busyLineFor(job?.kind, payloadField(job?.payload, 'start'), payloadField(job?.payload, 'signed_with')) ?? 'Bast is building' : null,
     infer_requested: t.infer_requested_at !== null,
     preview_alias: t.preview_alias,
     preview_url: t.preview_url,
