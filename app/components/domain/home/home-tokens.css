@@ -303,3 +303,27 @@
   [data-home] .home-first-row { grid-template-columns: minmax(0, 1fr); }
   [data-home] .home-first-figure { text-align: left; }
 }
+
+/* ---------------------------------------------------------------- health tiles (task 183ec7a8, option A)
+   Six tiles in one row above the first list, always one row: a narrow screen scrolls the row sideways instead of wrapping it. Square, grey by default; a tile that needs a look gets the muted gold hairline on
+   all four sides and its state word in gold, never a coloured edge stripe and never red. The state is also a shape and a word. */
+
+[data-home] .home-health { display: flex; flex-direction: column; gap: 8px; }
+[data-home] .home-health-summary { margin: 0; font-size: 0.9rem; color: var(--text-secondary); }
+[data-home] .home-health-row { list-style: none; margin: 0; padding: 0 0 2px; display: grid; grid-template-columns: repeat(6, minmax(132px, 1fr)); gap: 8px; overflow-x: auto; }
+[data-home] .home-health-row > li { min-width: 0; display: flex; }
+[data-home] .home-health-tile { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; text-align: left; color: var(--text-primary); background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 0; padding: 10px 12px; min-height: 48px; cursor: pointer; font: inherit; }
+[data-home] .home-health-tile:hover { border-color: var(--accent); }
+[data-home] .home-health-tile[data-state='look'] { border-color: var(--warning-line); }
+[data-home] .home-health-label { font-size: 0.75rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-secondary); }
+[data-home] .home-health-figure { font-size: 1.35rem; font-weight: 700; line-height: 1.2; font-variant-numeric: tabular-nums; }
+[data-home] .home-health-line { font-size: 0.85rem; color: var(--text-secondary); }
+[data-home] .home-health-state { margin-top: 4px; font-size: 0.8rem; font-weight: 600; color: var(--success); }
+[data-home] .home-health-tile[data-state='look'] .home-health-state { color: var(--warning); }
+[data-home] .home-health-tile[data-state='unknown'] .home-health-state,
+[data-home] .home-health-tile[data-state='building'] .home-health-state { color: var(--text-secondary); }
+[data-home] .home-health-usual,
+[data-home] .home-health-fresh { font-size: 0.75rem; color: var(--text-muted); }
+[data-home].home-health-detail { gap: 12px; }
+[data-home] .home-health-detail-figure { font-size: 1.35rem; font-weight: 700; margin: 0; }
+[data-home] .home-health-detail-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }

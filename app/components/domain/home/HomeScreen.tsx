@@ -18,6 +18,7 @@ import { HandledMailList } from './HandledMailList';
 import { FinishedCard } from './FinishedCard';
 import { TriageBoard } from './TriageBoard';
 import { FirstList } from './FirstList';
+import { HealthStrip } from './HealthStrip';
 import { PastDateOthers } from './PastDateOthers';
 import { openTriageConversation } from './triage-talk';
 import type { OpenCardInput } from '@/components/domain/bast-chat/card-context';
@@ -355,6 +356,7 @@ function HomeBody(p: BodyProps) {
         <h1>{plain(res.screen_date_line)}</h1>
         <HomeRefreshButton onRefresh={p.onRefresh} />
       </div>
+      <HealthStrip health={res.health} />
       <FirstList
         list={res.first_list}
         onTalk={onTalk}

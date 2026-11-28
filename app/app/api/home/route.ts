@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { handleApiError } from '@/lib/api/errors';
 import { resolveUserTimezone } from '@/lib/services/user-timezone';
@@ -11,15 +11,19 @@ import { loadTriage } from '@/lib/tasks/triage';
 import { loadOverdueByOthers } from '@/lib/home/overdue-others';
 import { buildFirstList } from '@/lib/home/first-list';
 import { loadMoneyToCollect } from '@/lib/home/first-list-money';
+import { clientSignalsFrom, loadHomeHealth, type ProjectCardLite } from '@/lib/home/health/load';
+import { isTriageOwner } from '@/lib/tasks/triage';
+import { GET as getOracleProjects } from '@/app/api/oracle/projects/route';
 import { applyEmergencyInsert, assembleHomeResponse, proposeDay } from '@/lib/home/today';
 import type { DayLike } from '@/lib/home/today';
 
 /**
  * GET /api/home: the home screen, for the signed-in caller only (no user id parameter).
  *
- * Reads are free of side effects on shared records. The only write is the caller's own
- * home_day row: the first load of his local day stores the proposal; later loads reuse it,
- * and a new emergency is put at the top of Quick (steps untouched). Nothing with a score,
+ * Reads are free of side effects on shared records. The writes are the caller's own
+ * home_day row (the first load of his local day stores the proposal; later loads reuse it,
+ * and a new emergency is put at the top of Quick, steps untouched) and, for the owner only,
+ * today's reading per health measure in health_snapshots (the health tiles' 12 week average). Nothing with a score,
  * a class or candidate data leaves this file: assembleHomeResponse builds the payload.
  */
 export async function GET() {
@@ -92,8 +96,30 @@ export async function GET() {
       now,
       timezone,
     });
+    // The six health tiles, his alone. Built from what this load already selected plus their own reads; if they fail the screen still opens.
+    if (isTriageOwner(userId)) {
+      const health = await loadHomeHealth(prisma, {
+        now,
+        timezone,
+        clients: clientSignalsFrom(sel.candidates, raw.threads),
+        projects: () => readProjectCards(),
+      }).catch(() => null);
+      if (health) body.health = health;
+    }
     return NextResponse.json(body, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     return handleApiError(error);
   }
+}
+
+/** The projects tab's own cards (its stuck rule: no movement for 7 days), read in process with this request's session. */
+async function readProjectCards(): Promise<ProjectCardLite[]> {
+  const res = await getOracleProjects(new NextRequest('http://citadel.internal/api/oracle/projects'));
+  if (!res.ok) throw new Error(`projects ${res.status}`);
+  const json = (await res.json()) as { projects?: { name?: unknown; stale?: unknown; days_quiet?: unknown }[] };
+  return (json.projects ?? []).map((p) => ({
+    name: typeof p.name === 'string' ? p.name : 'A project',
+    stale: p.stale === true,
+    days_quiet: typeof p.days_quiet === 'number' ? p.days_quiet : null,
+  }));
 }

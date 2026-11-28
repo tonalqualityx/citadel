@@ -6461,3 +6461,17 @@ model SecretDrop {
   @@index([task_id])
   @@map("secret_drops")
 }
+
+/// Home health tiles (task 183ec7a8; Mike, 2026-11-26, tapped "A: six tiles in one row on the first screen"). One value per measure per
+/// Eastern day, the last reading of that day, so each tile can compare against its own 12 week average (his answer the same day: "Own 12 week
+/// average now, initiative targets later"). Written only by GET /api/home/health for Mike; read only by it.
+model HealthSnapshot {
+  id         String   @id @default(uuid()) @db.Uuid
+  measure    String   @db.VarChar(40)
+  day        DateTime @db.Date
+  value      Decimal  @db.Decimal(14, 2)
+  updated_at DateTime @updatedAt
+
+  @@unique([measure, day])
+  @@map("health_snapshots")
+}

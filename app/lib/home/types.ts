@@ -1,4 +1,5 @@
 import type { DealSection } from '@/lib/deals/read';
+import type { HomeHealth } from './health/types';
 
 /**
  * Home screen Slice 1: the shared contract (plan task H3). Every later builder codes against
@@ -759,6 +760,8 @@ export interface HomeResponse {
   past_date_others?: HomePastDateOthers | null;
   /** The screen opens on this list: at most 10 rows of what needs him. Everything else sits behind one button. */
   first_list?: HomeFirstList;
+  /** The six health tiles in one row above the first list (task 183ec7a8). Owner only: left out for everyone else, and left out if it could not be built. */
+  health?: HomeHealth;
   /**
    * The empty sentence for every tile, from copy.ts, exactly as the design gives them
    * ("Nothing urgent.", "No active projects.", ...). '' where the design has none.
