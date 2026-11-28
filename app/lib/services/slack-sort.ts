@@ -7,6 +7,7 @@
  */
 
 import type { NotificationType } from '@prisma/client';
+import { MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
 
 export type SlackSort = 'keep' | 'digest' | 'stop';
 
@@ -27,17 +28,21 @@ export function escapeSlack(text: string): string {
 }
 
 export function sortSlackNotice(input: {
+  userId?: string;
   type: NotificationType | string;
   priority?: string | null;
   metadata?: Record<string, unknown>;
 }): SlackSort {
-  const { type, priority, metadata } = input;
+  const { userId, type, priority, metadata } = input;
   const forced = metadata?.slackSort;
   if (typeof forced === 'string' && SORTS.includes(forced)) return forced as SlackSort;
   if (priority === 'low') return 'stop';
   if (priority === 'critical' || priority === 'high') return 'keep';
   if (KEEP_TYPES.includes(type)) return 'keep';
   if (type === 'task_assigned') {
+    // A task assigned to Mike is his step (handbook 12c item 2: Citadel notifies him), project or not.
+    // Anyone else's project task assignments fold into the digest (the proposal's "project task batches").
+    if (userId === MIKE_USER_ID) return 'keep';
     return metadata?.isAdHocOrSupport === false && metadata?.projectId ? 'digest' : 'keep';
   }
   return 'digest';

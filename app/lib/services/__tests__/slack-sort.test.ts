@@ -30,6 +30,12 @@ describe('sortSlackNotice', () => {
     expect(sortSlackNotice({ type: 'system_alert', priority: 'high' })).toBe('keep');
     expect(sortSlackNotice({ type: 'task_mentioned', priority: 'normal' })).toBe('keep');
   });
+
+  it('keeps a project task assigned to Mike, while the same assignment to someone else is digested', () => {
+    const metadata = { isAdHocOrSupport: false, projectId: 'p1' };
+    expect(sortSlackNotice({ userId: '3ecfb7be-20bb-43cb-9b4d-31c44337dc81', type: 'task_assigned', priority: 'normal', metadata })).toBe('keep');
+    expect(sortSlackNotice({ userId: 'b565b492-cdea-497b-a13d-85f003916bf9', type: 'task_assigned', priority: 'normal', metadata })).toBe('digest');
+  });
 });
 
 describe('kept notice', () => {
