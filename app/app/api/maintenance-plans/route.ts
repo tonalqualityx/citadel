@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError } from '@/lib/api/errors';
+import { syncEngineRowsSafe } from '@/lib/recurring-work/engine-sync';
 
 const VALID_FREQUENCIES = ['monthly', 'bi_monthly', 'quarterly', 'semi_annually', 'annually'] as const;
 
@@ -17,6 +18,7 @@ const createMaintenancePlanSchema = z.object({
   sop_ids: z.array(z.string().uuid()).optional(),
 });
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function formatMaintenancePlan(plan: any) {
   return {
     id: plan.id,
@@ -29,6 +31,7 @@ function formatMaintenancePlan(plan: any) {
     is_active: plan.is_active,
     sites_count: plan._count?.sites ?? 0,
     sops_count: plan._count?.sops ?? 0,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     sop_ids: plan.sops?.map((ps: any) => ps.sop_id) ?? [],
     created_at: plan.created_at,
     updated_at: plan.updated_at,
@@ -110,6 +113,8 @@ export async function POST(request: NextRequest) {
         },
       });
     });
+
+    await syncEngineRowsSafe('POST /api/maintenance-plans');
 
     return NextResponse.json(formatMaintenancePlan(plan), { status: 201 });
   } catch (error) {

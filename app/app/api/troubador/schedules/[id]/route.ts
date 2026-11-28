@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { formatScheduleResponse } from '@/lib/api/troubador-formatters';
+import { syncEngineRowsSafe } from '@/lib/recurring-work/engine-sync';
 
 const scheduleInclude = {
   client: { select: { id: true, name: true } },
@@ -79,6 +80,8 @@ export async function PATCH(
       include: scheduleInclude,
     });
 
+    await syncEngineRowsSafe('PATCH /api/troubador/schedules/[id]');
+
     return NextResponse.json(formatScheduleResponse(schedule));
   } catch (error) {
     return handleApiError(error);
@@ -103,6 +106,8 @@ export async function DELETE(
       where: { id },
       data: { is_deleted: true },
     });
+
+    await syncEngineRowsSafe('DELETE /api/troubador/schedules/[id]');
 
     return NextResponse.json({ success: true });
   } catch (error) {

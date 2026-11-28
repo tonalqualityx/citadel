@@ -5,6 +5,7 @@ import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { formatScheduleResponse } from '@/lib/api/troubador-formatters';
 import { logCreate } from '@/lib/services/activity';
+import { syncEngineRowsSafe } from '@/lib/recurring-work/engine-sync';
 
 const scheduleInclude = {
   client: { select: { id: true, name: true } },
@@ -25,6 +26,7 @@ export async function GET(request: NextRequest) {
 
     const where = {
       is_deleted: false,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ...(status !== 'all' && { status: status as any }),
       ...(client_id && { client_id }),
     };
@@ -95,6 +97,8 @@ export async function POST(request: NextRequest) {
     });
 
     logCreate(auth.userId, 'troubador_schedule', schedule.id, schedule.name);
+
+    await syncEngineRowsSafe('POST /api/troubador/schedules');
 
     return NextResponse.json(formatScheduleResponse(schedule), { status: 201 });
   } catch (error) {

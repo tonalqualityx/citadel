@@ -3,6 +3,7 @@ import { NextRequest } from 'next/server';
 import type { Mock } from 'vitest';
 import { POST } from '../route';
 
+vi.mock('@/lib/recurring-work/engine-sync', () => ({ syncEngineRowsSafe: vi.fn() }));
 vi.mock('@/lib/auth/middleware', () => ({
   requireAuth: vi.fn(),
   requireRole: vi.fn(),

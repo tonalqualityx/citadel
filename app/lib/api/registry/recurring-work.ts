@@ -108,6 +108,19 @@ export const recurringWorkEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/recurring-work/engine-sync',
+    group: 'recurring-work',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Reconciles engine rows with the engines: one row per active or paused Troubador schedule (source_kind troubador_schedule) and one per live site on an active maintenance plan, with or without SOPs (source_kind maintenance_plan, grouped under the site\'s client). Creates missing rows, updates drifted ones, marks rows whose schedule, site or plan is gone, ended or inactive as inactive (never deletes), and never touches initiative, sort order, group or usage fields. Also runs automatically after schedule, plan and site writes. No body.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseExample: { created: 'number', updated: 'number', deactivated: 'number', unchanged: 'number', total: 'number (rows the engines call for)' },
+      },
+    ],
+  },
+  {
     path: '/api/recurring-work/:id',
     group: 'recurring-work',
     methods: [

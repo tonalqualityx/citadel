@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
+import { syncEngineRowsSafe } from '@/lib/recurring-work/engine-sync';
 
 const updateSopsSchema = z.object({
   sopIds: z.array(z.string().uuid()),
@@ -144,6 +145,8 @@ export async function PUT(
         },
       },
     });
+
+    await syncEngineRowsSafe('PUT /api/maintenance-plans/[id]/sops');
 
     return NextResponse.json({
       sops: updatedPlan?.sops.map((ps) => ({
