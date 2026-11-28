@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateAllDueMaintenance } from '@/lib/services/maintenance-generator';
+import { syncEngineRowsSafe } from '@/lib/recurring-work/engine-sync';
 
 /**
  * Cron endpoint for generating maintenance tasks
@@ -46,6 +47,8 @@ export async function POST(request: NextRequest) {
     if (summary.errors.length > 0) {
       console.warn('Errors during generation:', summary.errors);
     }
+
+    await syncEngineRowsSafe('POST /api/cron/maintenance');
 
     return NextResponse.json({
       success: true,

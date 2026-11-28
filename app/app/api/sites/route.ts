@@ -5,6 +5,7 @@ import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { formatSiteResponse } from '@/lib/api/formatters';
 import { redactForDox } from '@/lib/dox/guard';
+import { syncEngineRowsSafe } from '@/lib/recurring-work/engine-sync';
 
 const createSiteSchema = z.object({
   name: z.string().min(1).max(255),
@@ -161,6 +162,8 @@ export async function POST(request: NextRequest) {
         _count: { select: { domains: true } },
       },
     });
+
+    await syncEngineRowsSafe('POST /api/sites');
 
     return NextResponse.json(formatSiteResponse(site), { status: 201 });
   } catch (error) {

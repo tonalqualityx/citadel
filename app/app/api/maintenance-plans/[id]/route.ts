@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
+import { syncEngineRowsSafe } from '@/lib/recurring-work/engine-sync';
 
 const VALID_FREQUENCIES = ['monthly', 'bi_monthly', 'quarterly', 'semi_annually', 'annually'] as const;
 
@@ -17,6 +18,7 @@ const updateMaintenancePlanSchema = z.object({
   sop_ids: z.array(z.string().uuid()).optional(),
 });
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function formatMaintenancePlan(plan: any) {
   return {
     id: plan.id,
@@ -29,7 +31,9 @@ function formatMaintenancePlan(plan: any) {
     is_active: plan.is_active,
     sites_count: plan._count?.sites ?? 0,
     sops_count: plan._count?.sops ?? 0,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     sop_ids: plan.sops?.map((ps: any) => ps.sop?.id || ps.sop_id) ?? [],
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     sops: plan.sops?.map((ps: any) => ({
       id: ps.sop?.id || ps.sop_id,
       title: ps.sop?.title,
@@ -130,6 +134,8 @@ export async function PATCH(
       });
     });
 
+    await syncEngineRowsSafe('PATCH /api/maintenance-plans/[id]');
+
     return NextResponse.json(formatMaintenancePlan(plan));
   } catch (error) {
     return handleApiError(error);
@@ -160,6 +166,8 @@ export async function DELETE(
     await prisma.maintenancePlan.delete({
       where: { id },
     });
+
+    await syncEngineRowsSafe('DELETE /api/maintenance-plans/[id]');
 
     return NextResponse.json({ success: true });
   } catch (error) {

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
+import { syncEngineRowsSafe } from '@/lib/recurring-work/engine-sync';
 
 const bulkUpdateSchema = z.object({
   site_ids: z.array(z.string().uuid()).min(1, 'At least one site ID is required'),
@@ -95,6 +96,8 @@ export async function PATCH(request: NextRequest) {
       data,
     });
 
+    await syncEngineRowsSafe('PATCH /api/sites/bulk');
+
     return NextResponse.json({
       success: true,
       updated: result.count,
@@ -141,6 +144,8 @@ export async function DELETE(request: NextRequest) {
         data: { is_deleted: true },
       }),
     ]);
+
+    await syncEngineRowsSafe('DELETE /api/sites/bulk');
 
     return NextResponse.json({
       success: true,

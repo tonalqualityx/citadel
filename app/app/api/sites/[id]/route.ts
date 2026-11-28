@@ -6,6 +6,7 @@ import { handleApiError, ApiError } from '@/lib/api/errors';
 import { formatSiteResponse } from '@/lib/api/formatters';
 import { BAST_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import { redactForDox } from '@/lib/dox/guard';
+import { syncEngineRowsSafe } from '@/lib/recurring-work/engine-sync';
 
 const updateSiteSchema = z.object({
   name: z.string().min(1).max(255).optional(),
@@ -164,6 +165,8 @@ export async function PATCH(
       },
     });
 
+    await syncEngineRowsSafe('PATCH /api/sites/[id]');
+
     return NextResponse.json(formatSiteResponse(site));
   } catch (error) {
     return handleApiError(error);
@@ -190,6 +193,8 @@ export async function DELETE(
         data: { is_deleted: true },
       }),
     ]);
+
+    await syncEngineRowsSafe('DELETE /api/sites/[id]');
 
     return NextResponse.json({ success: true });
   } catch (error) {

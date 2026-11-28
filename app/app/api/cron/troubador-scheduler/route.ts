@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { instantiateDueRuns } from '@/lib/services/troubador-scheduler';
+import { syncEngineRowsSafe } from '@/lib/recurring-work/engine-sync';
 
 /**
  * POST /api/cron/troubador-scheduler
@@ -18,6 +19,8 @@ export async function POST(request: NextRequest) {
 
   try {
     const result = await instantiateDueRuns(new Date());
+
+    await syncEngineRowsSafe('POST /api/cron/troubador-scheduler');
 
     return NextResponse.json({
       success: true,

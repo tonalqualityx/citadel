@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 import type { Mock } from 'vitest';
 
+vi.mock('@/lib/recurring-work/engine-sync', () => ({ syncEngineRowsSafe: vi.fn() }));
 vi.mock('@/lib/auth/middleware', () => ({ requireAuth: vi.fn(), requireRole: vi.fn((u: { role: string }, roles: string[]) => { if (!roles.includes(u.role)) { const e = new Error('Insufficient permissions') as Error & { statusCode: number }; e.name = 'AuthError'; e.statusCode = 403; throw e; } }) }));
 vi.mock('@/lib/db/prisma', () => ({ prisma: { site: { update: vi.fn() } } }));
 
