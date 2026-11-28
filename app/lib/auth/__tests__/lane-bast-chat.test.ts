@@ -119,6 +119,14 @@ const EXPECTED = [
   'POST /api/initiatives/:id/attach',
   'POST /api/initiatives/:id/detach',
   'PATCH /api/milestones/:id/rock',
+  // Retainer month plans (design.md 3.5, task 0ea026d0): find the month, confirm it, add, change or remove one plan line
+  'GET /api/retainer-months',
+  'GET /api/retainer-months/:id',
+  'GET /api/charters/:id/retainer-months',
+  'POST /api/retainer-months/:id/confirm',
+  'POST /api/retainer-months/:id/items',
+  'PATCH /api/retainer-months/:id/items/:itemId',
+  'DELETE /api/retainer-months/:id/items/:itemId',
   'GET /api/sites',
   'GET /api/sops',
   'GET /api/sops/:id',
@@ -146,6 +154,13 @@ const REFUSED = [
   'POST /api/clients',
   `PATCH /api/projects/${ID}`,
   // initiatives: no delete, no number delete, and the project, task and full milestone PATCH stay closed (attach and rock have their own narrow routes)
+  // retainer months: no month create, change or delete, no item read route beyond the month, no other DELETE
+  `POST /api/retainer-months`,
+  `PATCH /api/retainer-months/${ID}`,
+  `DELETE /api/retainer-months/${ID}`,
+  `DELETE /api/retainer-months/${ID}/confirm`,
+  `DELETE /api/retainer-months/${ID}/items`,
+  `PATCH /api/retainer-months/${ID}/confirm`,
   `DELETE /api/initiatives/${ID}`,
   `DELETE /api/initiatives/${ID}/numbers/${ID}`,
   `PATCH /api/milestones/${ID}`,
@@ -240,11 +255,11 @@ describe('lane bast-chat: the list', () => {
     expect(LANE_IDENTITY['bast-chat']).toBe('bast');
   });
 
-  it('has no DELETE and no write outside the two task routes, the checklist route and its own worker routes', () => {
+  it('has one DELETE (a retainer month plan line) and no write outside the two task routes, the checklist route and its own worker routes', () => {
     const writes = LANE_ROUTES['bast-chat'].filter((r) => r.method !== 'GET');
-    expect(writes.some((r) => r.method === 'DELETE')).toBe(false);
+    expect(writes.filter((r) => r.method === 'DELETE').map((r) => r.pattern)).toEqual(['/api/retainer-months/:id/items/:itemId']);
     for (const r of writes) {
-      const ok = r.pattern === '/api/projects/:id/sitemap' || r.pattern.startsWith('/api/bast-chat/worker/') || r.pattern === '/api/tasks' || r.pattern === '/api/tasks/:id' || r.pattern === '/api/tasks/:id/checklist' || r.pattern.startsWith('/api/tasks/:id/questions') || r.pattern.startsWith('/api/projects/:id/questions') || r.pattern === '/api/tasks/:id/triage' || r.pattern === '/api/tasks/:id/triage/shape' || r.pattern.startsWith('/api/tasks/:id/plan') || r.pattern === '/api/projects/:id/engagement-brief' || r.pattern === '/api/engagement-briefs/:id' || r.pattern === '/api/work/attach' || r.pattern === '/api/oracle/clocks' || r.pattern.startsWith('/api/initiatives') || r.pattern === '/api/milestones/:id/rock';
+      const ok = r.pattern === '/api/projects/:id/sitemap' || r.pattern.startsWith('/api/bast-chat/worker/') || r.pattern === '/api/tasks' || r.pattern === '/api/tasks/:id' || r.pattern === '/api/tasks/:id/checklist' || r.pattern.startsWith('/api/tasks/:id/questions') || r.pattern.startsWith('/api/projects/:id/questions') || r.pattern === '/api/tasks/:id/triage' || r.pattern === '/api/tasks/:id/triage/shape' || r.pattern.startsWith('/api/tasks/:id/plan') || r.pattern === '/api/projects/:id/engagement-brief' || r.pattern === '/api/engagement-briefs/:id' || r.pattern === '/api/work/attach' || r.pattern === '/api/oracle/clocks' || r.pattern.startsWith('/api/initiatives') || r.pattern === '/api/milestones/:id/rock' || r.pattern.startsWith('/api/retainer-months/:id');
       expect(ok, `${r.method} ${r.pattern}`).toBe(true);
     }
   });

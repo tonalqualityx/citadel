@@ -369,8 +369,8 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('PATCH', '/api/design-notes/:id'),
   ],
   // Bast chat daemon (Mike's home screen panel; implementation/plans/bast-chat.md 2.1 and 3 T3). Bast user,
-  // always enforced. Exactly these 46 method+path entries (the worker conversation route is GET and PATCH; v2 adds the ops route; home Slice 2a adds the keeper's GET and POST, 2b the summaries' two, 4a the owed route's two, 4d its bookings route's two, 6a the home-watch route's two, 6b the ack route's one, 6c the scan result route's one, 7a the learn route's two, 9a the sent-mail reconciler's three: its context GET, its candidates POST and its dry-or-real POST, which write internal notes on his own tasks as Bast and make cards; nothing is sent, no time entry is ever created, no task status changes; chat reads add the sends listing's one GET: what the courier sent or queued, no bodies, no addresses).
-  // No DELETE, no comment write, no dependencies, no email-asks PATCH, no outbox (the courier's own routes; the sends listing below is the chat's own read-only view of it), no decisions, no
+  // always enforced. Exactly these 90 method+path entries (the worker conversation route is GET and PATCH; v2 adds the ops route; home Slice 2a adds the keeper's GET and POST, 2b the summaries' two, 4a the owed route's two, 4d its bookings route's two, 6a the home-watch route's two, 6b the ack route's one, 6c the scan result route's one, 7a the learn route's two, 9a the sent-mail reconciler's three: its context GET, its candidates POST and its dry-or-real POST, which write internal notes on his own tasks as Bast and make cards; nothing is sent, no time entry is ever created, no task status changes; chat reads add the sends listing's one GET: what the courier sent or queued, no bodies, no addresses).
+  // No DELETE except one: DELETE /api/retainer-months/:id/items/:itemId, which removes one plan line from a retainer month (and nothing else). No comment write, no dependencies, no email-asks PATCH, no outbox (the courier's own routes; the sends listing below is the chat's own read-only view of it), no decisions, no
   // api-keys, no admin, no home routes. Routes alone are not enough here: the task POST and PATCH bodies are
   // narrowed for this lane by lib/bast-chat/task-filter.ts (plan task C4).
   'bast-chat': [
@@ -484,6 +484,16 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('POST', '/api/initiatives/:id/attach'),
     r('POST', '/api/initiatives/:id/detach'),
     r('PATCH', '/api/milestones/:id/rock'),
+    // Retainer month plans (Initiatives design.md 3.5, task 0ea026d0: retainer_plan_confirm and retainer_plan_edit): find the month (list for a month, one month, a charter's months),
+    // confirm it ("Use this plan"), and add, change or remove one plan line. The one DELETE here removes a single plan line (a retainer month item) and nothing else;
+    // routes need role pm or admin and refuse a closed month. :id never collides with /confirm or /items: patterns match whole segments and the path lengths differ.
+    r('GET', '/api/retainer-months'),
+    r('GET', '/api/retainer-months/:id'),
+    r('GET', '/api/charters/:id/retainer-months'),
+    r('POST', '/api/retainer-months/:id/confirm'),
+    r('POST', '/api/retainer-months/:id/items'),
+    r('PATCH', '/api/retainer-months/:id/items/:itemId'),
+    r('DELETE', '/api/retainer-months/:id/items/:itemId'),
     // What create-task.py resolves names through
     r('GET', '/api/sites'),
     r('GET', '/api/sops'),
