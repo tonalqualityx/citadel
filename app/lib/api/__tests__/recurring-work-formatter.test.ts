@@ -32,4 +32,16 @@ describe('formatRecurringWorkResponse usage fields', () => {
     expect(f(['file_only', 'email_mike'])).toBe(false);
     expect(f([])).toBe(false);
   });
+
+  it('pick card: open while not done, closed when done, abandoned or deleted', () => {
+    const f = (pick_task: { id: string; title: string; status: string; is_deleted?: boolean } | null) => {
+      const out = formatRecurringWorkResponse({ ...base, pick_task });
+      return { open: out.pick_card_open, shown: out.pick_task !== null };
+    };
+    expect(f(null)).toEqual({ open: false, shown: false });
+    expect(f({ id: 't', title: 'x', status: 'not_started', is_deleted: false })).toEqual({ open: true, shown: true });
+    expect(f({ id: 't', title: 'x', status: 'done', is_deleted: false })).toEqual({ open: false, shown: true });
+    expect(f({ id: 't', title: 'x', status: 'abandoned' })).toEqual({ open: false, shown: true });
+    expect(f({ id: 't', title: 'x', status: 'in_progress', is_deleted: true })).toEqual({ open: false, shown: false });
+  });
 });

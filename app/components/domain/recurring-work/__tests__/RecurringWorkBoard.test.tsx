@@ -172,3 +172,50 @@ describe('RecurringWorkBoard', () => {
     });
   });
 });
+
+describe('Keep, Cut and Make weekly', () => {
+  const one = (o: Partial<RecurringWorkItem> = {}): GroupedRecurringWork => ({
+    recurring_work: [], total: 1, plumbing: { count: 0, stopped: 0 },
+    groups: [{ label: 'Reports', count: 1, stopped: 0, rows: [row('j1', 'Weekly digest', o)] }],
+  });
+
+  it('renders the three buttons named for the job and calls onPick with the id and pick', () => {
+    const onPick = vi.fn();
+    render(<RecurringWorkBoard data={one()} onPick={onPick} />);
+    expect(screen.getByLabelText('Keep Weekly digest')).toBeTruthy();
+    expect(screen.getByLabelText('Cut Weekly digest')).toBeTruthy();
+    expect(screen.getByLabelText('Make Weekly digest weekly')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('pick-keep'));
+    fireEvent.click(screen.getByTestId('pick-cut'));
+    fireEvent.click(screen.getByTestId('pick-weekly'));
+    expect(onPick.mock.calls).toEqual([['j1', 'keep'], ['j1', 'cut'], ['j1', 'weekly']]);
+    expect(screen.queryByTestId('pick-status')).toBeNull();
+  });
+
+  it('disables the buttons when there is no onPick handler', () => {
+    render(<RecurringWorkBoard data={one()} />);
+    for (const id of ['pick-keep', 'pick-cut', 'pick-weekly']) expect((screen.getByTestId(id) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('disables Cut and Make weekly while the pick card is open, and links to the card', () => {
+    const onPick = vi.fn();
+    render(
+      <RecurringWorkBoard
+        data={one({ mike_pick: 'cut', mike_pick_at: '2026-11-28T10:00:00.000Z', pick_card_open: true, pick_task: { id: 't1', title: 'Recurring work: cut "x"', status: 'not_started' } })}
+        onPick={onPick}
+      />,
+    );
+    expect((screen.getByTestId('pick-cut') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId('pick-weekly') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId('pick-keep') as HTMLButtonElement).disabled).toBe(false);
+    const status = screen.getByTestId('pick-status');
+    expect(status.textContent).toBe('Cut picked · card open');
+    expect(status.querySelector('a')!.getAttribute('href')).toBe('/tasks/t1');
+  });
+
+  it('shows the pick and its date when no card is open', () => {
+    render(<RecurringWorkBoard data={one({ mike_pick: 'keep', mike_pick_at: '2026-11-28T10:00:00.000Z', pick_card_open: false })} onPick={vi.fn()} />);
+    expect(screen.getByTestId('pick-status').textContent).toBe('Kept · Nov 28');
+    expect((screen.getByTestId('pick-cut') as HTMLButtonElement).disabled).toBe(false);
+  });
+});

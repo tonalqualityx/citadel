@@ -19,6 +19,7 @@ model User {
   initiatives_created   Initiative[]        @relation("InitiativeCreatedBy")
   initiative_check_ins  InitiativeCheckIn[] @relation("InitiativeCheckInAuthor")
   recurring_work_owned  RecurringWork[]     @relation("RecurringWorkOwner")
+  recurring_work_picked RecurringWork[]     @relation("RecurringWorkPickBy")
   retainer_months_planned RetainerMonth[]     @relation("RetainerMonthPlannedBy")
   email                 String              @unique @db.VarChar(255)
   password_hash         String              @db.VarChar(255)
@@ -1440,6 +1441,8 @@ model Task {
   // Recurring work (design.md 2.5): the record that generated this task, set by the charter generator
   recurring_work_id String?        @db.Uuid
   recurring_work    RecurringWork? @relation(fields: [recurring_work_id], references: [id], onDelete: SetNull)
+  // Recurring work rows whose Cut or Make weekly pick filed this task
+  recurring_work_picks RecurringWork[] @relation("RecurringWorkPickTask")
 
   // Retainer months (design.md 2.6): back-relations
   retainer_month_planning RetainerMonth[]
@@ -2516,6 +2519,13 @@ enum RecurringPriority {
   low // may pause at 80% of the weekly Claude limit
 }
 
+/// What Mike picked for a job on the Recurring work tab. A pick never changes the schedule.
+enum RecurringPick {
+  keep
+  cut
+  weekly
+}
+
 /// Recurring work (design.md 2.5): the charter scheduled task, widened in place. Same table as before.
 model RecurringWork {
   id              String       @id @default(uuid()) @db.Uuid
@@ -2570,6 +2580,14 @@ model RecurringWork {
   last_used_signal   String?           @db.VarChar(200)
   priority           RecurringPriority @default(normal)
 
+  // Keep, Cut or Make weekly: the pick and the worker card it filed (Cut and Make weekly only). Never schedule fields.
+  mike_pick       RecurringPick?
+  mike_pick_at    DateTime?
+  mike_pick_by_id String?        @db.Uuid
+  mike_pick_by    User?          @relation("RecurringWorkPickBy", fields: [mike_pick_by_id], references: [id], onDelete: SetNull)
+  pick_task_id    String?        @db.Uuid
+  pick_task       Task?          @relation("RecurringWorkPickTask", fields: [pick_task_id], references: [id], onDelete: SetNull)
+
   // Relations
   generation_logs CharterGenerationLog[]
   tasks           Task[]
@@ -2581,6 +2599,7 @@ model RecurringWork {
   @@index([client_id])
   @@index([initiative_id])
   @@index([kind])
+  @@index([pick_task_id])
   @@map("charter_scheduled_tasks")
 }
 

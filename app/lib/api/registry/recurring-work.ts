@@ -15,6 +15,8 @@ const recurringResponse = {
   usage_updated_at: 'ISO-8601|null', destinations: ['email_mike|citadel_card|citadel_data|slack|client_send|site_deploy|file_only|machine_plumbing'],
   destination_note: 'string|null', file_only: 'boolean (derived: destinations is non-empty and every one is file_only)',
   last_used_at: 'ISO-8601|null', last_used_signal: 'string|null', priority: 'normal|low',
+  mike_pick: 'keep|cut|weekly|null', mike_pick_at: 'ISO-8601|null', mike_pick_by: { id: 'uuid', name: 'string' },
+  pick_task: { id: 'uuid', title: 'string', status: 'string' }, pick_card_open: 'boolean (derived: the pick card exists and is not done or abandoned)',
   sort_order: 'number', is_active: 'boolean', created_at: 'ISO-8601', updated_at: 'ISO-8601',
 };
 
@@ -117,6 +119,23 @@ export const recurringWorkEndpoints: ApiEndpoint[] = [
         roles: ['pm', 'admin'],
         bodySchema: fieldParams,
         responseExample: recurringResponse,
+      },
+    ],
+  },
+  {
+    path: '/api/recurring-work/:id/pick',
+    group: 'recurring-work',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Keep, Cut or Make weekly on a job. keep only records the pick. cut and weekly file ONE worker card for Bast (job, job_key, pick) and record it on the row. While that row\'s card is not done or abandoned, a tap files nothing and changes nothing (200, already_open). Never touches the schedule or any run field. 201 when a card is filed, else 200. 404 for an unknown row.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        bodySchema: [{ name: 'pick', type: 'string', required: true, description: 'keep | cut | weekly' }],
+        responseExample: {
+          filed: 'boolean', already_open: 'boolean', task: { id: 'uuid', title: 'string', status: 'string' },
+          recurring_work: recurringResponse,
+        },
       },
     ],
   },

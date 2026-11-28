@@ -32,6 +32,8 @@ export const RECURRING_WORK_INCLUDE = {
   initiative: { select: { id: true, name: true } },
   client: { select: { id: true, name: true } },
   site: { select: { id: true, name: true } },
+  pick_task: { select: { id: true, title: true, status: true, is_deleted: true } },
+  mike_pick_by: { select: { id: true, name: true } },
 };
 
 const uuid = z.string().uuid();

@@ -668,6 +668,14 @@ export interface RecurringWorkItem {
   last_used_at?: string | null;
   last_used_signal?: string | null;
   priority?: 'normal' | 'low';
+  /** Keep, Cut or Make weekly (weekly = make it run once a week), with who and when. Never a schedule change. */
+  mike_pick?: 'keep' | 'cut' | 'weekly' | null;
+  mike_pick_at?: string | null;
+  mike_pick_by?: { id: string; name: string } | null;
+  /** The worker card a Cut or Make weekly pick filed. */
+  pick_task?: { id: string; title: string; status: string } | null;
+  /** The pick's card exists and is not done or abandoned: another Cut or Make weekly would file nothing. */
+  pick_card_open?: boolean;
 }
 
 /** The charter screens' name for the same row. */

@@ -7,7 +7,7 @@ import { usePageBastChat, useBastChatShell } from '@/components/domain/bast-chat
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { RecurringWorkBoard } from '@/components/domain/recurring-work/RecurringWorkBoard';
 import { ModelScoreboard } from '@/components/domain/recurring-work/ModelScoreboard';
-import { useGroupedRecurringWork, useUpdateRecurringPriority } from '@/lib/hooks/use-recurring-work';
+import { useGroupedRecurringWork, useRecurringPick, useUpdateRecurringPriority } from '@/lib/hooks/use-recurring-work';
 import { preferencesKeys, usePreferences, useUpdatePreferences } from '@/lib/hooks/use-preferences';
 import { useQueryClient } from '@tanstack/react-query';
 import { RetainerMonthsBoard } from '@/components/domain/retainer-months/RetainerMonthsBoard';
@@ -123,6 +123,7 @@ function RecurringWorkTab() {
   const { data: prefs } = usePreferences();
   const savePrefs = useUpdatePreferences();
   const setPriority = useUpdateRecurringPriority();
+  const pickMutation = useRecurringPick();
   const collapsed = prefs?.preferences.recurring_collapsed_groups ?? [];
   // The full list goes to the server so it follows the person across devices; the cache moves first so the click feels instant.
   const onCollapsedChange = React.useCallback(
@@ -151,6 +152,7 @@ function RecurringWorkTab() {
         collapsed={collapsed}
         onCollapsedChange={onCollapsedChange}
         onPriorityChange={(id, priority) => setPriority.mutate({ id, priority })}
+        onPick={(id, pick) => pickMutation.mutate({ id, pick })}
       />
       <ModelScoreboard />
     </div>

@@ -72,7 +72,44 @@ const SORT_OPTIONS: { value: RecurringSort; label: string }[] = [
   { value: 'last_run', label: 'Sort: last run' },
 ];
 
-function Row({ r, onPriorityChange }: { r: RecurringWorkItem; onPriorityChange?: (id: string, priority: 'normal' | 'low') => void }) {
+type Pick = 'keep' | 'cut' | 'weekly';
+
+const PICK_WORDS: Record<Pick, string> = { keep: 'Kept', cut: 'Cut picked', weekly: 'Weekly picked' };
+
+/** The line beside the buttons: the pick and its card, or when it was picked. */
+function PickStatus({ r }: { r: RecurringWorkItem }) {
+  if (r.pick_card_open && r.pick_task) {
+    return (
+      <span className="text-sm text-text-sub" data-testid="pick-status">
+        <a href={`/tasks/${r.pick_task.id}`} className="text-primary underline" data-testid="pick-card-link">
+          {PICK_WORDS[r.mike_pick ?? 'cut']} · card open
+        </a>
+      </span>
+    );
+  }
+  if (r.mike_pick) {
+    const when = monthDay(r.mike_pick_at);
+    return (
+      <span className="text-sm text-text-sub" data-testid="pick-status">
+        {PICK_WORDS[r.mike_pick]}
+        {when ? ` · ${when}` : ''}
+      </span>
+    );
+  }
+  return null;
+}
+
+function Row({
+  r,
+  onPriorityChange,
+  onPick,
+}: {
+  r: RecurringWorkItem;
+  onPriorityChange?: (id: string, priority: 'normal' | 'low') => void;
+  onPick?: (id: string, pick: Pick) => void;
+}) {
+  const job = r.title ?? 'this job';
+  const cardOpen = Boolean(r.pick_card_open);
   const when = r.schedule_text || r.cadence;
   const usage = usageText(r);
   const priority = r.priority ?? 'normal';
@@ -124,6 +161,18 @@ function Row({ r, onPriorityChange }: { r: RecurringWorkItem; onPriorityChange?:
           data-testid="priority-control"
         />
       </span>
+      <span className="flex flex-wrap items-center gap-2">
+        <Button type="button" variant="secondary" size="sm" disabled={!onPick} onClick={() => onPick?.(r.id, 'keep')} aria-label={`Keep ${job}`} data-testid="pick-keep">
+          Keep
+        </Button>
+        <Button type="button" variant="secondary" size="sm" disabled={!onPick || cardOpen} onClick={() => onPick?.(r.id, 'cut')} aria-label={`Cut ${job}`} data-testid="pick-cut">
+          Cut
+        </Button>
+        <Button type="button" variant="secondary" size="sm" disabled={!onPick || cardOpen} onClick={() => onPick?.(r.id, 'weekly')} aria-label={`Make ${job} weekly`} data-testid="pick-weekly">
+          Make weekly
+        </Button>
+        <PickStatus r={r} />
+      </span>
     </li>
   );
 }
@@ -136,12 +185,14 @@ export interface RecurringWorkBoardProps {
   /** Called with the full new list of collapsed labels when a group is toggled. */
   onCollapsedChange?: (next: string[]) => void;
   onPriorityChange?: (id: string, priority: 'normal' | 'low') => void;
+  /** Keep, Cut or Make weekly on a row. Without it the three buttons are disabled. */
+  onPick?: (id: string, pick: Pick) => void;
 }
 
 /** Stored in the same list when the background-jobs section is open (it starts closed: design.md 3.2). */
 export const BACKGROUND_OPEN_KEY = '__background:open';
 
-export function RecurringWorkBoard({ data, collapsed = [], onCollapsedChange, onPriorityChange }: RecurringWorkBoardProps) {
+export function RecurringWorkBoard({ data, collapsed = [], onCollapsedChange, onPriorityChange, onPick }: RecurringWorkBoardProps) {
   const [sort, setSort] = React.useState<RecurringSort>('default');
   const [onlyUnread, setOnlyUnread] = React.useState(false);
   const [bgOpen, setBgOpen] = React.useState(false);
@@ -213,7 +264,7 @@ export function RecurringWorkBoard({ data, collapsed = [], onCollapsedChange, on
             {closed ? null : (
               <ul className="divide-y divide-border rounded-lg border border-border-warm bg-surface shadow-soft">
                 {g.rows.map((r) => (
-                  <Row key={r.id} r={r} onPriorityChange={onPriorityChange} />
+                  <Row key={r.id} r={r} onPriorityChange={onPriorityChange} onPick={onPick} />
                 ))}
               </ul>
             )}
@@ -235,7 +286,7 @@ export function RecurringWorkBoard({ data, collapsed = [], onCollapsedChange, on
           {bgShown ? (
             <ul className="mt-2 divide-y divide-border rounded-lg border border-border-warm bg-surface" data-testid="background-list">
               {quiet.map((r) => (
-                <Row key={r.id} r={r} onPriorityChange={onPriorityChange} />
+                <Row key={r.id} r={r} onPriorityChange={onPriorityChange} onPick={onPick} />
               ))}
             </ul>
           ) : null}

@@ -31,6 +31,28 @@ export function useGroupedRecurringWork() {
   });
 }
 
+export interface RecurringPickResult {
+  filed: boolean;
+  already_open: boolean;
+  task: { id: string; title: string; status: string } | null;
+}
+
+/** Keep, Cut or Make weekly on a row. Cut and Make weekly file one card for Bast; Keep only records the pick. */
+export function useRecurringPick() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, pick }: { id: string; pick: 'keep' | 'cut' | 'weekly' }) =>
+      apiClient.post<RecurringPickResult>(`/recurring-work/${id}/pick`, { pick }),
+    onSuccess: (data, { pick }) => {
+      qc.invalidateQueries({ queryKey: recurringWorkKeys.grouped() });
+      if (data.already_open) showToast.success('A card for this job is already open');
+      else if (data.filed) showToast.success('Card filed for Bast');
+      else if (pick === 'keep') showToast.success('Kept');
+    },
+    onError: (error) => showToast.apiError(error, 'Could not save the pick'),
+  });
+}
+
 /** Change one job's priority (normal or low) from its row; the grouped list is updated in place, then refetched. */
 export function useUpdateRecurringPriority() {
   const qc = useQueryClient();

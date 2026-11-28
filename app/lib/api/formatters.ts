@@ -843,6 +843,8 @@ type RecurringWorkRow = Record<string, unknown> & {
   client?: { id: string; name: string } | null;
   site?: { id: string; name: string } | null;
   initiative?: { id: string; name: string } | null;
+  pick_task?: { id: string; title: string; status: string; is_deleted?: boolean } | null;
+  mike_pick_by?: { id: string; name: string } | null;
 };
 
 const numOrNull = (v: unknown) => (v === null || v === undefined ? null : Number(v));
@@ -902,6 +904,11 @@ export function formatRecurringWorkResponse(rw: RecurringWorkRow) {
     last_used_at: rw.last_used_at ?? null,
     last_used_signal: (rw.last_used_signal as string | null | undefined) ?? null,
     priority: (rw.priority as string | undefined) ?? 'normal',
+    mike_pick: (rw.mike_pick as string | null | undefined) ?? null,
+    mike_pick_at: (rw.mike_pick_at as Date | string | null | undefined) ?? null,
+    mike_pick_by: named(rw.mike_pick_by),
+    pick_task: rw.pick_task && !rw.pick_task.is_deleted ? { id: rw.pick_task.id, title: rw.pick_task.title, status: rw.pick_task.status } : null,
+    pick_card_open: Boolean(rw.pick_task && !rw.pick_task.is_deleted && !['done', 'abandoned'].includes(rw.pick_task.status)),
     sort_order: rw.sort_order,
     is_active: rw.is_active,
     created_at: rw.created_at,
