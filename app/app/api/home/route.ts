@@ -9,6 +9,8 @@ import { getHomeDay, getOrCreateHomeDay, loadItemStates, updateHomeDay } from '@
 import { selectHome } from '@/lib/home/select';
 import { loadTriage } from '@/lib/tasks/triage';
 import { loadOverdueByOthers } from '@/lib/home/overdue-others';
+import { buildFirstList } from '@/lib/home/first-list';
+import { loadMoneyToCollect } from '@/lib/home/first-list-money';
 import { applyEmergencyInsert, assembleHomeResponse, proposeDay } from '@/lib/home/today';
 import type { DayLike } from '@/lib/home/today';
 
@@ -80,6 +82,16 @@ export async function GET() {
     // Overdue by others is his alone too: null for anyone else, and a null section is left out. Read only; no notification is made for it.
     const overdue = await loadOverdueByOthers(prisma, userId, now, timezone);
     if (overdue) body.past_date_others = overdue;
+    // The list the screen opens on. Money is read separately: if it cannot be read the list still builds, without money rows.
+    const money = await loadMoneyToCollect(prisma, now, timezone).catch(() => []);
+    body.first_list = buildFirstList({
+      candidates: sel.candidates,
+      triage: body.triage ?? null,
+      money,
+      leadOrder: sel.sections.leads.map((i) => i.key),
+      now,
+      timezone,
+    });
     return NextResponse.json(body, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     return handleApiError(error);

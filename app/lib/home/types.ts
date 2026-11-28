@@ -674,6 +674,62 @@ export const HOME_TILE_ORDER: readonly HomeTileId[] = [
 ];
 
 /** GET /api/home, 200. */
+// ============================================================================
+// The first list: at most 10 rows, only what needs him
+// ============================================================================
+
+export type HomeFirstTier = 'crisis' | 'money' | 'deadline' | 'decision';
+
+/** Where a first-list row opens. Ids and keys only; no score, class or candidate field. */
+export type HomeFirstOpen =
+  /** A Triage card: the card's own chat opens (the same path as Talk about this). */
+  | { kind: 'triage'; task_id: string; title: string }
+  /** A task: the task peek opens, and the Bast chat is told it is the card he is on. */
+  | { kind: 'task'; task_id: string; key: string; title: string; item_type: string }
+  /** A page: a client or project page, or a link the item carries. */
+  | { kind: 'link'; href: string }
+  /** Any other item: Everything else opens on its own tile with the row picked. */
+  | { kind: 'item'; key: string; tile: HomeTileId };
+
+export interface HomeFirstRow {
+  key: string;
+  tier: HomeFirstTier;
+  /** A small word for the tier: "Urgent", "Money", "Due soon", "Your call". */
+  tier_label: string;
+  title: string;
+  /** One plain line under the title. */
+  line: string;
+  /** Money rows: "$4,250". Null otherwise (or when the amount is not set). */
+  amount: string | null;
+  /** Deadline rows: the date in words, "Fri, Nov 13". Null otherwise. */
+  date: string | null;
+  /** Decision and lead rows: how long it has waited, "5 days". Null otherwise. */
+  age: string | null;
+  open: HomeFirstOpen;
+}
+
+export interface HomeFirstList {
+  rows: HomeFirstRow[];
+  /** How many more qualify beyond the rows shown. */
+  more: number;
+}
+
+/** One thing to collect, as the money loader reads it (no row of the home screen yet). */
+export interface HomeMoneyRow {
+  key: string;
+  kind: 'unpaid_invoice' | 'ready_invoice' | 'milestone';
+  /** Dollars; null when the amount is not set. */
+  amount: number | null;
+  /** "Invoice 1042", "Scheduled invoice", "Milestone: Launch". */
+  label: string;
+  client_id: string | null;
+  client_name: string | null;
+  project_id: string | null;
+  project_name: string | null;
+  /** YYYY-MM-DD: the invoice's due date, or null. */
+  due: string | null;
+}
+
 export interface HomeResponse {
   /** When the server built this response (ISO). */
   generated_at: string;
@@ -701,6 +757,8 @@ export interface HomeResponse {
    * payload for everyone else. A list he looks at; it never creates a notification.
    */
   past_date_others?: HomePastDateOthers | null;
+  /** The screen opens on this list: at most 10 rows of what needs him. Everything else sits behind one button. */
+  first_list?: HomeFirstList;
   /**
    * The empty sentence for every tile, from copy.ts, exactly as the design gives them
    * ("Nothing urgent.", "No active projects.", ...). '' where the design has none.

@@ -17,6 +17,7 @@ import { HandsCard } from './HandsCard';
 import { HandledMailList } from './HandledMailList';
 import { FinishedCard } from './FinishedCard';
 import { TriageBoard } from './TriageBoard';
+import { FirstList } from './FirstList';
 import { PastDateOthers } from './PastDateOthers';
 import { openTriageConversation } from './triage-talk';
 import type { OpenCardInput } from '@/components/domain/bast-chat/card-context';
@@ -80,6 +81,8 @@ function HomeScreenInner() {
   // `index` is where it sat, so a removed row hands the card to the row now in its place.
   const [chosen, setChosen] = React.useState<Chosen | undefined>(undefined);
   const [showLists, setShowLists] = React.useState(false);
+  // The screen opens on the first list only; every other list sits behind one Everything else button.
+  const [showAll, setShowAll] = React.useState(false);
 
   const projects = projectsQuery.data?.projects ?? [];
 
@@ -124,6 +127,8 @@ function HomeScreenInner() {
       setOpenProjectId={setOpenProjectId}
       showLists={showLists}
       setShowLists={setShowLists}
+      showAll={showAll}
+      setShowAll={setShowAll}
       itemActions={itemActions}
       act={act}
       saveRule={saveRule}
@@ -155,6 +160,8 @@ interface BodyProps {
   setOpenProjectId: (id: string | null) => void;
   showLists: boolean;
   setShowLists: (v: boolean) => void;
+  showAll: boolean;
+  setShowAll: (v: boolean) => void;
   itemActions: ItemActions;
   act: ReturnType<typeof useHomeAct>;
   saveRule: ReturnType<typeof useHomeRule>;
@@ -166,6 +173,7 @@ interface BodyProps {
 
 function HomeBody(p: BodyProps) {
   const { res, projects, tile, itemActions } = p;
+  const { openTaskPeek } = useTaskPeek();
   const pinned: HomeItem | null = res.sections.working_on[0] ?? null;
   const tiles = React.useMemo(() => buildTiles(res, p.projectCount), [res, p.projectCount]);
 
@@ -330,7 +338,7 @@ function HomeBody(p: BodyProps) {
   const openProject = projects.find((x) => x.id === p.openProjectId) ?? null;
 
   // The card Mike is looking at, for the Bast chat's "About" line. Kind and id only leave the browser.
-  const shown = pinned && !p.showLists ? pinned : selectedItem;
+  const shown = !p.showAll ? null : pinned && !p.showLists ? pinned : selectedItem;
   const chatCard = talkCard
     ? talkCard
     : shown
@@ -347,7 +355,24 @@ function HomeBody(p: BodyProps) {
         <h1>{plain(res.screen_date_line)}</h1>
         <HomeRefreshButton onRefresh={p.onRefresh} />
       </div>
-      {pinned ? (
+      <FirstList
+        list={res.first_list}
+        onTalk={onTalk}
+        onOpenTask={(row) => {
+          openTaskPeek(row.task_id);
+          setTalkCard({ key: row.key, title: row.title, type: row.item_type, task_id: row.task_id, tile });
+        }}
+        onOpenItem={(key, itemTile) => {
+          setTalkCard(null);
+          p.setShowAll(true);
+          p.setShowLists(true);
+          p.setTile(itemTile);
+          p.setChosen({ key, index: 0 });
+        }}
+        allOpen={p.showAll}
+        onToggleAll={() => p.setShowAll(!p.showAll)}
+      />
+      {!p.showAll ? null : pinned ? (
         <>
           <CalendarSoonLine row={calendar.data?.soon} onOpen={setOpenEventId} />
           <WorkingOnBar

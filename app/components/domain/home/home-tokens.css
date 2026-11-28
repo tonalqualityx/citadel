@@ -284,3 +284,22 @@
 [data-home] .home-tproposals { margin-bottom: 20px; }
 [data-home] .home-tproposals > h2 { margin-bottom: 4px; }
 [data-home] .home-tproposals > .home-small { margin-bottom: 10px; }
+
+/* ------------------------------------------------------------ first list */
+/* The list the screen opens on. Square corners, a full hairline all round, no colored edge: the tier is a word. */
+
+[data-home] .home-first { display: flex; flex-direction: column; gap: 10px; }
+[data-home] .home-first-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+[data-home] .home-first-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 14px; align-items: baseline; width: 100%; text-align: left; text-decoration: none; color: var(--text-primary); background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 0; padding: 12px 14px; min-height: 48px; cursor: pointer; }
+[data-home] .home-first-row:hover { border-color: var(--accent); }
+[data-home] .home-first-tier { grid-column: 1 / -1; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-secondary); }
+[data-home] .home-first-title { font-weight: 600; font-size: 0.97rem; line-height: 1.35; min-width: 0; }
+[data-home] .home-first-figure { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
+[data-home] .home-first-line { grid-column: 1 / -1; font-size: 0.85rem; color: var(--text-secondary); }
+[data-home] .home-first-empty { padding: 14px; border: 1px solid var(--border); border-radius: 0; background: var(--bg-elevated); color: var(--text-secondary); }
+[data-home] .home-first-more { font-weight: 400; color: var(--text-secondary); }
+[data-home] .home-first-all { align-self: flex-start; border-radius: 0; }
+@media (max-width: 639px) {
+  [data-home] .home-first-row { grid-template-columns: minmax(0, 1fr); }
+  [data-home] .home-first-figure { text-align: left; }
+}

@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 import type { HomeItem, HomeResponse } from '@/lib/home/types';
 
+const peek = vi.hoisted(() => ({ open: vi.fn() }));
+const shell = vi.hoisted(() => ({ talkAbout: vi.fn() }));
 const h = vi.hoisted(() => ({
   home: { data: undefined as unknown, isLoading: false, isError: false, refetch: vi.fn() },
   run: vi.fn(),
@@ -38,7 +40,11 @@ vi.mock('@/lib/hooks/use-oracle-projects', () => ({
 }));
 vi.mock('@/lib/contexts/task-peek-context', () => ({
   TaskPeekProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  useTaskPeek: () => ({ openTaskPeek: vi.fn() }),
+  useTaskPeek: () => ({ openTaskPeek: peek.open }),
+}));
+vi.mock('@/components/domain/bast-chat/BastChatProvider', () => ({
+  useBastChatShell: () => shell,
+  usePageBastChat: () => undefined,
 }));
 const cal = vi.hoisted(() => ({ data: undefined as unknown }));
 vi.mock('@/lib/hooks/use-home-calendar', () => ({ useHomeCalendar: () => ({ data: cal.data }) }));
@@ -111,20 +117,33 @@ function mkRes(): HomeResponse {
 
 beforeEach(() => {
   h.run.mockClear();
+  peek.open.mockClear();
+  shell.talkAbout.mockClear();
   cal.data = undefined;
   h.home = { data: mkRes(), isLoading: false, isError: false, refetch: vi.fn() };
 });
 
+// The screen opens on the first list and one Everything else button; every older list sits behind that button.
+function openAll() {
+  fireEvent.click(screen.getByRole('button', { name: /^Everything else/ }));
+}
+function renderOpen() {
+  const view = render(<HomeScreen />);
+  openAll();
+  return view;
+}
+const elseTile = () => document.querySelector('[data-tile="everything_else"]') as HTMLElement;
+
 describe('HomeScreen', () => {
   it('opens on Today with the first arc step open in the card', () => {
-    render(<HomeScreen />);
+    renderOpen();
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Monday, November 9');
     expect(screen.getByRole('button', { name: /Today: Grok of the Rock/ })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByTestId('today-list')).toHaveAttribute('data-selected', 'task:s1');
     expect(screen.getByRole('heading', { level: 2, name: 'Title task:s1' })).toBeInTheDocument();
   });
   it('picking a tile lists its rows and opens the first one', () => {
-    render(<HomeScreen />);
+    renderOpen();
     fireEvent.click(screen.getByRole('button', { name: /need you now|needs you now/ }));
     expect(screen.getByRole('button', { name: /Title task:n1/ })).toHaveAttribute('data-rule', 'now');
     expect(screen.getByRole('heading', { level: 2, name: 'Title task:n1' })).toBeInTheDocument();
@@ -141,7 +160,7 @@ describe('HomeScreen', () => {
     const res = mkRes();
     res.sections.next = [row, mkItem('task:x1')];
     h.home = { data: res, isLoading: false, isError: false, refetch: vi.fn() };
-    render(<HomeScreen />);
+    renderOpen();
     fireEvent.click(screen.getByRole('button', { name: /decisions ready/ }));
     expect(screen.getByRole('heading', { level: 2, name: /This week's hands/ })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 3, name: 'No written steps' })).toBeInTheDocument();
@@ -152,7 +171,7 @@ describe('HomeScreen', () => {
     expect(h.run.mock.calls[1][1].key).toBe('hands:week');
   });
   it('choosing another row swaps the card, and nothing reorders', () => {
-    render(<HomeScreen />);
+    renderOpen();
     fireEvent.click(screen.getByRole('button', { name: /decisions ready/ }));
     const rows = () => screen.getAllByRole('button', { name: /Title task:x/ }).map((b) => b.textContent);
     const before = rows();
@@ -161,22 +180,22 @@ describe('HomeScreen', () => {
     expect(rows()).toEqual(before);
   });
   it('a card button runs through the item actions with the day group key', () => {
-    render(<HomeScreen />);
+    renderOpen();
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
     expect(h.run).toHaveBeenCalledTimes(1);
     expect(h.run.mock.calls[0][1].key).toBe('task:s1');
     expect(h.run.mock.calls[0][2]).toEqual({ groupKey: 'arc:1' });
   });
   it('empty tile shows its sentence', () => {
-    render(<HomeScreen />);
+    renderOpen();
     fireEvent.click(screen.getByRole('button', { name: /sales leads waiting/ }));
     expect(screen.getAllByText('No sales leads are waiting on you.').length).toBeGreaterThan(0);
   });
   it('handled, everything else and projects tiles work', () => {
-    render(<HomeScreen />);
+    renderOpen();
     fireEvent.click(screen.getByRole('button', { name: /handled for you/ }));
     expect(screen.getByRole('link', { name: 'Open the thread' })).toHaveAttribute('target', '_blank');
-    fireEvent.click(screen.getByRole('button', { name: /everything else/ }));
+    fireEvent.click(elseTile());
     fireEvent.click(screen.getByRole('button', { name: /Parked by you/ }));
     expect(screen.getByText(/Held by: You/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /^1\s*project$/ }));
@@ -184,7 +203,7 @@ describe('HomeScreen', () => {
     expect(screen.getByTestId('drawer')).toHaveTextContent('open:p1');
   });
   it('Slice 8a: the project drawer is the home drawer, gets his zone and id, and its item buttons run the same action wiring', () => {
-    render(<HomeScreen />);
+    renderOpen();
     expect(screen.getByTestId('drawer')).toHaveTextContent('closed');
     fireEvent.click(screen.getByRole('button', { name: /^1\s*project$/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Open the project' }));
@@ -200,8 +219,8 @@ describe('HomeScreen', () => {
   });
   it('everything else opens a group card with rows, and Bring it forward posts the right body', async () => {
     h.act.mockResolvedValue({});
-    render(<HomeScreen />);
-    fireEvent.click(screen.getByRole('button', { name: /everything else/ }));
+    renderOpen();
+    fireEvent.click(elseTile());
     expect(screen.getByText('3 other items are counted here. 2 have a day to come back.')).toBeInTheDocument();
     expect(screen.getByText('1 is past their day.')).toBeInTheDocument();
     expect(screen.getByText('Renew the domain')).toBeInTheDocument();
@@ -213,7 +232,7 @@ describe('HomeScreen', () => {
     await waitFor(() => expect(screen.getAllByRole('button', { name: 'Bring it forward' })[0]).not.toBeDisabled());
   });
   it('a keeper line shows its details muted and Undo posts its id; a classifier line has no Undo', () => {
-    render(<HomeScreen />);
+    renderOpen();
     fireEvent.click(screen.getByRole('button', { name: /handled for you/ }));
     expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /Gave 41 waiting tasks/ }));
@@ -225,7 +244,7 @@ describe('HomeScreen', () => {
     const res = mkRes();
     res.sections.working_on = [mkItem('task:p', { pinned: true })];
     h.home = { data: res, isLoading: false, isError: false, refetch: vi.fn() };
-    render(<HomeScreen />);
+    renderOpen();
     expect(screen.getByRole('region', { name: 'Working on' })).toBeInTheDocument();
     expect(screen.queryByRole('group', { name: 'What needs you' })).toBeNull();
     expect(screen.getByText(/more are waiting\. They'll keep\./)).toBeInTheDocument();
@@ -240,7 +259,7 @@ describe('HomeScreen', () => {
   it('Slice 10a: the calendar strip sits above the Today list, only on Today, and a row opens the meeting drawer', () => {
     const row = { id: 'ev1', time: '2:00', who: 'Erick, Bootleggers (lead)', muted: false, openable: true };
     cal.data = { upcoming: [row], later: [], earlier: [], all_day: null, tomorrow: null, soon: null };
-    render(<HomeScreen />);
+    renderOpen();
     const strip = screen.getByTestId('home-calendar-strip');
     const list = screen.getByTestId('today-list');
     expect(strip.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -251,12 +270,12 @@ describe('HomeScreen', () => {
     expect(screen.queryByTestId('home-calendar-strip')).toBeNull();
   });
   it('Slice 10a: no strip when the calendar has nothing or has not loaded', () => {
-    render(<HomeScreen />);
+    renderOpen();
     expect(screen.queryByTestId('home-calendar-strip')).toBeNull();
   });
   it('Slice 10a: the meeting drawer\'s item cards use the same action wiring, and its project link closes it and opens the project drawer', () => {
     cal.data = { upcoming: [{ id: 'ev1', time: '2:00', who: 'A', muted: false, openable: true }], later: [], earlier: [], all_day: null, tomorrow: null, soon: null };
-    render(<HomeScreen />);
+    renderOpen();
     fireEvent.click(screen.getByTestId('calendar-row'));
     const card = within(screen.getByTestId('cal-drawer-item'));
     fireEvent.click(card.getByRole('button', { name: 'Done' }));
@@ -269,11 +288,11 @@ describe('HomeScreen', () => {
     const res = mkRes();
     res.sections.working_on = [mkItem('task:p', { pinned: true })];
     h.home = { data: res, isLoading: false, isError: false, refetch: vi.fn() };
-    const { unmount } = render(<HomeScreen />);
+    const { unmount } = renderOpen();
     expect(screen.queryByTestId('calendar-soon')).toBeNull();
     unmount();
     cal.data = { upcoming: [], later: [], earlier: [], all_day: null, tomorrow: null, soon: { id: 'ev9', time: '2:00', who: 'Erick, Bootleggers', muted: false, openable: true } };
-    render(<HomeScreen />);
+    renderOpen();
     const soon = screen.getByTestId('calendar-soon');
     expect(soon).toHaveTextContent('2:00Erick, Bootleggers');
     expect(soon.compareDocumentPosition(screen.getByRole('region', { name: 'Working on' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -299,7 +318,7 @@ describe('HomeScreen', () => {
     res.triage = { count: 1, open_questions: 0, groups: [], cards: [card], asked_after_release: [] };
     h.home = { data: res, isLoading: false, isError: false, refetch: vi.fn() };
     h.act.mockResolvedValue({});
-    const { unmount } = render(<HomeScreen />);
+    const { unmount } = renderOpen();
     expect(screen.queryByTestId('triage-card')).toBeNull();
     expect(screen.queryByTestId('triage-board')).toBeNull();
     const tile = document.querySelector('[data-tile="triage"]') as HTMLElement;
@@ -311,8 +330,47 @@ describe('HomeScreen', () => {
     await waitFor(() => expect(h.act).toHaveBeenCalledWith({ action: 'triage_release_card', task_ids: ['t1'], release_version: 'v1' }));
     unmount();
     h.home = { data: mkRes(), isLoading: false, isError: false, refetch: vi.fn() };
-    render(<HomeScreen />);
+    renderOpen();
     expect(document.querySelector('[data-tile="triage"]')).toBeNull();
+  });
+  it('opens on the first list and one Everything else button, with nothing else above the fold', () => {
+    const res = mkRes();
+    res.first_list = { more: 2, rows: [{ key: 'task:f1', tier: 'decision', tier_label: 'Your call', title: 'Decide the thing', line: 'A line.', amount: null, date: null, age: '4 days', open: { kind: 'task', task_id: 'f1', key: 'task:f1', title: 'Decide the thing', item_type: 'task' } }] };
+    h.home = { data: res, isLoading: false, isError: false, refetch: vi.fn() };
+    render(<HomeScreen />);
+    expect(screen.getByTestId('first-list')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Decide the thing/ })).toBeInTheDocument();
+    const toggle = screen.getByRole('button', { name: 'Everything else, and 2 more' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(document.querySelector('[data-tile]')).toBeNull();
+    expect(screen.queryByTestId('today-list')).toBeNull();
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTestId('today-list')).toBeInTheDocument();
+    fireEvent.click(toggle);
+    expect(screen.queryByTestId('today-list')).toBeNull();
+  });
+  it('a Triage row opens that card\'s own chat in one tap, from the first screen', () => {
+    const res = mkRes();
+    const T = '7aa4a01a-1111-4222-8333-944445500001';
+    res.first_list = { more: 0, rows: [{ key: `task:${T}`, tier: 'decision', tier_label: 'Triage', title: 'Idea A', line: 'Wanted.', amount: null, date: null, age: '4 days', open: { kind: 'triage', task_id: T, title: 'Idea A' } }] };
+    h.home = { data: res, isLoading: false, isError: false, refetch: vi.fn() };
+    render(<HomeScreen />);
+    fireEvent.click(screen.getByRole('button', { name: /Idea A/ }));
+    expect(shell.talkAbout).toHaveBeenCalledTimes(1);
+    expect(shell.talkAbout).toHaveBeenCalledWith({ key: `task:${T}`, title: 'Idea A', type: 'task', task_id: T, tile: 'triage', own_conversation: true });
+  });
+  it('a task row opens the task peek and the empty first list says nothing needs him', () => {
+    const res = mkRes();
+    res.first_list = { more: 0, rows: [{ key: 'task:f1', tier: 'decision', tier_label: 'Your call', title: 'Decide the thing', line: 'A line.', amount: null, date: null, age: '4 days', open: { kind: 'task', task_id: 'f1', key: 'task:f1', title: 'Decide the thing', item_type: 'task' } }] };
+    h.home = { data: res, isLoading: false, isError: false, refetch: vi.fn() };
+    const { unmount } = render(<HomeScreen />);
+    fireEvent.click(screen.getByRole('button', { name: /Decide the thing/ }));
+    expect(peek.open).toHaveBeenCalledWith('f1');
+    unmount();
+    h.home = { data: mkRes(), isLoading: false, isError: false, refetch: vi.fn() };
+    render(<HomeScreen />);
+    expect(screen.getByText('Nothing needs you right now.')).toBeInTheDocument();
   });
   it('shows no em or en dash anywhere', () => {
     const { container } = render(<HomeScreen />);
