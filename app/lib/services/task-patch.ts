@@ -23,6 +23,9 @@ import { clearPreviewClaims } from '@/lib/sends/claims';
 import { assertClaimHeld, CLEAR_CLAIM_DATA } from '@/lib/tasks/claims';
 import { MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import { assertNoReviewStampOnCard } from '@/lib/tasks/review-card';
+import { isReviewStep } from '@/lib/tasks/review-coverage';
+import { approveCoveredByReview, dropStampsCoveredBy, isCovered } from '@/lib/tasks/review-coverage-db';
+import { looksLikeSecurity } from '@/lib/home/keeper/approve-sweep';
 import { MysteryFactor, BatteryImpact, TaskStatus } from '@prisma/client';
 import { closeAsksForTask } from '@/lib/work/ask-closure'; // Work stage A: the one closure of a finished task's emails
 import { voidApprovalIfRestaged, stampApproval, getApprovalBindingMode } from '@/lib/portal/receipts'; // Fleet item 5
@@ -249,10 +252,20 @@ async function afterStatusChange(
     source: string;
     status: string;
     staging_preview_url: string | null;
+    tags?: string[];
   },
   newStatus: TaskStatus
 ): Promise<CompletionNudge | null> {
   await logStatusChange(userId, 'task', task.id, task.title, existingTask.status, newStatus);
+
+  // A person finished a review step: what it covered counts as reviewed (Mike, 2026-11-24). A side step; it never fails the PATCH.
+  if (newStatus === 'done' && existingTask.status !== 'done' && isReviewStep(task.tags)) {
+    try {
+      await approveCoveredByReview({ id: task.id, tags: task.tags }, userId);
+    } catch (e) {
+      console.error('approve covered by review step failed', task.id, e);
+    }
+  }
 
   // Propagate blocking status to dependent tasks
   await propagateBlockingStatus(task.id, newStatus, existingTask.status);
@@ -879,6 +892,14 @@ export async function patchTask(input: PatchTaskInput) {
     }
   }
 
+  // A review step covering this task IS its review: the per-piece needs_review stamp is stored false (no error; the rest of the write stands).
+  // A security-looking task keeps its stamp.
+  if (updateData.needs_review === true) {
+    const tagsAfter = (updateData.tags as string[] | undefined) ?? existingTask.tags ?? [];
+    const titleAfter = (updateData.title as string | undefined) ?? existingTask.title ?? '';
+    if (!isReviewStep(tagsAfter) && !looksLikeSecurity(titleAfter, tagsAfter) && (await isCovered(id))) updateData.needs_review = false;
+  }
+
   const task = await prisma.task.update({
     where: writeWhere(auth, id, existingTask, expect),
     data: updateData,
@@ -933,6 +954,15 @@ export async function patchTask(input: PatchTaskInput) {
   // Clearing needs_review on a blocker releases the same way: a done blocker not marked for review satisfies its dependents.
   if (updateData.approved === true || updateData.needs_review === false) {
     await unblockEligibleDependents(id);
+  }
+
+  // A review step that just gained blockers IS the review of what it now covers: those done, unapproved pieces lose their stamp (Mike, 2026-11-24).
+  if ((data.blocked_by_ids?.connect ?? []).length > 0 && isReviewStep(task.tags)) {
+    try {
+      await dropStampsCoveredBy(id);
+    } catch (e) {
+      console.error('drop covered review stamps failed', id, e);
+    }
   }
 
   // Notify new assignee if assignment changed to someone other than the updater

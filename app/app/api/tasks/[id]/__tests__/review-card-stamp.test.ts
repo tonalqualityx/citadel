@@ -17,6 +17,7 @@ vi.mock('@/lib/db/prisma', () => ({
       findUnique: vi.fn(),
       findMany: vi.fn(),
       update: vi.fn(),
+      updateMany: vi.fn(),
     },
     emailAsk: {
       findFirst: vi.fn(),
@@ -65,6 +66,7 @@ const mockRequireAuth = vi.mocked(requireAuth);
 const mockTaskFindUnique = prisma.task.findUnique as Mock;
 const mockTaskFindMany = prisma.task.findMany as Mock;
 const mockTaskUpdate = prisma.task.update as Mock;
+const mockTaskUpdateMany = prisma.task.updateMany as Mock;
 const mockEmailAskFindFirst = prisma.emailAsk.findFirst as Mock;
 
 const TASK_ID = 'task-1';
@@ -176,5 +178,72 @@ describe('PATCH /api/tasks/[id] - a review is a card, not a flag', () => {
     const res = await call({ needs_review: true });
     expect(res.status).toBe(200);
     expect(updateData().needs_review).toBe(true);
+  });
+
+  // A review step covering a task IS its review (Mike, 2026-11-24): the per-piece stamp is stored false, never an error.
+  describe('a review step in the project covers the piece', () => {
+    const node = (id: string, o: Record<string, unknown>) => ({ id, project_id: 'proj-1', tags: [], status: 'blocked', is_deleted: false, blocking: [], blocked_by: [], ...o });
+    function walk(nodes: Record<string, unknown>[]) {
+      mockTaskFindMany.mockImplementation(async (args: { where: { id: { in: string[] } } }) => nodes.filter((n) => args.where.id.in.includes(n.id as string)));
+    }
+
+    it('drops the stamp on a covered task', async () => {
+      given({ tags: ['bast-doable'], project_id: 'proj-1', status: 'done' });
+      walk([node(TASK_ID, { blocking: [{ id: 'rev' }] }), node('rev', { tags: ['finalize-step'] })]);
+      const res = await call({ needs_review: true });
+      expect(res.status).toBe(200);
+      expect(updateData().needs_review).toBe(false);
+    });
+
+    it('keeps the stamp on an uncovered task', async () => {
+      given({ tags: ['bast-doable'], project_id: 'proj-1', status: 'done' });
+      walk([node(TASK_ID, { blocking: [{ id: 'other' }] }), node('other', {})]);
+      expect((await call({ needs_review: true })).status).toBe(200);
+      expect(updateData().needs_review).toBe(true);
+    });
+
+    it('keeps the stamp on a security-looking covered task', async () => {
+      given({ tags: ['security'], project_id: 'proj-1', status: 'done' });
+      walk([node(TASK_ID, { blocking: [{ id: 'rev' }] }), node('rev', { tags: ['review-card'] })]);
+      await call({ needs_review: true });
+      expect(updateData().needs_review).toBe(true);
+    });
+  });
+
+  // A person finishing a review step approves what it covered; a bot does not.
+  describe('finishing a review step', () => {
+    const node = (id: string, o: Record<string, unknown>) => ({ id, project_id: 'proj-1', tags: [], status: 'done', is_deleted: false, blocking: [], blocked_by: [], ...o });
+    function setup() {
+      mockTaskFindMany.mockImplementation(async (args: { where: { id: { in: string[] } }; select: Record<string, unknown> }) => {
+        const ids = args.where.id.in;
+        if (args.select.blocked_by) return ids.map((id) => (id === TASK_ID ? node(id, { tags: ['finalize-step'], blocked_by: [{ id: 'piece' }] }) : node(id, {})));
+        return ids.map((id) => ({ id, title: 'Build the page', tags: [], status: 'done', approved: false, needs_review: true }));
+      });
+      mockTaskUpdateMany.mockResolvedValue({ count: 1 });
+    }
+
+    it('approves the covered done tasks as the person', async () => {
+      given({ tags: ['finalize-step'], project_id: 'proj-1', status: 'in_progress' });
+      setup();
+      expect((await call({ status: 'done' })).status).toBe(200);
+      expect(mockTaskUpdateMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: 'piece' }), data: expect.objectContaining({ approved: true, approved_by_id: 'user-1' }) }));
+      expect(vi.mocked(unblockEligibleDependents)).toHaveBeenCalledWith('piece');
+    });
+
+    it('approves nothing when a bot closes it', async () => {
+      mockRequireAuth.mockResolvedValue({ userId: 'ca5335e7-a374-4eff-92dc-fd67ceef2297', email: 'bast@test.com', role: 'pm' });
+      given({ tags: ['finalize-step'], project_id: 'proj-1', status: 'in_progress' });
+      setup();
+      expect((await call({ status: 'done' })).status).toBe(200);
+      expect(mockTaskUpdateMany).not.toHaveBeenCalled();
+    });
+
+    it('a failure in the approval side step does not fail the PATCH', async () => {
+      given({ tags: ['finalize-step'], project_id: 'proj-1', status: 'in_progress' });
+      mockTaskFindMany.mockRejectedValue(new Error('db down'));
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      expect((await call({ status: 'done' })).status).toBe(200);
+      spy.mockRestore();
+    });
   });
 });

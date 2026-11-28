@@ -69,6 +69,9 @@ vi.mock('@/lib/services/notifications', () => ({
   notifyTaskAssigned: vi.fn(),
 }));
 
+// Review coverage has its own tests (lib/tasks); here only whether the create calls it.
+vi.mock('@/lib/tasks/review-coverage-db', () => ({ dropStampsCoveredBy: vi.fn(async () => []) }));
+
 // Mock energy calculations
 vi.mock('@/lib/calculations/energy', () => ({
   calculateEstimatedMinutes: vi.fn((energy, mystery, battery) => energy * 30),
@@ -80,6 +83,7 @@ import { checkTracked } from '@/lib/work/guard';
 import { logCreate } from '@/lib/services/activity';
 import { notifyTaskAssigned } from '@/lib/services/notifications';
 import type { Mock } from 'vitest';
+import { dropStampsCoveredBy } from '@/lib/tasks/review-coverage-db';
 
 const mockRequireAuth = vi.mocked(requireAuth);
 const mockRequireRole = vi.mocked(requireRole);
@@ -1342,6 +1346,33 @@ describe('POST /api/tasks — dependency wiring (blocked_by_ids)', () => {
         }),
       })
     );
+  });
+
+  it('a review step filed with blockers drops the stamps on what it covers and answers with the fresh row', async () => {
+    mockTaskFindMany
+      .mockResolvedValueOnce([{ id: blockerId }])
+      .mockResolvedValueOnce([blockerRow(blockerId, 'done', false, false)])
+      .mockResolvedValueOnce([{ blocked_by: [] }]);
+    mockTaskCreate.mockResolvedValue({ ...mockCreatedTask, status: 'blocked', tags: ['finalize-step'] });
+    (dropStampsCoveredBy as Mock).mockResolvedValueOnce([blockerId]);
+    (prisma.task.findUnique as Mock).mockResolvedValueOnce({ ...mockCreatedTask, status: 'not_started', tags: ['finalize-step'] });
+
+    const response = await POST(createPostRequest({ title: 'Mike reviews the build', tags: ['finalize-step'], blocked_by_ids: [blockerId] }));
+
+    expect(response.status).toBe(201);
+    expect(dropStampsCoveredBy).toHaveBeenCalledWith('task-123');
+    expect((await response.json()).status).toBe('not_started');
+  });
+
+  it('an ordinary task filed with blockers touches no stamps', async () => {
+    mockTaskFindMany
+      .mockResolvedValueOnce([{ id: blockerId }])
+      .mockResolvedValueOnce([blockerRow(blockerId, 'done', true, false)])
+      .mockResolvedValueOnce([{ blocked_by: [] }]);
+
+    await POST(createPostRequest({ title: 'Plain dependent', blocked_by_ids: [blockerId] }));
+
+    expect(dropStampsCoveredBy).not.toHaveBeenCalled();
   });
 
   it('returns 404 when a blocked_by_ids entry does not resolve to a real task', async () => {

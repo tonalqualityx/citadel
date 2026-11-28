@@ -4,6 +4,8 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { notifyReleasedAssignees } from '@/lib/services/notifications';
+import { isReviewStep } from '@/lib/tasks/review-coverage';
+import { dropStampsCoveredBy } from '@/lib/tasks/review-coverage-db';
 
 const addDependencySchema = z.object({
   blocker_id: z.string().uuid(),
@@ -62,6 +64,15 @@ export async function POST(
         where: { id },
         data: { status: 'blocked' },
       });
+    }
+
+    // A review step just gained a blocker: the done, unapproved pieces it now covers lose their per-piece review stamp (the review step is the review).
+    if (isReviewStep(task.tags)) {
+      try {
+        await dropStampsCoveredBy(id);
+      } catch (e) {
+        console.error('drop covered review stamps failed', id, e);
+      }
     }
 
     return NextResponse.json({ success: true }, { status: 201 });

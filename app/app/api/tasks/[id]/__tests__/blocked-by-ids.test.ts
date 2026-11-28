@@ -48,9 +48,17 @@ vi.mock('@/lib/calculations/energy', () => ({
   calculateEstimatedMinutes: vi.fn((energy: number) => energy * 30),
 }));
 
+// Review coverage has its own tests (lib/tasks); here only whether the PATCH calls it.
+vi.mock('@/lib/tasks/review-coverage-db', () => ({
+  dropStampsCoveredBy: vi.fn(async () => []),
+  approveCoveredByReview: vi.fn(async () => []),
+  isCovered: vi.fn(async () => false),
+}));
+
 import { requireAuth } from '@/lib/auth/middleware';
 import { prisma } from '@/lib/db/prisma';
 import type { Mock } from 'vitest';
+import { dropStampsCoveredBy } from '@/lib/tasks/review-coverage-db';
 
 const mockRequireAuth = vi.mocked(requireAuth);
 const mockTaskFindUnique = prisma.task.findUnique as Mock;
@@ -236,5 +244,32 @@ describe('PATCH /api/tasks/[id] — dependency wiring (blocked_by_ids)', () => {
     expect(response.status).toBe(404);
     expect(body.error).toBe('One or more blocker tasks not found');
     expect(mockTaskUpdate).not.toHaveBeenCalled();
+  });
+
+  it('a review step that gains a blocker drops the stamps on what it now covers', async () => {
+    mockTaskFindUnique.mockResolvedValue(existingTask({ status: 'not_started', tags: ['finalize-step'] }));
+    mockTaskFindMany
+      .mockResolvedValueOnce([{ id: BLOCKER_ID }])
+      .mockResolvedValueOnce([{ blocked_by: [] }])
+      .mockResolvedValueOnce([blockerRow(BLOCKER_ID, 'done', false, false)]);
+    mockTaskUpdate.mockResolvedValue(updatedTaskResponse({ status: 'blocked', tags: ['finalize-step'] }));
+
+    const response = await PATCH(makeRequest({ blocked_by_ids: { connect: [BLOCKER_ID] } }), { params: makeParams() });
+
+    expect(response.status).toBe(200);
+    expect(dropStampsCoveredBy).toHaveBeenCalledWith(TASK_ID);
+  });
+
+  it('an ordinary task that gains a blocker touches no stamps', async () => {
+    mockTaskFindUnique.mockResolvedValue(existingTask({ status: 'not_started', tags: [] }));
+    mockTaskFindMany
+      .mockResolvedValueOnce([{ id: BLOCKER_ID }])
+      .mockResolvedValueOnce([{ blocked_by: [] }])
+      .mockResolvedValueOnce([blockerRow(BLOCKER_ID, 'done', true, false)]);
+    mockTaskUpdate.mockResolvedValue(updatedTaskResponse({ tags: [] }));
+
+    await PATCH(makeRequest({ blocked_by_ids: { connect: [BLOCKER_ID] } }), { params: makeParams() });
+
+    expect(dropStampsCoveredBy).not.toHaveBeenCalled();
   });
 });

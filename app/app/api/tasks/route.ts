@@ -23,6 +23,8 @@ import { emailSourcesFor, mayOverride, parseSourceKey, trackedResponse } from '@
 import { hasSecurityTag } from '@/lib/home/rules';
 import { assertInitiativeLinkable } from '@/lib/initiatives/service';
 import { guardDoxTaskCreate } from '@/lib/dox/guard';
+import { isReviewStep } from '@/lib/tasks/review-coverage';
+import { dropStampsCoveredBy } from '@/lib/tasks/review-coverage-db';
 
 // Clarity Phase 5 — the arc board's "+ Quest" quick-add defaults assignee to the primary
 // operator, same email-lookup pattern /api/session-tasks already uses for session-born
@@ -656,6 +658,18 @@ export async function POST(request: NextRequest) {
           return created;
         })
       : await prisma.task.create(taskCreateArgs);
+    // A review step filed with blockers IS the review of what it covers: the done, unapproved pieces lose their per-piece stamp, and
+    // the review step is released if that was all that held it (Mike, 2026-11-24). A side step; it never fails the create.
+    let created = task;
+    if (blockedByIds.length > 0 && isReviewStep(task.tags)) {
+      try {
+        if ((await dropStampsCoveredBy(task.id)).length > 0) {
+          created = (await prisma.task.findUnique({ where: { id: task.id }, include: taskCreateArgs.include })) ?? task;
+        }
+      } catch (e) {
+        console.error('drop covered review stamps failed', task.id, e);
+      }
+    }
     // A task created already finished runs the same closure as one that finishes later (it closes nothing it should not).
     if (task.status === 'done' || task.status === 'abandoned') {
       await closeAsksForTask(prisma, task.id, task.status).catch((e) => console.error('closeAsksForTask failed', task.id, e));
@@ -674,7 +688,7 @@ export async function POST(request: NextRequest) {
     }
 
     const chatAction = await recordChatCreate(auth, task, chatConversation);
-    return withChatAction(NextResponse.json(formatTaskResponse(task), { status: 201 }), chatAction);
+    return withChatAction(NextResponse.json(formatTaskResponse(created), { status: 201 }), chatAction);
   } catch (error) {
     return handleApiError(error);
   }
