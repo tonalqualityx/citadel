@@ -7,7 +7,8 @@ import { prismaOwnerLookups } from '@/lib/waits/owner';
 import { prismaAwayLookups } from '@/lib/waits/away';
 import { prismaStallStore } from '@/lib/waits/stalls';
 import { runSweep, type WaitRow } from '@/lib/waits/sweeper';
-import { sendSlackNotification } from '@/lib/services/slack-notifications';
+import { queueSlackDigest, sendDueSlackDigests } from '@/lib/services/slack-notifications';
+import { waitDigestTitle } from '@/lib/services/slack-sort';
 import { calendarDaysSince } from '@/lib/waits/business-days';
 import { PRICE_REVIEW_SEND } from '@/lib/config/feature-flags';
 import { makeApplyProceed } from '@/lib/price-review/apply';
@@ -31,13 +32,13 @@ const slackNagOn = () => (process.env.WAIT_SLACK_NAG ?? 'on').toLowerCase() !== 
 
 async function notifyMike(w: WaitRow, owner: { user_id: string }): Promise<boolean> {
   const days = w.client_waiting_since ? calendarDaysSince(w.client_waiting_since, new Date()) : null;
-  // Slack only, straight to the Slack sender: no in-app notice and no email (the dispatcher
-  // would queue both). True only when Slack accepted it, so a failure retries the next
-  // business day instead of passing for sent.
-  return sendSlackNotification({
+  // Slack only, straight to the Slack digest queue: no in-app notice and no email (the dispatcher
+  // would queue both). True only when the line is queued, so a failure retries the next
+  // business day instead of passing for sent. The line goes out in the 9:00 daily digest.
+  return queueSlackDigest({
     userId: owner.user_id,
     type: 'system_alert',
-    title: `A client is blocked on you: ${w.title}`.slice(0, 250),
+    title: waitDigestTitle(w.title, days),
     message: `${w.title}${days != null ? ` The client has waited ${days} days.` : ''} It is three business days past its date.`,
     entityType: 'wait',
     entityId: w.id,
@@ -79,7 +80,16 @@ export async function POST(request: NextRequest) {
       },
       { dryRun }
     );
-    return NextResponse.json({ ...report, price_review });
+    // Send each user's daily Slack digest when it is due. A failure here never fails the sweep.
+    let slack_digest: Awaited<ReturnType<typeof sendDueSlackDigests>> | { error: string } | null = null;
+    if (!dryRun) {
+      try {
+        slack_digest = await sendDueSlackDigests();
+      } catch (e) {
+        slack_digest = { error: e instanceof Error ? e.message : String(e) };
+      }
+    }
+    return NextResponse.json({ ...report, price_review, slack_digest });
   } catch (error) {
     return handleApiError(error);
   }

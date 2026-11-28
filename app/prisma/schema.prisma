@@ -48,6 +48,7 @@ model User {
   slack_mapping                      SlackUserMapping?
   email_digest_queue                 EmailDigestQueue[]
   slack_notification_batch           SlackNotificationBatch[]
+  slack_notices                      SlackNotice[]
   projects_created                   Project[]                @relation("ProjectCreatedBy")
   projects_next_step_owner           Project[]                @relation("ProjectNextStepOwner")
   project_notes                      ProjectNote[]
@@ -328,6 +329,29 @@ model EmailDigestQueue {
   @@index([user_id])
   @@index([processed, created_at])
   @@map("email_digest_queue")
+}
+
+// Every Slack direct message decision: keep (posted at once), digest (a line in the daily DM), stop (log only)
+model SlackNotice {
+  id                String           @id @default(uuid()) @db.Uuid
+  user_id           String           @db.Uuid
+  user              User             @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  sort              String           @db.VarChar(10)
+  notification_type NotificationType
+  title             String           @db.VarChar(255)
+  message           String?          @db.Text
+  entity_type       String?          @db.VarChar(50)
+  entity_id         String?
+  link              String?          @db.Text
+  posted_text       String?          @db.Text
+  slack_channel     String?          @db.VarChar(50)
+  slack_ts          String?          @db.VarChar(50)
+  sent_at           DateTime?
+  created_at        DateTime         @default(now())
+
+  @@index([user_id, sort, sent_at])
+  @@index([created_at])
+  @@map("slack_notices")
 }
 
 // Slack notification batch queue for grouping project task notifications

@@ -30,18 +30,26 @@ vi.mock('../email-notifications', () => ({
 // Mock slack-notifications
 vi.mock('../slack-notifications', () => ({
   sendSlackNotification: vi.fn(),
+  queueSlackDigest: vi.fn(),
+  recordStoppedSlackNotice: vi.fn(),
 }));
 
 import { prisma } from '@/lib/db/prisma';
 import { getNotificationPreference } from '../notification-preferences';
 import { sendNotificationEmail } from '../email-notifications';
-import { sendSlackNotification as sendSlack } from '../slack-notifications';
+import {
+  sendSlackNotification as sendSlack,
+  queueSlackDigest,
+  recordStoppedSlackNotice,
+} from '../slack-notifications';
 import { dispatchNotification, dispatchNotificationToMany } from '../notification-dispatcher';
 import type { Mock } from 'vitest';
 
 const mockGetPreference = getNotificationPreference as Mock;
 const mockSendEmail = sendNotificationEmail as Mock;
 const mockSendSlack = sendSlack as Mock;
+const mockQueueDigest = queueSlackDigest as Mock;
+const mockRecordStopped = recordStoppedSlackNotice as Mock;
 const mockNotificationCreate = prisma.notification.create as Mock;
 const mockNotificationUpdate = prisma.notification.update as Mock;
 const mockNotificationFindFirst = prisma.notification.findFirst as Mock;
@@ -77,6 +85,8 @@ describe('notification-dispatcher service', () => {
     mockEmailDigestCreate.mockResolvedValue({});
     mockSendEmail.mockResolvedValue(true);
     mockSendSlack.mockResolvedValue(true);
+    mockQueueDigest.mockResolvedValue(true);
+    mockRecordStopped.mockResolvedValue(true);
   });
 
   describe('dispatchNotification', () => {
@@ -116,12 +126,12 @@ describe('notification-dispatcher service', () => {
         expect(result.inApp.sent).toBe(true);
         expect(result.email.sent).toBe(false);
         expect(result.email.queued).toBe(true);
-        expect(result.slack.sent).toBe(true);
+        expect(result.slack.sent).toBe(true); // task_assigned with no project is kept
         expect(mockSendEmail).not.toHaveBeenCalled();
         expect(mockEmailDigestCreate).toHaveBeenCalled();
       });
 
-      it('skips Slack for low priority notifications', async () => {
+      it('stop: low priority is logged only, nothing is posted', async () => {
         const result = await dispatchNotification({
           ...baseOptions,
           priority: 'low',
@@ -131,6 +141,49 @@ describe('notification-dispatcher service', () => {
         expect(result.email.queued).toBe(true);
         expect(result.slack.sent).toBe(false);
         expect(mockSendSlack).not.toHaveBeenCalled();
+      });
+
+      it('digest: a project task assignment is queued for the daily digest, not posted or batched', async () => {
+        const result = await dispatchNotification({
+          ...baseOptions,
+          priority: 'normal',
+          metadata: { isAdHocOrSupport: false, projectId: 'proj-1' },
+        });
+
+        expect(mockQueueDigest).toHaveBeenCalledTimes(1);
+        expect(mockSendSlack).not.toHaveBeenCalled();
+        expect(result.slack.sent).toBe(false);
+        expect(mockNotificationUpdate).not.toHaveBeenCalledWith(
+          expect.objectContaining({ data: expect.objectContaining({ slack_sent: true }) })
+        );
+      });
+
+      it('digest: an ordinary comment goes to the digest', async () => {
+        await dispatchNotification({ ...baseOptions, type: 'comment_added', priority: 'normal' });
+        expect(mockQueueDigest).toHaveBeenCalledTimes(1);
+        expect(mockSendSlack).not.toHaveBeenCalled();
+      });
+
+      it('digest: slackSort digest on a high notice wins over priority', async () => {
+        await dispatchNotification({
+          ...baseOptions,
+          type: 'system_alert',
+          priority: 'high',
+          metadata: { slackSort: 'digest' },
+        });
+        expect(mockQueueDigest).toHaveBeenCalledTimes(1);
+        expect(mockSendSlack).not.toHaveBeenCalled();
+      });
+
+      it('stop: slackSort stop records the notice and posts nothing', async () => {
+        await dispatchNotification({
+          ...baseOptions,
+          priority: 'critical',
+          metadata: { slackSort: 'stop' },
+        });
+        expect(mockRecordStopped).toHaveBeenCalledTimes(1);
+        expect(mockSendSlack).not.toHaveBeenCalled();
+        expect(mockQueueDigest).not.toHaveBeenCalled();
       });
 
       it('defaults to normal priority when not specified', async () => {

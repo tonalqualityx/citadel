@@ -13,6 +13,14 @@ import {
   getSlackConfig,
 } from './slack';
 import { DispatchOptions } from './notification-dispatcher';
+import {
+  escapeSlack,
+  keptNoticeParts,
+  buildKeptNoticeBlocks,
+  buildDigestMessage,
+  digestDue,
+  type SlackSort,
+} from './slack-sort';
 
 // Priority labels and colors
 const PRIORITY_CONFIG: Record<number, { label: string; emoji: string }> = {
@@ -56,6 +64,7 @@ interface TaskContext {
   clientName?: string;
   projectName?: string;
   siteName?: string;
+  dueDate?: string;
 }
 
 
@@ -72,6 +81,7 @@ async function getTaskContext(taskId: string): Promise<TaskContext | null> {
       client: { select: { name: true } },
       project: { select: { name: true } },
       site: { select: { name: true } },
+      due_date: true,
     },
   });
 
@@ -84,6 +94,9 @@ async function getTaskContext(taskId: string): Promise<TaskContext | null> {
     clientName: task.client?.name,
     projectName: task.project?.name,
     siteName: task.site?.name,
+    dueDate: task.due_date
+      ? task.due_date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+      : undefined,
   };
 }
 
@@ -117,10 +130,7 @@ function buildContextLine(context: TaskContext): string {
   return parts.join(' | ');
 }
 
-/** Escape the three characters Slack reserves (https://api.slack.com/reference/surfaces/formatting#escaping). */
-export function escapeSlack(text: string): string {
-  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
+export { escapeSlack };
 
 /**
  * Build Slack blocks for a notification
@@ -195,71 +205,6 @@ export function buildSlackBlocks(
 }
 
 /**
- * Build Slack blocks for a comment notification with rich context
- */
-function buildCommentBlocks(
-  taskContext: TaskContext,
-  commenterName: string,
-  commentSnippet: string,
-  entityUrl: string | null
-): object[] {
-  const blocks: object[] = [];
-
-  // Header
-  blocks.push({
-    type: 'section',
-    text: {
-      type: 'mrkdwn',
-      text: `💬 *New comment on:* ${taskContext.title}`,
-    },
-  });
-
-  // Context line with client, project, site, priority
-  blocks.push({
-    type: 'context',
-    elements: [
-      {
-        type: 'mrkdwn',
-        text: buildContextLine(taskContext),
-      },
-    ],
-  });
-
-  // Divider
-  blocks.push({ type: 'divider' });
-
-  // Comment content
-  blocks.push({
-    type: 'section',
-    text: {
-      type: 'mrkdwn',
-      text: `*${commenterName}* commented:\n> ${commentSnippet}`,
-    },
-  });
-
-  // Action button
-  if (entityUrl) {
-    blocks.push({
-      type: 'actions',
-      elements: [
-        {
-          type: 'button',
-          text: {
-            type: 'plain_text',
-            text: 'View Task →',
-            emoji: true,
-          },
-          url: entityUrl,
-          action_id: 'view_task',
-        },
-      ],
-    });
-  }
-
-  return blocks;
-}
-
-/**
  * Build entity URL for linking
  */
 function buildEntityUrl(entityType?: string, entityId?: string): string | null {
@@ -282,23 +227,18 @@ function buildEntityUrl(entityType?: string, entityId?: string): string | null {
   return `${baseUrl}${route}/${entityId}`;
 }
 
-/**
- * Send a Slack notification to a user
- * Returns true if sent successfully
- */
+/** KEEP: post one four-part Slack DM at once. Returns true if Slack accepted it. */
 export async function sendSlackNotification(
   options: DispatchOptions
 ): Promise<boolean> {
   const { userId, type, title, message, entityType, entityId, metadata } = options;
 
-  // Check if Slack is configured
   const config = await getSlackConfig();
   if (!config) {
     console.log('Slack not configured, skipping notification');
     return false;
   }
 
-  // Get user's Slack ID
   const slackUserId = await getSlackUserIdForUser(userId);
   if (!slackUserId) {
     console.log('User has no Slack mapping, skipping notification');
@@ -306,44 +246,28 @@ export async function sendSlackNotification(
   }
 
   try {
-    let blocks: object[];
-    let fallbackText: string;
     const entityUrl = buildEntityUrl(entityType, entityId);
+    const taskContext = entityType === 'task' && entityId ? await getTaskContext(entityId) : null;
 
-    // Special handling for comment notifications with rich context
-    if (type === 'comment_added' && entityType === 'task' && entityId) {
-      const taskContext = await getTaskContext(entityId);
-      if (taskContext) {
-        const commenterName = (metadata?.commenterName as string) || 'Someone';
-        const commentSnippet = (metadata?.commentSnippet as string) || message || '';
+    const parts = keptNoticeParts({
+      type,
+      title,
+      message,
+      metadata,
+      context: taskContext
+        ? {
+            title: taskContext.title,
+            projectName: taskContext.projectName,
+            clientName: taskContext.clientName,
+            dueDate: taskContext.dueDate,
+          }
+        : null,
+      link: entityUrl,
+      appUrl: getAppUrl(),
+    });
+    const { text, blocks } = buildKeptNoticeBlocks(parts);
 
-        blocks = buildCommentBlocks(
-          taskContext,
-          commenterName,
-          commentSnippet.slice(0, 200) + (commentSnippet.length > 200 ? '...' : ''),
-          entityUrl
-        );
-        fallbackText = `💬 New comment on: ${taskContext.title} - ${commenterName}: ${commentSnippet.slice(0, 100)}`;
-      } else {
-        // Fallback if task not found
-        blocks = buildSlackBlocks(type, title, message, null, entityUrl);
-        fallbackText = `${TYPE_ICONS[type]} ${title}`;
-      }
-    }
-    // Task-related notifications with context
-    else if (entityType === 'task' && entityId) {
-      const taskContext = await getTaskContext(entityId);
-      blocks = buildSlackBlocks(type, title, message, taskContext, entityUrl);
-      fallbackText = `${TYPE_ICONS[type]} ${title}`;
-    }
-    // Generic notifications
-    else {
-      blocks = buildSlackBlocks(type, title, message, null, entityUrl);
-      fallbackText = `${TYPE_ICONS[type]} ${title}`;
-    }
-
-    // Send the message
-    const result = await sendDirectMessage(slackUserId, fallbackText, blocks);
+    const result = await sendDirectMessage(slackUserId, text, blocks);
 
     if (result.ok && result.ts && result.channel && entityId) {
       // Track the thread for reply syncing
@@ -356,6 +280,22 @@ export async function sendSlackNotification(
       );
     }
 
+    if (result.ok) {
+      try {
+        await prisma.slackNotice.create({
+          data: {
+            ...noticeData(options, 'keep', parts.link),
+            posted_text: result.text ?? text,
+            slack_channel: result.channel,
+            slack_ts: result.ts,
+            sent_at: new Date(),
+          },
+        });
+      } catch (error) {
+        console.error('Failed to log kept Slack notice:', error);
+      }
+    }
+
     return result.ok;
   } catch (error) {
     console.error('Failed to send Slack notification:', error);
@@ -363,87 +303,98 @@ export async function sendSlackNotification(
   }
 }
 
+function noticeData(options: DispatchOptions, sort: SlackSort, link: string | null) {
+  const metaLink = options.metadata?.link;
+  return {
+    user_id: options.userId,
+    sort,
+    notification_type: options.type,
+    title: options.title.slice(0, 255),
+    message: options.message ?? null,
+    entity_type: options.entityType ?? null,
+    entity_id: options.entityId ?? null,
+    link: link ?? (typeof metaLink === 'string' ? metaLink : null),
+  };
+}
+
+/** DIGEST: no post now; one line in the user's daily Slack DM. */
+export async function queueSlackDigest(options: DispatchOptions): Promise<boolean> {
+  const metaLink = options.metadata?.link;
+  const link = typeof metaLink === 'string' ? metaLink : buildEntityUrl(options.entityType, options.entityId);
+  await prisma.slackNotice.create({ data: noticeData(options, 'digest', link) });
+  return true;
+}
+
+/** STOP: no Slack at all; the decision is logged only. */
+export async function recordStoppedSlackNotice(options: DispatchOptions): Promise<boolean> {
+  await prisma.slackNotice.create({
+    data: noticeData(options, 'stop', buildEntityUrl(options.entityType, options.entityId)),
+  });
+  return true;
+}
+
+const NOTICE_KEEP_DAYS = 30;
+
 /**
- * Send a comment notification via Slack with full context
- * This is a specialized function called directly when a comment is added
+ * Send each user's daily digest when it is due (9:00 America/New_York, only on a day with lines),
+ * then drop old log rows. Safe to call every 15 minutes.
  */
-export async function notifyCommentViaSlack(
-  taskId: string,
-  recipientUserId: string,
-  commenterName: string,
-  commentContent: string
-): Promise<boolean> {
-  const taskContext = await getTaskContext(taskId);
-  if (!taskContext) return false;
+export async function sendDueSlackDigests(
+  now: Date = new Date()
+): Promise<{ users: number; sent: number; items: number; skipped: number; cleaned: number }> {
+  const out = { users: 0, sent: 0, items: 0, skipped: 0, cleaned: 0 };
 
-  const slackUserId = await getSlackUserIdForUser(recipientUserId);
-  if (!slackUserId) return false;
+  const pending = await prisma.slackNotice.findMany({
+    where: { sort: 'digest', sent_at: null },
+    orderBy: { created_at: 'asc' },
+  });
+  const byUser = new Map<string, typeof pending>();
+  for (const row of pending) {
+    const list = byUser.get(row.user_id);
+    if (list) list.push(row);
+    else byUser.set(row.user_id, [row]);
+  }
+  out.users = byUser.size;
 
-  const entityUrl = buildEntityUrl('task', taskId);
-  const commentSnippet =
-    commentContent.slice(0, 200) + (commentContent.length > 200 ? '...' : '');
+  for (const [userId, rows] of byUser) {
+    const last = await prisma.slackNotice.findFirst({
+      where: { user_id: userId, sort: 'digest', sent_at: { not: null } },
+      orderBy: { sent_at: 'desc' },
+      select: { sent_at: true },
+    });
+    if (!digestDue(now, last?.sent_at ?? null)) continue;
 
-  const blocks = buildCommentBlocks(taskContext, commenterName, commentSnippet, entityUrl);
-  const fallbackText = `💬 New comment on: ${taskContext.title}`;
+    const ids = rows.map((r) => r.id);
+    const slackUserId = await getSlackUserIdForUser(userId);
+    if (!slackUserId) {
+      await prisma.slackNotice.updateMany({ where: { id: { in: ids } }, data: { sent_at: now } });
+      out.skipped += 1;
+      continue;
+    }
 
-  const result = await sendDirectMessage(slackUserId, fallbackText, blocks);
+    const { text, blocks } = buildDigestMessage(rows, { appUrl: getAppUrl() });
+    const result = await sendDirectMessage(slackUserId, text, blocks);
+    if (!result.ok) continue;
 
-  if (result.ok && result.ts && result.channel) {
-    // Track thread for reply syncing
-    await trackSlackThread('task', taskId, slackUserId, result.channel, result.ts);
+    await prisma.slackNotice.updateMany({
+      where: { id: { in: ids } },
+      data: {
+        sent_at: now,
+        slack_ts: result.ts ?? null,
+        slack_channel: result.channel ?? null,
+        posted_text: result.text ?? text,
+      },
+    });
+    out.sent += 1;
+    out.items += rows.length;
   }
 
-  return result.ok;
-}
-
-/**
- * Send a task assignment notification via Slack
- */
-export async function notifyTaskAssignedViaSlack(
-  taskId: string,
-  assigneeUserId: string,
-  assignerName: string
-): Promise<boolean> {
-  const taskContext = await getTaskContext(taskId);
-  if (!taskContext) return false;
-
-  const slackUserId = await getSlackUserIdForUser(assigneeUserId);
-  if (!slackUserId) return false;
-
-  const entityUrl = buildEntityUrl('task', taskId);
-  const title = `New task assigned: ${taskContext.title}`;
-  const message = `Assigned by ${assignerName}`;
-
-  const blocks = buildSlackBlocks('task_assigned', title, message, taskContext, entityUrl);
-  const fallbackText = `📋 ${title}`;
-
-  const result = await sendDirectMessage(slackUserId, fallbackText, blocks);
-  return result.ok;
-}
-
-/**
- * Send a review request notification via Slack
- */
-export async function notifyReviewRequestedViaSlack(
-  taskId: string,
-  reviewerUserId: string,
-  requesterName: string
-): Promise<boolean> {
-  const taskContext = await getTaskContext(taskId);
-  if (!taskContext) return false;
-
-  const slackUserId = await getSlackUserIdForUser(reviewerUserId);
-  if (!slackUserId) return false;
-
-  const entityUrl = buildEntityUrl('task', taskId);
-  const title = `Review requested: ${taskContext.title}`;
-  const message = `From: ${requesterName}`;
-
-  const blocks = buildSlackBlocks('review_requested', title, message, taskContext, entityUrl);
-  const fallbackText = `👀 ${title}`;
-
-  const result = await sendDirectMessage(slackUserId, fallbackText, blocks);
-  return result.ok;
+  const cutoff = new Date(now.getTime() - NOTICE_KEEP_DAYS * 24 * 60 * 60 * 1000);
+  const cleaned = await prisma.slackNotice.deleteMany({
+    where: { created_at: { lt: cutoff }, OR: [{ sort: 'stop' }, { sent_at: { not: null } }] },
+  });
+  out.cleaned = cleaned.count;
+  return out;
 }
 
 /**

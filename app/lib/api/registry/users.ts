@@ -205,6 +205,41 @@ export const userEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/notifications/slack-notices',
+    group: 'users',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'List the Slack three-way sort log (keep, digest, stop), newest first. PM or admin.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        queryParams: [
+          { name: 'sort', type: 'string', required: false, description: 'keep | digest | stop' },
+          { name: 'user_id', type: 'uuid', required: false, description: 'Only this user' },
+          { name: 'limit', type: 'number', required: false, description: '1 to 100, default 20' },
+        ],
+        responseExample: {
+          notices: [{
+            id: 'uuid',
+            user_id: 'uuid',
+            sort: 'keep|digest|stop',
+            notification_type: 'string',
+            title: 'string',
+            message: 'string|null',
+            entity_type: 'string|null',
+            entity_id: 'string|null',
+            link: 'string|null',
+            posted_text: 'string|null',
+            slack_channel: 'string|null',
+            slack_ts: 'string|null',
+            sent_at: 'ISO-8601|null',
+            created_at: 'ISO-8601',
+          }],
+        },
+      },
+    ],
+  },
+  {
     path: '/api/notifications/:id',
     group: 'users',
     methods: [

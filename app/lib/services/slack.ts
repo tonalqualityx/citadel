@@ -29,6 +29,7 @@ export interface SlackMessageResponse {
   ok: boolean;
   ts?: string;
   channel?: string;
+  text?: string;
   error?: string;
 }
 
@@ -145,6 +146,7 @@ export async function sendDirectMessage(
         ok: true,
         ts: result.ts,
         channel: result.channel,
+        text: result.message?.text,
       };
     }
 

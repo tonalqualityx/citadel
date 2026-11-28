@@ -8,7 +8,7 @@ const store = new MemStore();
 
 vi.mock('@/lib/auth/middleware', () => ({ requireAuth: vi.fn(), requireRole: vi.fn() }));
 vi.mock('@/lib/waits/prisma-store', () => ({ prismaSweepStore: () => store }));
-vi.mock('@/lib/services/slack-notifications', () => ({ sendSlackNotification: vi.fn(async () => true) }));
+vi.mock('@/lib/services/slack-notifications', () => ({ queueSlackDigest: vi.fn(async () => true), sendDueSlackDigests: vi.fn(async () => ({ users: 0, sent: 0, items: 0, skipped: 0, cleaned: 0 })) }));
 vi.mock('@/lib/price-review/open', () => ({ openPriceReviews: vi.fn() }));
 vi.mock('@/lib/db/prisma', () => ({
   prisma: {
