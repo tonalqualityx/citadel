@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
+import { notifyReleasedAssignees } from '@/lib/services/notifications';
 
 const addDependencySchema = z.object({
   blocker_id: z.string().uuid(),
@@ -111,6 +112,12 @@ export async function DELETE(
         where: { id },
         data: { status: 'not_started' },
       });
+      // Released: the assignment notice it held while blocked goes out, once (task 5ad27fc9). It never fails the call.
+      try {
+        await notifyReleasedAssignees([id]);
+      } catch (e) {
+        console.error('held assignment notice failed', id, e);
+      }
     }
 
     return NextResponse.json({ success: true });

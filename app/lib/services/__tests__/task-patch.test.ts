@@ -17,7 +17,7 @@ vi.mock('@/lib/db/prisma', () => ({
   },
 }));
 vi.mock('@/lib/services/activity', () => ({ logStatusChange: vi.fn() }));
-vi.mock('@/lib/services/notifications', () => ({ notifyTaskAssigned: vi.fn() }));
+vi.mock('@/lib/services/notifications', () => ({ notifyTaskAssigned: vi.fn(), notifyReleasedAssignees: vi.fn() }));
 vi.mock('@/lib/services/dependencies', () => ({
   unblockEligibleDependents: vi.fn(),
   reblockDependents: vi.fn(),
@@ -40,7 +40,7 @@ vi.mock('@/lib/bast-chat/task-record', () => ({ recordChatPatch: vi.fn(async () 
 import { prisma } from '@/lib/db/prisma';
 import type { AuthPayload } from '@/lib/auth/middleware';
 import { logStatusChange } from '@/lib/services/activity';
-import { notifyTaskAssigned } from '@/lib/services/notifications';
+import { notifyTaskAssigned, notifyReleasedAssignees } from '@/lib/services/notifications';
 import { assertClaimHeld } from '@/lib/tasks/claims';
 import { recordChatPatch } from '@/lib/bast-chat/task-record';
 import { patchTask } from '../task-patch';
@@ -288,5 +288,47 @@ describe('patchTask hard due date (home screen Slice 2)', () => {
     const data = update.mock.calls[0][0].data;
     expect('hard_due_at' in data).toBe(false);
     expect('hard_due_source' in data).toBe(false);
+  });
+});
+
+describe('held assignment notice (task 5ad27fc9)', () => {
+  it('a blocked task moved to not_started by someone else sends its held notice', async () => {
+    const ex = existing({ status: 'blocked' });
+    echo(ex);
+    await patchTask({ actor: ADMIN, id: ID, body: { status: 'not_started' }, existing: ex });
+    expect(notifyReleasedAssignees).toHaveBeenCalledWith([ID]);
+  });
+
+  it('the assignee moving their own blocked task gets no notice', async () => {
+    const ex = existing({ status: 'blocked', assignee_id: 'admin-1' });
+    echo(ex);
+    await patchTask({ actor: ADMIN, id: ID, body: { status: 'not_started' }, existing: ex });
+    expect(notifyReleasedAssignees).not.toHaveBeenCalled();
+  });
+
+  it('a task that was not blocked sends no release notice', async () => {
+    const ex = existing();
+    echo(ex);
+    await patchTask({ actor: ADMIN, id: ID, body: { status: 'in_progress' }, existing: ex });
+    expect(notifyReleasedAssignees).not.toHaveBeenCalled();
+  });
+
+  it('assigning a task to yourself records you as told, so its release sends you nothing', async () => {
+    const SELF = '550e8400-e29b-41d4-a716-446655440009';
+    const me = { ...ADMIN, userId: SELF } as AuthPayload;
+    const ex = existing({ assignee_id: null });
+    echo(ex);
+    await patchTask({ actor: me, id: ID, body: { assignee_id: SELF }, existing: ex });
+    const call = update.mock.calls[0][0];
+    expect(call.data).toEqual(expect.objectContaining({ assignee_id: SELF, assignment_noticed_user_id: SELF }));
+    expect(notifyTaskAssigned).not.toHaveBeenCalled();
+  });
+
+  it('assigning someone else leaves the record to the notice itself', async () => {
+    const ex = existing({ assignee_id: null });
+    echo(ex);
+    await patchTask({ actor: ADMIN, id: ID, body: { assignee_id: '550e8400-e29b-41d4-a716-446655440001' }, existing: ex });
+    const call = update.mock.calls[0][0];
+    expect(call.data).not.toHaveProperty('assignment_noticed_user_id');
   });
 });

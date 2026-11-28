@@ -1260,6 +1260,9 @@ model Task {
   // Assignment
   assignee_id String?   @db.Uuid
   assignee    User?     @relation("TaskAssignee", fields: [assignee_id], references: [id])
+  // Who has been told about this assignment (task 5ad27fc9). A task assigned while blocked sends no assignment notice; the
+  // notice goes when the task is released, once, and this records who got it so a later release never sends it again.
+  assignment_noticed_user_id String? @db.Uuid
   function_id String?   @db.Uuid
   function    Function? @relation(fields: [function_id], references: [id])
 

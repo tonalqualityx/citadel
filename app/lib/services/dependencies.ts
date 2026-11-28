@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/db/prisma';
+import { notifyReleasedAssignees } from '@/lib/services/notifications';
 
 /**
  * Dependency / blocking propagation.
@@ -85,7 +86,20 @@ async function releaseReleasable(dependents: Array<DependentShape & { id: string
     where: { id: { in: ids }, status: 'blocked' },
     data: { status: 'not_started' },
   });
+  await sendHeldAssignmentNotices(ids);
   return ids;
+}
+
+/**
+ * A released task is available to its assignee now: the assignment notice held while it was blocked goes out, once
+ * (task 5ad27fc9). Every release path comes through here. A failed notice never fails the release.
+ */
+async function sendHeldAssignmentNotices(ids: string[]): Promise<void> {
+  try {
+    await notifyReleasedAssignees(ids);
+  } catch (e) {
+    console.error('held assignment notice failed', ids, e);
+  }
 }
 
 /**

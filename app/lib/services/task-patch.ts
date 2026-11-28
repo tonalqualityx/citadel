@@ -17,7 +17,7 @@ import {
   wouldCreateCycle,
 } from '@/lib/services/dependencies';
 import { assertInitiativeLinkable } from '@/lib/initiatives/service';
-import { notifyTaskAssigned } from '@/lib/services/notifications';
+import { notifyTaskAssigned, notifyReleasedAssignees } from '@/lib/services/notifications';
 import { onTaskProgress } from '@/lib/portal/waits';
 import { clearPreviewClaims } from '@/lib/sends/claims';
 import { assertClaimHeld, CLEAR_CLAIM_DATA } from '@/lib/tasks/claims';
@@ -473,6 +473,23 @@ async function carryProjectCard(id: string): Promise<void> {
   await carryCardIntoProject(prisma, id).catch(() => false);
 }
 
+/**
+ * A blocked task moved out of blocked by hand is available now: the assignment notice it held goes out, once (task
+ * 5ad27fc9). The person who moved their own task needs no notice. A failed notice never fails the PATCH.
+ */
+async function noticeIfReleasedByHand(
+  actorId: string,
+  before: { status?: string | null },
+  after: { id: string; status: string; assignee_id: string | null }
+): Promise<void> {
+  if (before.status !== 'blocked' || after.status === 'blocked' || !after.assignee_id || after.assignee_id === actorId) return;
+  try {
+    await notifyReleasedAssignees([after.id]);
+  } catch (e) {
+    console.error('held assignment notice failed', after.id, e);
+  }
+}
+
 export async function patchTask(input: PatchTaskInput) {
   const { actor: auth, id, body, expect, claimToken, chatConversation = null } = input;
   const existingTask = input.existing ?? (await checkTaskAccess(id, auth));
@@ -548,6 +565,7 @@ export async function patchTask(input: PatchTaskInput) {
       statusData.status
     );
     if (statusData.status === 'done' && existingTask.status !== 'done') await carryProjectCard(id);
+    await noticeIfReleasedByHand(auth.userId, existingTask, task);
 
     const chatAction = await recordChatPatch(auth, existingTask, task, chatConversation);
     return { ok: true as const, task, completionNudge, chatActionId: chatAction };
@@ -738,6 +756,11 @@ export async function patchTask(input: PatchTaskInput) {
     }
   }
 
+  // Assigning a task to yourself sends no notice, so you count as told: its release later sends you none (task 5ad27fc9).
+  if (updateData.assignee_id && updateData.assignee_id === auth.userId && updateData.assignee_id !== existingTask.assignee_id) {
+    updateData.assignment_noticed_user_id = auth.userId;
+  }
+
   if (data.sop_id !== undefined) updateData.sop_id = data.sop_id;
   if (data.energy_estimate !== undefined) updateData.energy_estimate = data.energy_estimate;
   if (data.mystery_factor !== undefined) updateData.mystery_factor = data.mystery_factor;
@@ -924,6 +947,8 @@ export async function patchTask(input: PatchTaskInput) {
     });
     await notifyTaskAssigned(task.id, task.assignee_id, updater?.name || 'Someone');
   }
+
+  await noticeIfReleasedByHand(auth.userId, existingTask, task);
 
   const chatAction = await recordChatPatch(auth, existingTask, task, chatConversation);
   return { ok: true as const, task, completionNudge, chatActionId: chatAction };

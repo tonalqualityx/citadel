@@ -121,6 +121,17 @@ export async function createInAppNotificationOnly(params: CreateNotificationPara
 }
 
 // Notification triggers
+
+/**
+ * The assignment notice waits until the task is available (task 5ad27fc9). Mike, 2026-11-27: "whenever a task is assigned
+ * to me I get a notification in slack. I should only get the notification when it's available to me. If it's blocked I
+ * should not see it until it's unblocked."; on the same card: "Same for anyone else".
+ *
+ * A task is held while its status is `blocked`: that is the state every blocker path sets (an unfinished blocker task at
+ * create or on a new dependency, an open question that blocks the card) and the only state the release paths in
+ * lib/services/dependencies.ts move a task out of. A held task sends nothing in any channel; `notifyReleasedAssignees`
+ * sends it when the task is released. `tasks.assignment_noticed_user_id` records who was told, so the notice goes once.
+ */
 export async function notifyTaskAssigned(
   taskId: string,
   assigneeId: string,
@@ -130,6 +141,7 @@ export async function notifyTaskAssigned(
     where: { id: taskId },
     select: {
       title: true,
+      status: true,
       is_support: true,
       project_id: true,
       project: { select: { id: true, name: true } },
@@ -137,7 +149,18 @@ export async function notifyTaskAssigned(
   });
 
   if (!task) return;
+  // Held: it goes out when the task is released (notifyReleasedAssignees).
+  if (task.status === 'blocked') return;
 
+  await prisma.task.update({ where: { id: taskId }, data: { assignment_noticed_user_id: assigneeId } });
+  await sendTaskAssignedNotice(taskId, assigneeId, task);
+}
+
+async function sendTaskAssignedNotice(
+  taskId: string,
+  assigneeId: string,
+  task: { title: string; is_support: boolean; project_id: string | null; project: { id: string; name: string } | null }
+) {
   // Determine if this should be sent immediately or batched
   // Ad-hoc tasks (no project) and support tasks should notify immediately
   const isAdHocOrSupport = !task.project_id || task.is_support;
@@ -157,6 +180,53 @@ export async function notifyTaskAssigned(
       taskTitle: task.title,
     },
   });
+}
+
+/**
+ * The person assigned a task already knows about it (they assigned it to themselves): record them as told, so the task's
+ * release later sends them no notice. Self-assignment never sent one.
+ */
+export async function markAssignmentNoticed(taskId: string, assigneeId: string) {
+  await prisma.task.update({ where: { id: taskId }, data: { assignment_noticed_user_id: assigneeId } });
+}
+
+/**
+ * These tasks just stopped being blocked: send each assignee who has not been told about the assignment its notice, once.
+ * The claim (a conditional write of `assignment_noticed_user_id`) is what makes it once: a second release, or two release
+ * paths racing, finds the assignee already recorded and sends nothing. Returns the ids notified.
+ */
+export async function notifyReleasedAssignees(taskIds: string[]): Promise<string[]> {
+  if (taskIds.length === 0) return [];
+  const tasks = await prisma.task.findMany({
+    // Only a task that is now workable: a release that lost a race to Triage, or a close, sends nothing.
+    where: { id: { in: taskIds }, is_deleted: false, assignee_id: { not: null }, status: { in: ['not_started', 'in_progress', 'review'] } },
+    select: {
+      id: true,
+      title: true,
+      assignee_id: true,
+      assignment_noticed_user_id: true,
+      is_support: true,
+      project_id: true,
+      project: { select: { id: true, name: true } },
+    },
+  });
+  const notified: string[] = [];
+  for (const t of tasks) {
+    const assigneeId = t.assignee_id;
+    if (!assigneeId || t.assignment_noticed_user_id === assigneeId) continue;
+    const claimed = await prisma.task.updateMany({
+      where: {
+        id: t.id,
+        assignee_id: assigneeId,
+        OR: [{ assignment_noticed_user_id: null }, { assignment_noticed_user_id: { not: assigneeId } }],
+      },
+      data: { assignment_noticed_user_id: assigneeId },
+    });
+    if (claimed.count !== 1) continue;
+    await sendTaskAssignedNotice(t.id, assigneeId, t);
+    notified.push(t.id);
+  }
+  return notified;
 }
 
 export async function notifyTaskStatusChanged(

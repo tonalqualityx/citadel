@@ -10,6 +10,13 @@ vi.mock('@/lib/db/prisma', () => ({
   },
 }));
 
+// The held assignment notice (task 5ad27fc9) is sent from every release; its own behavior is tested in
+// notifications-assignment-hold.test.ts.
+const mockNotifyReleased = vi.fn();
+vi.mock('@/lib/services/notifications', () => ({
+  notifyReleasedAssignees: (...a: unknown[]) => mockNotifyReleased(...a),
+}));
+
 import { prisma } from '@/lib/db/prisma';
 import {
   isBlockerSatisfied,
@@ -379,5 +386,47 @@ describe('open questions block like unfinished blocker tasks (Mike, 2026-11-19)'
   it('releaseTasksIfReleasable with no ids touches nothing', async () => {
     expect(await releaseTasksIfReleasable([])).toEqual([]);
     expect(mockFindMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('held assignment notice on release (task 5ad27fc9)', () => {
+  it('a task released when its last blocker task clears sends the held notice for exactly the released ids', async () => {
+    mockFindMany.mockResolvedValueOnce([
+      { id: 'dep-ready', blocked_by: [blocker('b', 'done', false, true)], blocked_by_questions: [] },
+      { id: 'dep-held', blocked_by: [blocker('b', 'done', false, true), blocker('c', 'in_progress', false, true)], blocked_by_questions: [] },
+    ]);
+    mockUpdateMany.mockResolvedValue({ count: 1 });
+    await unblockEligibleDependents('b');
+    expect(mockNotifyReleased).toHaveBeenCalledTimes(1);
+    expect(mockNotifyReleased).toHaveBeenCalledWith(['dep-ready']);
+  });
+
+  it('a task released when the question blocking it is answered sends the held notice', async () => {
+    mockFindMany.mockResolvedValueOnce([{ id: 'dep-q', blocked_by: [], blocked_by_questions: [] }]);
+    mockUpdateMany.mockResolvedValue({ count: 1 });
+    await releaseQuestionDependents('q1');
+    expect(mockNotifyReleased).toHaveBeenCalledWith(['dep-q']);
+  });
+
+  it('a task still held by another open question is not released and sends nothing', async () => {
+    mockFindMany.mockResolvedValueOnce([{ id: 'dep-q', blocked_by: [], blocked_by_questions: [{ id: 'q2' }] }]);
+    await releaseQuestionDependents('q1');
+    expect(mockNotifyReleased).not.toHaveBeenCalled();
+  });
+
+  it('the heal sweep sends the held notice for what it releases', async () => {
+    mockFindMany.mockResolvedValueOnce([{ id: 'stuck', blocked_by: [], blocked_by_questions: [] }]);
+    mockUpdateMany.mockResolvedValue({ count: 1 });
+    await healBlockedTasks();
+    expect(mockNotifyReleased).toHaveBeenCalledWith(['stuck']);
+  });
+
+  it('a failed notice never fails the release', async () => {
+    mockFindMany.mockResolvedValueOnce([{ id: 'dep', blocked_by: [], blocked_by_questions: [] }]);
+    mockUpdateMany.mockResolvedValue({ count: 1 });
+    mockNotifyReleased.mockRejectedValueOnce(new Error('slack down'));
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(releaseTasksIfReleasable(['dep'])).resolves.toEqual(['dep']);
+    err.mockRestore();
   });
 });

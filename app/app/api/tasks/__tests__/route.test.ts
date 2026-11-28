@@ -446,6 +446,20 @@ describe('POST /api/tasks', () => {
       );
     });
 
+    it('a task assigned to someone else does not record them as told at create (the notice does, unless held)', async () => {
+      await POST(createPostRequest({ title: 'Assigned Task', assignee_id: assigneeId }));
+      expect(mockTaskCreate.mock.calls[0][0].data).not.toHaveProperty('assignment_noticed_user_id');
+    });
+
+    it('a self-assigned task records its creator as told, so its release later sends no notice (task 5ad27fc9)', async () => {
+      const self = '550e8400-e29b-41d4-a716-446655440003';
+      mockRequireAuth.mockResolvedValue({ userId: self, role: 'pm', email: 'pm@example.com' });
+      mockUserFindUnique.mockResolvedValue({ id: self, name: 'Me', is_active: true });
+      await POST(createPostRequest({ title: 'Mine', assignee_id: self }));
+      expect(mockTaskCreate.mock.calls[0][0].data).toEqual(expect.objectContaining({ assignee_id: self, assignment_noticed_user_id: self }));
+      expect(mockNotifyTaskAssigned).not.toHaveBeenCalled();
+    });
+
     it('returns 404 when assignee does not exist', async () => {
       mockUserFindUnique.mockResolvedValue(null);
 

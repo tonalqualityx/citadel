@@ -568,6 +568,8 @@ export async function POST(request: NextRequest) {
         phase: data.phase, // Legacy field
         sort_order: data.sort_order || 0,
         assignee_id: data.assignee_id || autoAssigneeId,
+        // Self-assigned: no notice is sent, and the creator counts as told, so a release later sends none (task 5ad27fc9).
+        ...((data.assignee_id || autoAssigneeId) === auth.userId ? { assignment_noticed_user_id: auth.userId } : {}),
         function_id: effectiveFunctionId,
         sop_id: data.sop_id,
         requirements: sopDefaults.requirements || undefined,
