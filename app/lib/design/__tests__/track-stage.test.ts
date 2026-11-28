@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { ADDED_DESIGNS_LINE, BUILD_STAGES, HOME_STARTS, INFER_LINE, TRACK_STAGES, TRACK_TRANSITIONS, assertMove, canMove, payloadStart } from '../track-stage';
 import { busyLineFor } from '../track-session';
 import { ADOPT_KINDS, TASK_JOB_KINDS } from '../track-core';
-import { adoptResultSchema, isFinishGreen, jobBranchRe } from '../track-adopt';
+import { adoptResultSchema, isFinishGreen, jobBranchRe, madePages } from '../track-adopt';
 import { briefBodySchema } from '../brief-schema';
 import { newSlug } from '../track-runner';
 
@@ -125,6 +125,16 @@ describe('adopt helpers', () => {
     for (const bad of [{ preview_url: 'https://x.pages.dev' }, { head_sha: 'zzzzzzz', preview_url: 'https://x.pages.dev' }, { head_sha: 'abc1234', preview_url: 'http://x.dev' }, { head_sha: 'abc1234', preview_url: 'https://x.dev', pages: [{ path: 'no-slash' }] }]) {
       expect(adoptResultSchema.safeParse(bad).success).toBe(false);
     }
+  });
+  it('made pages: the job list, kept only where the preview serves it; no list keeps the preview list', () => {
+    const preview = [{ path: '/', title: 'Home' }, { path: '/about/', title: 'About' }, { path: '/design/components/' }];
+    expect(madePages({}, preview)).toEqual({ pages: preview, fromJob: false });
+    expect(madePages({ job_pages: 'nope' }, preview)).toEqual({ pages: preview, fromJob: false });
+    expect(madePages({ job_pages: [] }, preview)).toEqual({ pages: [], fromJob: true });
+    expect(madePages({ job_pages: [{ path: '/about/' }, { path: '/about/', title: 'Dup' }, { path: '/gone/' }] }, preview))
+      .toEqual({ pages: [{ path: '/about/', title: 'About' }], fromJob: true });
+    expect(madePages({ job_pages: [{ path: '/', title: 'Start' }, { path: '/design/components/', title: null }] }, preview))
+      .toEqual({ pages: [{ path: '/', title: 'Start' }, { path: '/design/components/' }], fromJob: true });
   });
   it('finish is green only when every result is ok (or green: true)', () => {
     expect(isFinishGreen({ green: true })).toBe(true);

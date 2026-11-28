@@ -3,8 +3,9 @@
  *
  * The runner asks for an adopt through POST /api/design/runner/tracks/:id/adopt; Citadel builds the `adopt_branch`
  * command payload from the track and job rows and takes only `job_id`, `job_branch` and `expected_base` from the
- * runner. The daemon completes the command through PATCH /api/design/worker/commands/:id; `applyAdoptCompletion`
- * and `applyFinishCompletion` run in the same transaction as that completion and carry the stage effects.
+ * runner, plus the pages its job made (`pages`, optional). The daemon completes the command through
+ * PATCH /api/design/worker/commands/:id; `applyAdoptCompletion` and `applyFinishCompletion` run in the same transaction
+ * as that completion and carry the stage effects.
  */
 import type { DesignCommand, DesignJob, Prisma } from '@prisma/client';
 import { z } from 'zod';
@@ -30,17 +31,35 @@ export const adoptResultSchema = z.object({
 }).passthrough();
 export type AdoptResult = z.infer<typeof adoptResultSchema>;
 
+/** At most this many job pages ride on an adopt request (a build writes at most 200). */
+export const MAX_JOB_PAGES = 500;
+
+/** The pages a job made, as the runner reports them with the adopt request. A null title means the page has none. */
+export const jobPagesSchema = z.array(z.object({
+  path: z.string().min(1).max(300).startsWith('/'),
+  title: z.string().max(200).nullable().optional(),
+}).strict()).max(MAX_JOB_PAGES);
+
+/** The outline pages still on the job's tree when it finished (their URLs), as the runner reports them. */
+export const jobOutlinePagesSchema = z.array(z.string().min(1).max(300).startsWith('/')).max(MAX_JOB_PAGES);
+
 export interface AdoptInput {
   job_id: string;
   job_branch: string;
   expected_base: string;
+  /** The pages this job made. Absent: the adopt's own page list (every page of the preview) is stored, as before. */
+  pages?: Array<{ path: string; title?: string | null }>;
+  /** The outline pages still on the job's tree. Stored as the result's `outline_pages`; `builtPages` leaves them out. */
+  outline_pages?: string[];
 }
 
 /**
  * The adopt route's work: validates the job against the track and creates the `adopt_branch` command (session-less,
  * created by the runner's user). The job must be claimed or running and of an adopting kind; `job_branch` must be
  * `design/t-<slug>-job-<n>` for THIS track; `expected_base` is 40 hex characters. A job that already has a pending or
- * claimed adopt command returns that command (created false). Moves the job to running.
+ * claimed adopt command returns that command (created false). Moves the job to running. `pages`, when given, is kept on
+ * the command as `job_pages` (the daemon ignores it) and becomes the job's result pages when the adopt completes;
+ * `outline_pages` likewise as `job_outline_pages`, stored as the result's `outline_pages`.
  */
 export async function createAdoptCommand(trackId: string, input: AdoptInput, runnerUserId: string): Promise<{ command: DesignCommand; created: boolean }> {
   return trackTx(async ({ tx }) => {
@@ -64,6 +83,8 @@ export async function createAdoptCommand(trackId: string, input: AdoptInput, run
         payload: {
           track_id: track.id, site_id: track.site_id, job_id: job.id, job_kind: job.kind, branch: track.branch,
           preview_alias: track.preview_alias, job_branch: input.job_branch, expected_base: input.expected_base,
+          ...(input.pages ? { job_pages: dedupePages(input.pages) } : {}),
+          ...(input.outline_pages ? { job_outline_pages: [...new Set(input.outline_pages)] } : {}),
         },
       },
     });
@@ -74,6 +95,37 @@ export async function createAdoptCommand(trackId: string, input: AdoptInput, run
 
 const payloadOf = (cmd: { payload: Prisma.JsonValue }): Record<string, unknown> =>
   cmd.payload && typeof cmd.payload === 'object' && !Array.isArray(cmd.payload) ? (cmd.payload as Record<string, unknown>) : {};
+
+/** One entry per path, first wins; an empty or null title is dropped. */
+function dedupePages(pages: Array<{ path: string; title?: string | null }>): Array<{ path: string; title?: string }> {
+  const seen = new Set<string>();
+  const out: Array<{ path: string; title?: string }> = [];
+  for (const p of pages) {
+    if (seen.has(p.path)) continue;
+    seen.add(p.path);
+    out.push(p.title ? { path: p.path, title: p.title } : { path: p.path });
+  }
+  return out;
+}
+
+/**
+ * The pages to store as a finished build's result. The daemon's list is every page the preview serves, outline pages and
+ * the components page included, so when the runner named the pages its job made (`job_pages` on the command), only those
+ * the preview also serves are kept, the job's title first. With no `job_pages` (an older runner) the daemon's list stands.
+ */
+export function madePages(
+  payload: Record<string, unknown>, previewPages: AdoptResult['pages'],
+): { pages: Array<{ path: string; title?: string }>; fromJob: boolean } {
+  const parsed = jobPagesSchema.safeParse(payload.job_pages);
+  if (payload.job_pages === undefined || !parsed.success) return { pages: previewPages.map((p) => ({ ...p })), fromJob: false };
+  const served = new Map(previewPages.map((p) => [p.path, typeof p.title === 'string' ? p.title : undefined] as const));
+  const pages = dedupePages(parsed.data).flatMap((p) => {
+    if (!served.has(p.path)) return [];
+    const title = p.title || served.get(p.path);
+    return [title ? { path: p.path, title } : { path: p.path }];
+  });
+  return { pages, fromJob: true };
+}
 
 const failReason = (cmd: DesignCommand): string => {
   const r = cmd.result && typeof cmd.result === 'object' && !Array.isArray(cmd.result) ? (cmd.result as Record<string, unknown>).reason : null;
@@ -104,7 +156,15 @@ export async function applyAdoptCompletion(scope: TrackScope, cmd: DesignCommand
     await failOrRequeue(scope, job, 'adopt_failed: bad_adopt_result', cmd.created_by_id);
     return;
   }
-  const result = parsed.data;
+  const made = madePages(p, parsed.data.pages);
+  const outlines = jobOutlinePagesSchema.safeParse(p.job_outline_pages);
+  // the job's result names only the pages it made; the preview's full list is kept beside them, and the outline pages the
+  // job left are named so that no reader counts them as built
+  const result: AdoptResult = {
+    ...parsed.data,
+    ...(made.fromJob ? { pages: made.pages, preview_pages: parsed.data.pages } : {}),
+    ...(p.job_outline_pages !== undefined && outlines.success ? { outline_pages: outlines.data } : {}),
+  };
   await lockTrack(tx, trackId);
   await tx.designTrack.update({
     where: { id: trackId },

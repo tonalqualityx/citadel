@@ -62,9 +62,16 @@ describe.skipIf(!SCRATCH)('design track: start choice, infer the rest, added des
     return job.PATCH(json('PATCH', `/api/design/runner/jobs/${jobId}`, body), ctx({ id: jobId }));
   }
   /** Adopt a claimed build job and have the daemon complete it with these pages. */
-  async function adoptDone(t: { id: string; slug: string }, jobId: string, pages: Array<{ path: string; title?: string }>) {
+  async function adoptDone(
+    t: { id: string; slug: string }, jobId: string, pages: Array<{ path: string; title?: string }>,
+    jobPages?: Array<{ path: string; title?: string | null }>, outlinePages?: string[],
+  ) {
     asRunner();
-    const a = await adopt.POST(json('POST', `/api/design/runner/tracks/${t.id}/adopt`, { job_id: jobId, job_branch: `design/t-${t.slug}-job-${jobNo++}`, expected_base: SHA }), ctx({ id: t.id }));
+    const body = {
+      job_id: jobId, job_branch: `design/t-${t.slug}-job-${jobNo++}`, expected_base: SHA,
+      ...(jobPages ? { pages: jobPages } : {}), ...(outlinePages ? { outline_pages: outlinePages } : {}),
+    };
+    const a = await adopt.POST(json('POST', `/api/design/runner/tracks/${t.id}/adopt`, body), ctx({ id: t.id }));
     expect(a.status).toBe(201);
     const cmdId = (await a.json()).command.id;
     asWorker();
@@ -313,5 +320,69 @@ describe.skipIf(!SCRATCH)('design track: start choice, infer the rest, added des
     const after = await row(t.id);
     expect([after.stage, after.busy_job_id]).toEqual(['refine', null]); // nothing left on the board unbuilt
     expect(await trackTx(({ tx }) => addedDesignIds(tx, t.id))).toEqual([]);
+  });
+
+  it('a build stores only the pages it made: outline pages and the components page stay out of built_pages and the reviews', async () => {
+    const { w, t, sess } = await toHomeBuild('madepages');
+    // the preview serves the outline pages and the components page beside the home page the build made
+    const preview = [
+      { path: '/', title: 'Home' }, { path: '/about/', title: 'About (outline)' }, { path: '/contact/', title: 'Contact (outline)' },
+      { path: '/design/components/', title: 'Components' },
+    ];
+    const hb = await claim(['home_build']);
+    await adoptDone(t, hb!.id, preview, [{ path: '/', title: 'Home' }]);
+    const home = await jobRow(hb!.id);
+    expect((home.result as { pages: unknown }).pages).toEqual([{ path: '/', title: 'Home' }]);
+    expect((home.result as { preview_pages: unknown }).preview_pages).toEqual(preview);
+    expect(await trackTx(({ tx }) => builtPages(tx, t.id))).toEqual([{ path: '/', title: 'Home' }]);
+
+    // infer the rest builds /about/ only; /contact/ stays an outline. A page the preview does not serve is not stored,
+    // a duplicate counts once, and a page with no title takes the preview's.
+    expect((await infer(sess.id)).status).toBe(202);
+    const rb = await claim(['rest_build']);
+    expect(rb!.payload.built_pages).toEqual([{ path: '/', title: 'Home' }]);
+    await adoptDone(t, rb!.id, [...preview.slice(0, 1), { path: '/about/', title: 'About' }, ...preview.slice(2)],
+      [{ path: '/about/', title: null }, { path: '/about/', title: 'Again' }, { path: '/gone/', title: 'Gone' }]);
+    expect((await row(t.id)).stage).toBe('review');
+    expect(((await jobRow(rb!.id)).result as { pages: unknown }).pages).toEqual([{ path: '/about/', title: 'About' }]);
+    expect((await prisma.designPageReview.findMany({ where: { track_id: t.id } })).map((p) => p.page_path)).toEqual(['/about/']);
+    expect(((await task(w.t.review)).requirements as Array<{ text: string }>).map((r) => r.text)).toEqual(['Review About (/about/)']);
+    expect(await trackTx(({ tx }) => builtPages(tx, t.id))).toEqual([{ path: '/', title: 'Home' }, { path: '/about/', title: 'About' }]);
+  });
+
+  it('outline pages an older build stored as built stay out of built_pages and the reviews once a build names them', async () => {
+    const { w, t, sess } = await toHomeBuild('oldlist');
+    // a home build adopted before the runner sent its page list: every page of the preview was stored
+    const preview = [{ path: '/', title: 'Home' }, { path: '/about/', title: 'About (outline)' }, { path: '/contact/', title: 'Contact (outline)' }];
+    const hb = await claim(['home_build']);
+    await adoptDone(t, hb!.id, preview);
+    expect(await trackTx(({ tx }) => builtPages(tx, t.id))).toEqual(preview);
+
+    // infer the rest builds /about/ and leaves /contact/ an outline (a drawn page)
+    expect((await infer(sess.id)).status).toBe(202);
+    const rb = await claim(['rest_build']);
+    await adoptDone(t, rb!.id, [preview[0], { path: '/about/', title: 'About' }, preview[2]], [{ path: '/about/', title: 'About' }], ['/contact/']);
+    expect((await row(t.id)).stage).toBe('review');
+    expect(((await jobRow(rb!.id)).result as { outline_pages: unknown }).outline_pages).toEqual(['/contact/']);
+    expect((await prisma.designPageReview.findMany({ where: { track_id: t.id } })).map((p) => p.page_path)).toEqual(['/about/']);
+    expect(((await task(w.t.review)).requirements as Array<{ text: string }>).map((r) => r.text)).toEqual(['Review About (/about/)']);
+    expect((await trackTx(({ tx }) => builtPages(tx, t.id))).map((p) => p.path)).toEqual(['/', '/about/']);
+  });
+
+  it('the adopt route refuses a malformed page list', async () => {
+    const { t } = await toHomeBuild('badpages');
+    const hb = await claim(['home_build']);
+    asRunner();
+    const post = (pages: unknown) => adopt.POST(json('POST', `/api/design/runner/tracks/${t.id}/adopt`, {
+      job_id: hb!.id, job_branch: `design/t-${t.slug}-job-${jobNo++}`, expected_base: SHA, pages,
+    }), ctx({ id: t.id }));
+    for (const bad of [[{ path: 'about' }], [{ path: '/', extra: 1 }], 'x', [{ path: '/', title: 'x'.repeat(201) }]]) {
+      expect((await post(bad)).status).toBe(400);
+    }
+    const postOutlines = (outline_pages: unknown) => adopt.POST(json('POST', `/api/design/runner/tracks/${t.id}/adopt`, {
+      job_id: hb!.id, job_branch: `design/t-${t.slug}-job-${jobNo++}`, expected_base: SHA, outline_pages,
+    }), ctx({ id: t.id }));
+    for (const bad of [['about'], [3], 'x']) expect((await postOutlines(bad)).status).toBe(400);
+    expect(await prisma.designCommand.count({ where: { verb: 'adopt_branch', payload: { path: ['job_id'], equals: hb!.id } } })).toBe(0);
   });
 });

@@ -368,15 +368,33 @@ function resultPages(result: Prisma.JsonValue | null | undefined): BuiltPage[] {
   });
 }
 
-/** Every page the track's finished builds made (adopt results of done builds, then the review rows), first title wins. */
+/** The outline page URLs a build result names (`outline_pages`, sent by the runner), or null when it names none. */
+function resultOutlines(result: Prisma.JsonValue | null | undefined): string[] | null {
+  const o = payloadObject(result).outline_pages;
+  return Array.isArray(o) ? o.filter((x): x is string => typeof x === 'string') : null;
+}
+
+/**
+ * Every page the track's finished builds made (adopt results of done builds, then the review rows), first title wins.
+ * The outline pages named by the most recently finished build that reports them are left out: a build adopted before the
+ * runner sent its own page list stored every page of the preview, outline pages included.
+ */
 export async function builtPages(tx: Tx, trackId: string): Promise<BuiltPage[]> {
   const out = new Map<string, string>();
   const jobs = await tx.designJob.findMany({
-    where: { track_id: trackId, kind: { in: BUILD_JOB_KINDS }, status: 'done' }, orderBy: [{ created_at: 'asc' }, { id: 'asc' }], select: { result: true },
+    where: { track_id: trackId, kind: { in: BUILD_JOB_KINDS }, status: 'done' }, orderBy: [{ created_at: 'asc' }, { id: 'asc' }],
+    select: { result: true, finished_at: true },
   });
   for (const j of jobs) for (const p of resultPages(j.result)) if (!out.has(p.path)) out.set(p.path, p.title);
   const reviews = await tx.designPageReview.findMany({ where: { track_id: trackId }, orderBy: { created_at: 'asc' }, select: { page_path: true, title: true } });
   for (const r of reviews) if (!out.has(r.page_path)) out.set(r.page_path, r.title);
+  let latest: { at: number; outlines: string[] } | null = null;
+  for (const j of jobs) {
+    const outlines = resultOutlines(j.result);
+    const at = j.finished_at?.getTime() ?? 0;
+    if (outlines && (!latest || at >= latest.at)) latest = { at, outlines };
+  }
+  for (const path of latest?.outlines ?? []) out.delete(path);
   return [...out].slice(0, MAX_PAYLOAD_PAGES).map(([path, title]) => ({ path, title }));
 }
 
