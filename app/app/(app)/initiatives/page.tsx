@@ -7,7 +7,9 @@ import { usePageBastChat, useBastChatShell } from '@/components/domain/bast-chat
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { RecurringWorkBoard } from '@/components/domain/recurring-work/RecurringWorkBoard';
 import { ModelScoreboard } from '@/components/domain/recurring-work/ModelScoreboard';
-import { useGroupedRecurringWork } from '@/lib/hooks/use-recurring-work';
+import { useGroupedRecurringWork, useUpdateRecurringPriority } from '@/lib/hooks/use-recurring-work';
+import { preferencesKeys, usePreferences, useUpdatePreferences } from '@/lib/hooks/use-preferences';
+import { useQueryClient } from '@tanstack/react-query';
 import { RetainerMonthsBoard } from '@/components/domain/retainer-months/RetainerMonthsBoard';
 import { useConfirmRetainerMonth, useRetainerMonths } from '@/lib/hooks/use-retainer-months';
 import type { RetainerMonthView } from '@/types/entities';
@@ -117,6 +119,21 @@ function RetainerMonthsTab() {
 
 function RecurringWorkTab() {
   const { data, isLoading, error } = useGroupedRecurringWork();
+  const qc = useQueryClient();
+  const { data: prefs } = usePreferences();
+  const savePrefs = useUpdatePreferences();
+  const setPriority = useUpdateRecurringPriority();
+  const collapsed = prefs?.preferences.recurring_collapsed_groups ?? [];
+  // The full list goes to the server so it follows the person across devices; the cache moves first so the click feels instant.
+  const onCollapsedChange = React.useCallback(
+    (next: string[]) => {
+      qc.setQueryData(preferencesKeys.current(), (old: typeof prefs) =>
+        old ? { ...old, preferences: { ...old.preferences, recurring_collapsed_groups: next } } : old,
+      );
+      savePrefs.mutate({ recurring_collapsed_groups: next }, { onError: () => qc.invalidateQueries({ queryKey: preferencesKeys.current() }) });
+    },
+    [qc, savePrefs],
+  );
   if (isLoading) {
     return (
       <div className="flex justify-center py-12">
@@ -129,15 +146,37 @@ function RecurringWorkTab() {
   }
   return (
     <div className="space-y-8">
-      <RecurringWorkBoard data={data} />
+      <RecurringWorkBoard
+        data={data}
+        collapsed={collapsed}
+        onCollapsedChange={onCollapsedChange}
+        onPriorityChange={(id, priority) => setPriority.mutate({ id, priority })}
+      />
       <ModelScoreboard />
     </div>
   );
 }
 
+const TAB_VALUES = ['initiatives', 'recurring-work', 'retainer-months'] as const;
+type TabValue = (typeof TAB_VALUES)[number];
+const isTab = (v: string | null): v is TabValue => !!v && (TAB_VALUES as readonly string[]).includes(v);
+
 export default function InitiativesPage() {
+  // /initiatives?tab=recurring-work opens on that tab; changing tab keeps the address in step (other params, like ?focus, stay).
+  const [tab, setTab] = React.useState<TabValue>('initiatives');
+  React.useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get('tab');
+    if (isTab(t)) setTab(t);
+  }, []);
+  const onTabChange = React.useCallback((value: string) => {
+    if (!isTab(value)) return;
+    setTab(value);
+    const url = new URL(window.location.href);
+    url.searchParams.set('tab', value);
+    window.history.replaceState(null, '', url.toString());
+  }, []);
   return (
-    <Tabs defaultValue="initiatives">
+    <Tabs value={tab} onValueChange={onTabChange}>
       <TabsList>
         <TabsTrigger value="initiatives">Initiatives</TabsTrigger>
         <TabsTrigger value="recurring-work">Recurring work</TabsTrigger>

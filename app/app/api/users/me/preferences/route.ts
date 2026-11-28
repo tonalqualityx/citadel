@@ -17,6 +17,8 @@ const updatePreferencesSchema = z.object({
   home_view: z.enum(['overlook', 'home']).optional(),
   // Automatic time tracking (Mike, 2026-11-26): the designer portal starts this person's timer only while on.
   auto_time_tracking: z.boolean().optional(),
+  // Recurring work tab: which groups this person collapsed, kept across devices.
+  recurring_collapsed_groups: z.array(z.string().max(120)).max(100).optional(),
 });
 
 export async function GET(request: NextRequest) {
@@ -33,6 +35,7 @@ export async function GET(request: NextRequest) {
         energy_filter: true,
         home_view: true,
         auto_time_tracking: true,
+        recurring_collapsed_groups: true,
       },
     });
 
@@ -49,6 +52,7 @@ export async function GET(request: NextRequest) {
         energy_filter: 'all',
         home_view: 'overlook',
         auto_time_tracking: false,
+        recurring_collapsed_groups: [] as string[],
       },
     });
   } catch (error) {
@@ -80,6 +84,7 @@ export async function PATCH(request: NextRequest) {
         energy_filter: validated.energy_filter ?? 'all',
         home_view: validated.home_view ?? 'overlook',
         auto_time_tracking: validated.auto_time_tracking ?? false,
+        recurring_collapsed_groups: validated.recurring_collapsed_groups ?? [],
       },
       select: {
         naming_convention: true,
@@ -89,6 +94,7 @@ export async function PATCH(request: NextRequest) {
         energy_filter: true,
         home_view: true,
         auto_time_tracking: true,
+        recurring_collapsed_groups: true,
       },
     });
 

@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
-import { RecurringWorkBoard, boardView, headerLine } from '../RecurringWorkBoard';
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent, within } from '@testing-library/react';
+import { RecurringWorkBoard, boardView, headerLine, BACKGROUND_OPEN_KEY } from '../RecurringWorkBoard';
 import type { GroupedRecurringWork } from '@/lib/hooks/use-recurring-work';
 import type { RecurringWorkItem } from '@/types/entities';
 
@@ -68,5 +68,107 @@ describe('RecurringWorkBoard', () => {
   it('says so when there are no rows', () => {
     render(<RecurringWorkBoard data={{ recurring_work: [], total: 0, groups: [], plumbing: { count: 0, stopped: 0 } }} />);
     expect(screen.getByText('Nothing recurring yet')).toBeTruthy();
+  });
+
+  describe('usage, destination, last used, file-only and priority', () => {
+    const rowFor = (title: string) => screen.getAllByTestId('recurring-row').find((r) => r.textContent!.includes(title))!;
+    const withMeta = (): GroupedRecurringWork => ({
+      recurring_work: [], total: 3, plumbing: { count: 0, stopped: 0 },
+      groups: [{ label: 'Reports', count: 3, stopped: 0, rows: [
+        row('m', 'Measured job', { usage_state: 'measured', usage_week_share: 12.4, usage_week_usd: 3.6, usage_month_usd: 12.2, usage_note: 'from logs', destinations: ['email_mike'], destination_note: 'weekly note', last_used_at: '2026-11-24T15:00:00.000Z', last_used_signal: 'opened the email', priority: 'normal' }),
+        row('f', 'File job', { usage_state: 'no_claude', destinations: ['file_only'], file_only: true, last_used_at: null, priority: 'low' }),
+        row('u', 'Unknown job', { usage_state: null, destinations: [] }),
+      ] }],
+    });
+
+    it('shows each known value with its title text', () => {
+      render(<RecurringWorkBoard data={withMeta()} />);
+      const m = rowFor('Measured job');
+      expect(within(m).getByTestId('usage-cell').textContent).toBe('this week 12% · $4 · month $12');
+      expect(within(m).getByTestId('usage-cell').getAttribute('title')).toBe('from logs');
+      expect(within(m).getByTestId('destination-cell').textContent).toBe('email to Mike');
+      expect(within(m).getByTestId('destination-cell').getAttribute('title')).toBe('weekly note');
+      expect(within(m).getByTestId('last-used-cell').textContent).toBe('used Nov 24');
+      expect(within(m).getByTestId('last-used-cell').getAttribute('title')).toBe('opened the email');
+      expect(within(m).queryByTestId('file-only-flag')).toBeNull();
+    });
+
+    it('says plainly when a value is not known yet, and flags file-only rows', () => {
+      render(<RecurringWorkBoard data={withMeta()} />);
+      const u = rowFor('Unknown job');
+      expect(within(u).getByTestId('usage-cell').textContent).toBe('usage not known yet');
+      expect(within(u).getByTestId('destination-cell').textContent).toBe('destination not known yet');
+      expect(within(u).getByTestId('last-used-cell').textContent).toBe('use not known yet');
+      const f = rowFor('File job');
+      expect(within(f).getByTestId('file-only-flag').textContent).toBe('file only');
+      expect(within(f).getByTestId('usage-cell').textContent).toBe('no Claude');
+      expect(within(f).getByTestId('last-used-cell').textContent).toBe('never used');
+    });
+
+    it('changes priority through the callback', () => {
+      const onPriorityChange = vi.fn();
+      render(<RecurringWorkBoard data={withMeta()} onPriorityChange={onPriorityChange} />);
+      const control = within(rowFor('Measured job')).getByTestId('priority-control') as HTMLSelectElement;
+      expect(control.value).toBe('normal');
+      expect((within(rowFor('File job')).getByTestId('priority-control') as HTMLSelectElement).value).toBe('low');
+      fireEvent.change(control, { target: { value: 'low' } });
+      expect(onPriorityChange).toHaveBeenCalledWith('m', 'low');
+    });
+
+    it('sorts by usage and by last run within a group', () => {
+      const d = withMeta();
+      d.groups[0].rows[1] = row('f', 'File job', { usage_state: 'measured', usage_week_share: 40, last_run_at: '2026-11-01T00:00:00Z', file_only: true, destinations: ['file_only'] });
+      render(<RecurringWorkBoard data={d} />);
+      const titles = () => screen.getAllByTestId('recurring-row').map((r) => ['Measured job', 'File job', 'Unknown job'].find((t) => r.textContent!.includes(t)));
+      expect(titles()).toEqual(['Measured job', 'File job', 'Unknown job']);
+      fireEvent.change(screen.getByTestId('sort-control'), { target: { value: 'usage' } });
+      expect(titles()).toEqual(['File job', 'Measured job', 'Unknown job']);
+      fireEvent.change(screen.getByTestId('sort-control'), { target: { value: 'last_run' } });
+      expect(titles()).toEqual(['Measured job', 'Unknown job', 'File job']);
+    });
+
+    it('the nobody-reads filter keeps only those rows and hides empty groups', () => {
+      const d = withMeta();
+      d.groups.push({ label: 'Other', count: 1, stopped: 0, rows: [row('o', 'Read job', { destinations: ['slack'], last_used_at: new Date().toISOString() })] });
+      render(<RecurringWorkBoard data={d} />);
+      expect(screen.getAllByTestId('recurring-group')).toHaveLength(2);
+      fireEvent.click(screen.getByTestId('nobody-reads-filter'));
+      expect(screen.getAllByTestId('recurring-row').map((r) => r.textContent)).toEqual([expect.stringContaining('File job')]);
+      expect(screen.getAllByTestId('recurring-group')).toHaveLength(1);
+    });
+  });
+
+  describe('collapsible groups', () => {
+    it('toggling calls the save callback with the full new list', () => {
+      const onCollapsedChange = vi.fn();
+      render(<RecurringWorkBoard data={data()} collapsed={['Other']} onCollapsedChange={onCollapsedChange} />);
+      const toggles = screen.getAllByTestId('group-toggle');
+      expect(toggles[0].getAttribute('aria-expanded')).toBe('true');
+      fireEvent.click(toggles[0]);
+      expect(onCollapsedChange).toHaveBeenCalledWith(['Other', 'Background']);
+    });
+
+    it('a collapsed group keeps its heading and count but hides its rows; expanding removes it from the list', () => {
+      const onCollapsedChange = vi.fn();
+      render(<RecurringWorkBoard data={data()} collapsed={['Client mail']} onCollapsedChange={onCollapsedChange} />);
+      expect(screen.getByText('Client mail (3)')).toBeTruthy();
+      expect(screen.queryByText('Approvals')).toBeNull();
+      const toggle = screen.getByText('Client mail (3)').closest('button')!;
+      expect(toggle.getAttribute('aria-expanded')).toBe('false');
+      fireEvent.click(toggle);
+      expect(onCollapsedChange).toHaveBeenCalledWith([]);
+    });
+
+    it('the background section starts closed and stores its open state under BACKGROUND_OPEN_KEY', () => {
+      const onCollapsedChange = vi.fn();
+      const { rerender } = render(<RecurringWorkBoard data={data()} collapsed={[]} onCollapsedChange={onCollapsedChange} />);
+      expect(screen.queryByTestId('background-list')).toBeNull();
+      fireEvent.click(screen.getByTestId('background-toggle'));
+      expect(onCollapsedChange).toHaveBeenCalledWith([BACKGROUND_OPEN_KEY]);
+      rerender(<RecurringWorkBoard data={data()} collapsed={[BACKGROUND_OPEN_KEY]} onCollapsedChange={onCollapsedChange} />);
+      expect(screen.getByTestId('background-list')).toBeTruthy();
+      // background rows carry the same values as the main rows
+      expect(within(screen.getByTestId('background-list')).getAllByTestId('usage-cell').length).toBeGreaterThan(0);
+    });
   });
 });

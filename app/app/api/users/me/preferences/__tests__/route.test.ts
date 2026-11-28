@@ -214,3 +214,24 @@ describe('auto_time_tracking (Mike 2026-11-26: off for everyone but Mike)', () =
     expect(mockUpsert).not.toHaveBeenCalled();
   });
 });
+
+describe('recurring_collapsed_groups', () => {
+  it('defaults to an empty list when no row exists', async () => {
+    mockFindUnique.mockResolvedValue(null);
+    const body = await (await GET(new NextRequest('http://localhost:3000/api/users/me/preferences'))).json();
+    expect(body.preferences.recurring_collapsed_groups).toEqual([]);
+  });
+
+  it('saves the list through the upsert', async () => {
+    mockUpsert.mockResolvedValue({ recurring_collapsed_groups: ['Client mail', 'background'] });
+    const res = await PATCH(patchReq({ recurring_collapsed_groups: ['Client mail', 'background'] }));
+    expect(res.status).toBe(200);
+    expect(mockUpsert.mock.calls[0][0].update.recurring_collapsed_groups).toEqual(['Client mail', 'background']);
+    expect(mockUpsert.mock.calls[0][0].create.recurring_collapsed_groups).toEqual(['Client mail', 'background']);
+  });
+
+  it('rejects a label over 120 characters and a list over 100', async () => {
+    expect((await PATCH(patchReq({ recurring_collapsed_groups: ['x'.repeat(121)] }))).status).toBe(400);
+    expect((await PATCH(patchReq({ recurring_collapsed_groups: Array.from({ length: 101 }, (_, i) => `g${i}`) }))).status).toBe(400);
+  });
+});

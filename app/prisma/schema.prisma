@@ -137,6 +137,8 @@ model UserPreference {
   // page only while this is on. Off by default; the migration turns it on for Mike alone. The global switch
   // (DesignPortalSettings.auto_timer_enabled) and the per-site one (Site.design_auto_timer) still apply as well.
   auto_time_tracking  Boolean          @default(false)
+  // Recurring work tab: the group labels this person collapsed, plus "__background:open" when the background-jobs section (closed by default) is open. Kept across devices.
+  recurring_collapsed_groups String[]   @default([])
   created_at          DateTime         @default(now())
   updated_at          DateTime         @updatedAt
 

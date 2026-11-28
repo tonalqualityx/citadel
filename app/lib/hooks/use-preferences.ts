@@ -14,6 +14,8 @@ export interface UserPreferences {
   home_view: 'overlook' | 'home';
   // Automatic time tracking: the designer portal starts this person's timer when they open a page only while on.
   auto_time_tracking: boolean;
+  // Recurring work tab: group labels this person collapsed, plus "__background:open" when the background section is open.
+  recurring_collapsed_groups?: string[];
 }
 
 interface PreferencesResponse {

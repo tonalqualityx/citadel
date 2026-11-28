@@ -653,6 +653,21 @@ export interface RecurringWorkItem {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  usage_week_tokens?: number | null;
+  usage_month_tokens?: number | null;
+  usage_week_usd?: number | null;
+  usage_month_usd?: number | null;
+  /** Percent of the weekly Claude limit. */
+  usage_week_share?: number | null;
+  usage_state?: 'measured' | 'unmeasured' | 'no_claude' | null;
+  usage_note?: string | null;
+  usage_updated_at?: string | null;
+  destinations?: string[] | null;
+  destination_note?: string | null;
+  file_only?: boolean;
+  last_used_at?: string | null;
+  last_used_signal?: string | null;
+  priority?: 'normal' | 'low';
 }
 
 /** The charter screens' name for the same row. */
