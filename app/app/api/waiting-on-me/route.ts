@@ -8,6 +8,7 @@ import { floatHighPriority } from '@/lib/waiting-on-me-priority';
 import { BOT_USER_IDS } from '@/lib/oracle/projects/gate-constants';
 import { notActivelyWaitingWhere } from '@/lib/tasks/waiting';
 import { sessionAskSince } from '@/lib/oracle/session-ask-since';
+import { BLOCKER_FINISH_SELECT, hasOpenBlockerWhere, noOpenBlockerWhere, readySince, type BlockerFinish } from '@/lib/tasks/ready';
 
 // The merged "everything waiting on Mike" feed. Task side is a 5-query sweep — focus,
 // overdue, awaiting-review, blocked, open-within-14d — each excluding IDs already emitted
@@ -25,6 +26,8 @@ const TASK_INCLUDE = {
   // that's ad-hoc (no client) falls back to its arc, then "Other" (see needs-reshi-logic.ts,
   // client-side, so the fallback ladder stays unit-testable without a DB).
   client: { select: { id: true, name: true } },
+  // When the task became ready (task abe6e46c): its finished blockers' finish times move the waiting clock forward.
+  blocked_by: BLOCKER_FINISH_SELECT,
 } as const;
 
 type TaskCard = {
@@ -40,7 +43,8 @@ type TaskCard = {
   client: { id: string; name: string } | null;
   due_date: Date | null;
   // The "oldest-wait age" the Review grouping and the weekly aging lists both read: when
-  // this item actually started waiting. Task cards anchor on created_at; see taskToCard.
+  // this item actually started waiting. Task cards anchor on when the task became ready
+  // (made, or its last blocker finished); see taskToCard.
   waiting_since: Date | null;
 };
 
@@ -88,6 +92,7 @@ function taskToCard(
     client?: { id: string; name: string } | null;
     due_date: Date | null;
     created_at?: Date | null;
+    blocked_by?: BlockerFinish[] | null;
   },
   lastHumanCommentAt: Date | null
 ): TaskCard {
@@ -103,7 +108,9 @@ function taskToCard(
     arc: t.arc,
     client: t.client ?? null,
     due_date: t.due_date,
-    waiting_since: waitingSince(t.created_at, lastHumanCommentAt),
+    // Ready, not filed (task abe6e46c): a task held behind other work starts waiting on its owner when its last blocker
+    // finishes, so it counts as new that day and not on the day it was filed.
+    waiting_since: waitingSince(readySince(t.created_at, t.blocked_by), lastHumanCommentAt),
   };
 }
 
@@ -191,12 +198,16 @@ export async function GET(request: NextRequest) {
       AND: [notActivelyWaitingWhere(now)],
     };
 
+    // Ready for him (task abe6e46c; Mike, 2026-11-28: "if 14 aren't ready for me then they aren't truly waiting on me"):
+    // a task with an unfinished blocker is left out of every sweep and every count. Done and abandoned blockers are
+    // finished; a blocker still in Triage is not (lib/tasks/ready.ts). Held work is counted once, separately, as `held`.
+
     const focusWhere = {
       is_deleted: false,
       is_focus: true,
       assignee_id: targetUserId,
       status: { notIn: NOT_DONE_ABANDONED_BLOCKED },
-      blocked_by: { none: { status: { not: TaskStatus.done }, is_deleted: false } },
+      ...noOpenBlockerWhere,
       ...notOnAQuoteOrQueueProject,
     };
 
@@ -205,6 +216,7 @@ export async function GET(request: NextRequest) {
       assignee_id: targetUserId,
       status: { notIn: NOT_DONE_ABANDONED },
       due_date: { lt: now },
+      ...noOpenBlockerWhere,
       ...notOnAQuoteOrQueueProject,
     };
 
@@ -217,12 +229,14 @@ export async function GET(request: NextRequest) {
       needs_review: true,
       approved: false,
       OR: [{ reviewer_id: null }, { reviewer_id: targetUserId }],
+      ...noOpenBlockerWhere,
     };
 
     const blockedWhere = {
       is_deleted: false,
       assignee_id: targetUserId,
       status: TaskStatus.blocked,
+      ...noOpenBlockerWhere,
       ...notOnAQuoteOrQueueProject,
     };
 
@@ -231,16 +245,28 @@ export async function GET(request: NextRequest) {
       assignee_id: targetUserId,
       status: { notIn: NOT_DONE_ABANDONED },
       due_date: { gte: now, lte: openWindowEnd },
+      ...noOpenBlockerWhere,
       ...notOnAQuoteOrQueueProject,
     };
 
-    const [focusTasks, overdueTasks, awaitingReviewTasks, blockedTasks, openWithin14dTasks] =
+    // Held: his open tasks that would otherwise count but wait on unfinished work. Only a number, never a list or a
+    // "new" item, so the check-in can show it as one separate line.
+    const heldWhere = {
+      is_deleted: false,
+      assignee_id: targetUserId,
+      status: { notIn: NOT_DONE_ABANDONED },
+      ...hasOpenBlockerWhere,
+      ...notOnAQuoteOrQueueProject,
+    };
+
+    const [focusTasks, overdueTasks, awaitingReviewTasks, blockedTasks, openWithin14dTasks, heldCount] =
       await Promise.all([
         prisma.task.findMany({ where: focusWhere, include: TASK_INCLUDE, orderBy: { priority: 'asc' } }),
         prisma.task.findMany({ where: overdueWhere, include: TASK_INCLUDE, orderBy: { due_date: 'asc' } }),
         prisma.task.findMany({ where: awaitingReviewWhere, include: TASK_INCLUDE, orderBy: { updated_at: 'asc' } }),
         prisma.task.findMany({ where: blockedWhere, include: TASK_INCLUDE, orderBy: { updated_at: 'desc' } }),
         prisma.task.findMany({ where: openWithin14dWhere, include: TASK_INCLUDE, orderBy: { due_date: 'asc' } }),
+        prisma.task.count({ where: heldWhere }),
       ]);
 
     // Order matters: this is the dedup precedence (focus > overdue > awaiting-review >
@@ -394,6 +420,8 @@ export async function GET(request: NextRequest) {
           crisis: crisisAsks.length,
           total:
             decide.length + answer.length + review.length + floatedDo.length + intakeAsks.length + crisisAsks.length,
+          // His tasks held behind unfinished work (task abe6e46c). Never part of total and never listed.
+          held: heldCount ?? 0,
         },
       },
     });

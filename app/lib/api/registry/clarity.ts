@@ -291,6 +291,10 @@ export const clarityEndpoints: ApiEndpoint[] = [
           { name: 'user_id', type: 'uuid', required: false, description: 'Tech users self-only (403 on mismatch); PM/Admin any user, defaults to self' },
         ],
         responseNotes:
+          'Ready only (task abe6e46c): a task with an unfinished blocker (any status but done or abandoned; a blocker ' +
+          'still in Triage holds it) is left out of every sweep and count. meta.counts.held is the number of the ' +
+          "target user's open tasks held that way; it is never listed and never part of total. A task card's " +
+          'waiting_since starts when the task became ready: the later of created_at and its last blocker finishing. ' +
           'Cross-query dedup: a task already emitted by an earlier query in the fixed order ' +
           '(focus > overdue > awaiting-review > blocked > open-within-14d) never appears twice. ' +
           'Task-sweep results route to `do`, EXCEPT awaiting-review, which routes to `review` ' +
@@ -394,6 +398,7 @@ export const clarityEndpoints: ApiEndpoint[] = [
               intake: 'number',
               crisis: 'number',
               total: 'number',
+              held: 'number',
             },
           },
         },

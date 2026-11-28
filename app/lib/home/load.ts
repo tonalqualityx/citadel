@@ -22,6 +22,7 @@ import type { Prisma, PrismaClient, WaitKind, WaitState } from '@prisma/client';
 import { BOT_USER_IDS } from '@/lib/oracle/projects/gate-constants';
 import { loadWaitCandidates } from '@/lib/waits/load-blocks';
 import { notActivelyWaitingWhere } from '@/lib/tasks/waiting';
+import { noOpenBlockerWhere } from '@/lib/tasks/ready';
 import { DEFAULT_DISPLAY_TIMEZONE } from '@/lib/timezone';
 import {
   AUTO_HANDLED_NOTE_PREFIX,
@@ -295,8 +296,9 @@ async function loadTasks(db: PrismaClient, userId: string, now: Date = new Date(
         // others don't get picked up ahead of the schedule"). A "review and send the draft" task filed with the task
         // that writes the draft showed on the home screen before the draft existed (Mike, 2026-11-20: "It's telling
         // me that I've got a draft email to send. The links show no draft."). It appears the moment its last open
-        // blocker closes. A status of blocked with no open blocker is still listed.
-        { assignee_id: userId, blocked_by: { none: { is_deleted: false, status: { notIn: CLOSED } } } },
+        // blocker closes. A status of blocked with no open blocker is still listed. Only a done or abandoned blocker is
+        // closed here: a blocker still in Triage holds the work until it is released and finished (task abe6e46c).
+        { assignee_id: userId, ...noOpenBlockerWhere },
         { assignee_id: { in: [...BOT_USER_IDS] }, tags: { has: NEEDS_MIKE_TAG } },
       ],
       AND: [

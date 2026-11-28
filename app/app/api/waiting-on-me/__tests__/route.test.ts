@@ -12,6 +12,7 @@ vi.mock('@/lib/db/prisma', () => ({
   prisma: {
     task: {
       findMany: vi.fn(),
+      count: vi.fn(),
     },
     oracleSession: {
       findMany: vi.fn(),
@@ -30,6 +31,7 @@ import { prisma } from '@/lib/db/prisma';
 
 const mockRequireAuth = vi.mocked(requireAuth);
 const mockTaskFindMany = prisma.task.findMany as Mock;
+const mockTaskCount = prisma.task.count as Mock;
 const mockSessionFindMany = prisma.oracleSession.findMany as Mock;
 const mockEmailAskFindMany = prisma.emailAsk.findMany as Mock;
 const mockCommentFindMany = prisma.comment.findMany as Mock;
@@ -117,6 +119,7 @@ beforeEach(() => {
   // mockTaskSweep(...) — tests that call mockTaskSweep() themselves queue their own
   // Once-values on top of this, consumed first for that request's 5 calls.
   mockTaskFindMany.mockResolvedValue([]);
+  mockTaskCount.mockResolvedValue(0);
   mockEmailAskFindMany.mockResolvedValue([]);
   // Single batched query across every surfaced task id, so a plain (non-Once) default is
   // enough — tests that care override it wholesale.
@@ -357,6 +360,8 @@ describe('GET /api/waiting-on-me — grouping', () => {
       intake: 0,
       crisis: 0,
       total: 3,
+      // Task abe6e46c: held work is its own count, never part of total.
+      held: 0,
     });
   });
 
@@ -696,5 +701,108 @@ describe('GET /api/waiting-on-me — waiting_since is anchored on created_at', (
     await res.json();
 
     expect(mockCommentFindMany).not.toHaveBeenCalled();
+  });
+});
+
+// Task abe6e46c (Mike, 2026-11-28: "if 14 aren't ready for me then they aren't truly waiting on me"): a task with an
+// unfinished blocker is not waiting on its owner, and it becomes new on the day its last blocker finishes.
+describe('GET /api/waiting-on-me — only work that is ready counts (task abe6e46c)', () => {
+  const OPEN_BLOCKER_FREE = { blocked_by: { none: { is_deleted: false, status: { notIn: ['done', 'abandoned'] } } } };
+
+  type Blocker = { status: string; is_deleted?: boolean; completed_at?: Date | null; updated_at?: Date | null };
+  type Row = ReturnType<typeof task> & { blockers: Blocker[] };
+
+  // Stands in for Postgres: applies the route's own blocked_by.none clause to each fixture row, so a row the route asked
+  // the database to leave out is genuinely left out here too.
+  function applyBlockerClause(where: { blocked_by?: { none?: { is_deleted: boolean; status: { notIn: string[] } } } }, rows: Row[]) {
+    const none = where.blocked_by?.none;
+    return rows
+      .filter((r) => !none || !r.blockers.some((b) => (b.is_deleted ?? false) === none.is_deleted && !none.status.notIn.includes(b.status)))
+      .map(({ blockers, ...rest }) => ({ ...rest, blocked_by: blockers.filter((b) => !b.is_deleted) }));
+  }
+
+  it('every task sweep leaves out a task with an unfinished blocker; done and abandoned blockers count as finished, Triage does not', async () => {
+    await GET(getRequest());
+
+    expect(mockTaskFindMany).toHaveBeenCalledTimes(5);
+    for (const [args] of mockTaskFindMany.mock.calls) {
+      expect(args.where).toEqual(expect.objectContaining(OPEN_BLOCKER_FREE));
+      expect(args.where.blocked_by.none.status.notIn).not.toContain('triage');
+    }
+  });
+
+  it('a blocked task is not counted, and a task whose blocker finished is', async () => {
+    const rows: Row[] = [
+      { ...task({ id: 'held-by-open', title: 'Build the shop page', status: 'blocked' }), blockers: [{ status: 'not_started' }] },
+      { ...task({ id: 'held-by-triage', title: 'Order the shirts', status: 'blocked' }), blockers: [{ status: 'triage' }] },
+      { ...task({ id: 'blocker-done', title: 'Send the draft', status: 'blocked' }), blockers: [{ status: 'done', completed_at: new Date('2026-11-27T00:00:00Z') }] },
+      { ...task({ id: 'blocker-abandoned', title: 'Pick a printer', status: 'blocked' }), blockers: [{ status: 'abandoned', updated_at: new Date('2026-11-26T00:00:00Z') }] },
+      { ...task({ id: 'blocker-deleted', title: 'Plain', status: 'blocked' }), blockers: [{ status: 'not_started', is_deleted: true }] },
+    ];
+    mockTaskFindMany.mockImplementation(async (args: { where: { status?: unknown } }) =>
+      args.where.status === 'blocked' ? applyBlockerClause(args.where as never, rows) : []
+    );
+
+    const res = await GET(getRequest());
+    const body = await res.json();
+
+    expect(body.do.map((c: { id: string }) => c.id).sort()).toEqual(['blocker-abandoned', 'blocker-deleted', 'blocker-done']);
+    expect(body.meta.counts.do).toBe(3);
+  });
+
+  it('counts a task as new on the day its blocker finishes, not the day it was filed', async () => {
+    const filed = new Date('2026-11-10T00:00:00.000Z');
+    const blockerDone = new Date('2026-11-28T09:00:00.000Z');
+    mockTaskSweep({
+      blocked: [task({ id: 'send', status: 'blocked', created_at: filed, blocked_by: [{ status: 'done', completed_at: blockerDone }] })],
+    });
+
+    const res = await GET(getRequest());
+    const body = await res.json();
+
+    expect(body.do[0].waiting_since).toBe(blockerDone.toISOString());
+  });
+
+  it('an abandoned blocker with no completed_at dates the task by when the blocker was last changed', async () => {
+    const filed = new Date('2026-11-10T00:00:00.000Z');
+    const abandoned = new Date('2026-11-20T00:00:00.000Z');
+    mockTaskSweep({
+      focus: [task({ created_at: filed, blocked_by: [{ status: 'abandoned', completed_at: null, updated_at: abandoned }] })],
+    });
+
+    const body = await (await GET(getRequest())).json();
+
+    expect(body.do[0].waiting_since).toBe(abandoned.toISOString());
+  });
+
+  it('a blocker that finished before the task was made leaves it at created_at', async () => {
+    const filed = new Date('2026-11-10T00:00:00.000Z');
+    mockTaskSweep({
+      focus: [task({ created_at: filed, blocked_by: [{ status: 'done', completed_at: new Date('2026-11-01T00:00:00Z') }] })],
+    });
+
+    const body = await (await GET(getRequest())).json();
+
+    expect(body.do[0].waiting_since).toBe(filed.toISOString());
+  });
+
+  it('reports held work as one count, outside every list and outside total', async () => {
+    mockTaskCount.mockResolvedValue(14);
+    mockTaskSweep({ focus: [task({ id: 'ready-1' })] });
+
+    const body = await (await GET(getRequest())).json();
+
+    expect(body.meta.counts.held).toBe(14);
+    expect(body.meta.counts.total).toBe(1);
+    expect(body.do).toHaveLength(1);
+    const heldArgs = mockTaskCount.mock.calls[0][0];
+    expect(heldArgs.where).toEqual(
+      expect.objectContaining({
+        is_deleted: false,
+        assignee_id: 'user-123',
+        blocked_by: { some: { is_deleted: false, status: { notIn: ['done', 'abandoned'] } } },
+        OR: [{ project_id: null }, { project: { status: { notIn: ['quote', 'queue'] } } }],
+      })
+    );
   });
 });
