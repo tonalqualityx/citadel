@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { planRelease, describeRelease, PM_RELEASE_TAG, RELEASE_REFUSALS, TRIAGE_KINDS, type ReleaseInput } from '../triage-kind';
+import { planRelease, describeRelease, NEEDS_WHY_LINE, PM_RELEASE_TAG, RELEASE_REFUSALS, TRIAGE_KINDS, type ReleaseInput } from '../triage-kind';
 
 const BAST = 'bast-id';
 const P = (status: string) => ({ id: 'p1', name: 'Stronghold', status });
-const base = (over: Partial<ReleaseInput>): ReleaseInput => ({ kind: 'task', assignee_id: null, assignee_name: null, project: null, bast_id: BAST, ...over });
+const base = (over: Partial<ReleaseInput>): ReleaseInput => ({ kind: 'task', assignee_id: null, assignee_name: null, project: null, bast_id: BAST, has_why: true, ...over });
 
 const SYSTEM_WORDS = /not_started|not started|kickoff|needs-pm-release|from-triage|held-for|lane|office manager|tagged|assigned to/i;
 
@@ -189,5 +189,29 @@ describe('planRelease: every effect has its phrase, present exactly when the eff
       expect(fx.approves_wording, label).toBe(fx.kind === 'rule_proposal');
     }
     expect(ran).toBeGreaterThan(400);
+  });
+});
+
+describe('planRelease: no card is released without a why (Mike, 2026-11-28)', () => {
+  it('every kind with no why: not ready, block no_why, the line says Needs a why, no effects', () => {
+    for (const kind of TRIAGE_KINDS) {
+      const r = planRelease(base({ kind, has_why: false }));
+      expect(r).toMatchObject({ ready: false, block: 'no_why', effects: null, details: [] });
+      expect(r.line).toBe(NEEDS_WHY_LINE);
+      expect(r.line.startsWith('Needs a why')).toBe(true);
+    }
+  });
+  it('a project card with no project and no why is refused too', () => {
+    expect(planRelease(base({ kind: 'project_setup', has_why: false }))).toMatchObject({ ready: false, block: 'no_why' });
+  });
+  it('an unsorted card says Not sorted yet first, whether or not it has a why', () => {
+    expect(planRelease(base({ kind: null, has_why: false }))).toMatchObject({ block: 'unsorted' });
+  });
+  it('the same card with a why is ready', () => {
+    expect(planRelease(base({ kind: 'task', has_why: true }))).toMatchObject({ ready: true, block: null });
+  });
+  it('the refusal is a 409 needs_why with a plain reason', () => {
+    expect(RELEASE_REFUSALS.no_why).toEqual({ status: 409, code: 'needs_why', message: expect.stringContaining('needs a why') });
+    expect(RELEASE_REFUSALS.no_why.message).toContain('Nothing was released');
   });
 });

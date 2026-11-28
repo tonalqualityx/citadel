@@ -25,6 +25,7 @@ import * as undoRoute from '../actions/[id]/undo/route';
 import * as workerOps from '../worker/ops/route';
 import * as inboxRoute from '../worker/inbox/route';
 import { runHomeUndo } from '@/lib/home/act';
+import { WHY_DESCRIPTION } from '@/lib/tasks/__tests__/fixtures/why';
 
 const authMock = requireAuth as Mock;
 const MIKE: AuthPayload = { userId: MIKE_USER_ID, email: 'mike@example.test', role: 'admin', via: 'session' };
@@ -45,7 +46,7 @@ describe.skipIf(!SCRATCH)('one chat per card (real database)', () => {
   let otherAdminId: string;
   let before: { owner_user_id: string | null; enabled: boolean } | null = null;
   const mkTask = async (title: string, status: 'triage' | 'not_started' = 'triage', description?: string) => {
-    const t = await prisma.task.create({ data: { title: `${tag} ${title}`, status, ...(description ? { description } : {}) } as never });
+    const t = await prisma.task.create({ data: { title: `${tag} ${title}`, status, description: description ?? WHY_DESCRIPTION } as never });
     taskIds.push(t.id);
     return t.id;
   };
@@ -187,6 +188,16 @@ describe.skipIf(!SCRATCH)('one chat per card (real database)', () => {
     const action = await prisma.bastChatAction.findUniqueOrThrow({ where: { id: r.body.action_id as string } });
     const homeActionId = (action.after as { home_action_id: string }).home_action_id;
     await runHomeUndo(prisma as never, MIKE_USER_ID, homeActionId, new Date());
+    expect(await taskStatus(t)).toBe('triage');
+  });
+
+  it('release from the chat on a card with no why is refused with the same reason, and the card stays in Triage (Mike, 2026-11-28)', async () => {
+    const t = await mkTask('no why', 'triage', JSON.stringify([{ type: 'paragraph', content: [{ type: 'text', text: 'One sentence idea.' }], children: [] }]));
+    const id = (await openCard(t)).body.id;
+    await prisma.bastChatConversation.update({ where: { id }, data: { status: 'running' } });
+    const r = await ops(id, { action: 'triage_release', task_ids: [t] });
+    expect(r.status).toBe(409);
+    expect(JSON.stringify(r.body)).toContain('needs a why');
     expect(await taskStatus(t)).toBe('triage');
   });
 

@@ -37,7 +37,7 @@ function inlineText(content: unknown): string {
 }
 
 /** A stored description (a JSON string of BlockNote blocks, or plain text) as lines: [type, text]. */
-function linesOf(raw: string | null | undefined): { type: string; text: string }[] {
+export function linesOf(raw: string | null | undefined): { type: string; text: string }[] {
   if (typeof raw !== 'string' || raw.trim() === '') return [];
   let parsed: unknown = null;
   try {

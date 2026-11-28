@@ -40,6 +40,7 @@ import { scrubSecrets } from '@/lib/triage-desk/scrub';
 import { planReaderOf, viewOf, contractorSourceLabel } from '@/lib/tasks/plan-policy';
 import { PLAN_SECTIONS } from '@/lib/tasks/plan-schema';
 import { idParams, makeFixture, BOT_ID, mikeSession, dox, chatLane, type Fx } from '@/lib/dox/__tests__/fixture';
+import { WHY_DESCRIPTION } from '@/lib/tasks/__tests__/fixtures/why';
 
 const authMock = requireAuth as Mock;
 const as = (a: AuthPayload) => authMock.mockResolvedValue(a);
@@ -489,16 +490,16 @@ describe.skipIf(!SCRATCH)('access and plan fixes (real database)', () => {
     const noted = (title: string, extra: Record<string, unknown> = {}) => ({ title, source: SRC, ...extra });
     it('says Dox builds from the shape and the sitemap, with the noted count, only on a card held for Dox', async () => {
       const proj = await fx.mkProject('P2 project', { status: 'queue' });
-      const t = await fx.mkTask('P2 project card', { status: 'triage', triage_kind: 'project_setup', project_id: proj, client_id: fx.clientId });
+      const t = await fx.mkTask('P2 project card', { status: 'triage', triage_kind: 'project_setup', project_id: proj, client_id: fx.clientId, description: WHY_DESCRIPTION });
       await put(t, 'planned_tasks', [noted('Order the font early', { note: 'Six week lead time' }), noted('Dropped one', { mark: 'dropped' }), noted('Made already', { task_id: t })]);
       const c = await card(t);
       expect(c.release_line).toContain('Dox builds the tasks from the shape and the sitemap, including the 1 thing noted in the plan.');
       expect(c.release_line).not.toContain('planned task');
       expect(c.plan_line ?? '').not.toContain('task');
-      const person = await fx.mkTask('P2 person card', { status: 'triage', triage_kind: 'task', assignee_id: pmId, client_id: fx.clientId });
+      const person = await fx.mkTask('P2 person card', { status: 'triage', triage_kind: 'task', assignee_id: pmId, client_id: fx.clientId, description: WHY_DESCRIPTION });
       await put(person, 'planned_tasks', [noted('One'), noted('Two')]);
       expect((await card(person)).release_line).not.toContain('Dox');
-      const toDox = await fx.mkTask('P2 dox card', { status: 'triage', triage_kind: 'task', client_id: fx.clientId });
+      const toDox = await fx.mkTask('P2 dox card', { status: 'triage', triage_kind: 'task', client_id: fx.clientId, description: WHY_DESCRIPTION });
       await put(toDox, 'planned_tasks', [noted('One'), noted('Two')]);
       expect((await card(toDox)).release_line).toContain('Dox sets up the 2 things noted in the plan.');
       const seen = await card(toDox);

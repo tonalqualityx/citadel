@@ -30,6 +30,7 @@ import { GET as getProjectPlan } from '@/app/api/projects/[id]/plan/route';
 import { POST as addQ } from '@/app/api/tasks/[id]/questions/route';
 import { POST as answerQ } from '@/app/api/tasks/[id]/questions/[qid]/answer/route';
 import { ApiError, AuthError, handleApiError } from '@/lib/api/errors';
+import { WHY_DESCRIPTION } from '@/lib/tasks/__tests__/fixtures/why';
 
 const authMock = requireAuth as Mock;
 const NOW = new Date();
@@ -75,7 +76,7 @@ describe.skipIf(!SCRATCH)('triage plan (real database)', () => {
   const as = (a: AuthPayload) => authMock.mockResolvedValue(a);
 
   const mkTask = async (title: string, extra: Record<string, unknown> = {}) => {
-    const t = await prisma.task.create({ data: { title: `${tag} ${title}`, status: 'triage', ...extra } as never });
+    const t = await prisma.task.create({ data: { title: `${tag} ${title}`, status: 'triage', description: WHY_DESCRIPTION, ...extra } as never });
     taskIds.push(t.id);
     return t.id;
   };

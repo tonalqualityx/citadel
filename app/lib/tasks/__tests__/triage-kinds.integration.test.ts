@@ -1,7 +1,7 @@
 // @vitest-environment node
 /**
  * Release by kind against a real scratch Postgres: what each kind does, that the card's release_line promises exactly that, the
- * refusals (no kind, no project, quote project), question_only, the older group acts still working, and 72 hour Undo restoring
+ * refusals (no kind, no why, no project, quote project), question_only, the older group acts still working, and 72 hour Undo restoring
  * kind, tags, assignee, project status and questions exactly.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -11,6 +11,7 @@ import { BAST_USER_ID, MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants
 import { DOX_USER_ID } from '@/lib/dox/identity';
 import { homeActSchema, runHomeAct, runHomeUndo } from '@/lib/home/act';
 import { loadCards } from '@/lib/tasks/triage-card';
+import { WHY_DESCRIPTION } from '@/lib/tasks/__tests__/fixtures/why';
 
 const NOW = new Date();
 const OPTS = { now: NOW, timezone: 'America/New_York', date: NOW.toISOString().slice(0, 10) };
@@ -30,7 +31,7 @@ describe.skipIf(!SCRATCH)('release by kind (real database)', () => {
     return p.id;
   };
   const mk = async (title: string, data: Record<string, unknown> = {}) => {
-    const t = await prisma.task.create({ data: { title: `${tag} ${title}`, status: 'triage', tags: ['keep-me'], ...data } as never });
+    const t = await prisma.task.create({ data: { title: `${tag} ${title}`, status: 'triage', tags: ['keep-me'], description: WHY_DESCRIPTION, ...data } as never });
     ids.push(t.id);
     return t.id;
   };
@@ -169,6 +170,43 @@ describe.skipIf(!SCRATCH)('release by kind (real database)', () => {
     expect((await card(id)).release_line).not.toContain('Starts');
     await release(id);
     expect((await prisma.project.findUniqueOrThrow({ where: { id: project } })).status).toBe('ready');
+  });
+
+  describe('no card is released without a why (Mike, 2026-11-28)', () => {
+    const ONE_SENTENCE = JSON.stringify([{ type: 'paragraph', content: [{ type: 'text', text: 'Murderbot: a session that does direct work.' }], children: [] }]);
+    it('the Release tap on a card filed with one sentence: 409 needs_why with a plain reason, the line says Needs a why, nothing moves', async () => {
+      for (const kind of ['task', 'project_setup', 'rule_proposal', 'question_only'] as const) {
+        const id = await mk(`no why ${kind}`, { triage_kind: kind, description: ONE_SENTENCE });
+        const c = await card(id);
+        expect(c).toMatchObject({ release_ready: false, release_block: 'no_why' });
+        expect(c.release_line.startsWith('Needs a why')).toBe(true);
+        await expect(release(id)).rejects.toMatchObject({ statusCode: 409, code: 'needs_why', message: expect.stringContaining('needs a why') });
+        const after = await row(id);
+        expect(after.status).toBe('triage');
+        expect(after.assignee_id).toBeNull();
+        expect(after.tags).toEqual(['keep-me']);
+      }
+    });
+    it('a card with no description at all is refused too; once a why is written the same card releases', async () => {
+      const id = await mk('empty', { triage_kind: 'task', description: null });
+      await expect(release(id)).rejects.toMatchObject({ code: 'needs_why' });
+      await prisma.task.update({ where: { id }, data: { description: WHY_DESCRIPTION } });
+      expect((await card(id)).release_ready).toBe(true);
+      await release(id);
+      expect((await row(id)).status).toBe('not_started');
+    });
+    it('the older group tap refuses an unsorted card with no why, and Release plan leaves it in Triage while releasing the rest', async () => {
+      const bare = await mk('legacy no why', { description: ONE_SENTENCE });
+      await expect(runHomeAct(prisma, MIKE_USER_ID, { action: 'triage_release', task_ids: [bare] }, OPTS)).rejects.toMatchObject({ statusCode: 409, code: 'needs_why' });
+      expect((await row(bare)).status).toBe('triage');
+      const project = await mkProject('ready');
+      const withWhy = await mk('group with why', { triage_kind: 'task', project_id: project });
+      const without = await mk('group without why', { triage_kind: 'task', project_id: project, description: ONE_SENTENCE });
+      const res = await runHomeAct(prisma, MIKE_USER_ID, { action: 'triage_release_plan', group_key: `project:${project}` }, OPTS);
+      expect(res.message).toContain('left alone');
+      expect((await row(withWhy)).status).toBe('not_started');
+      expect((await row(without)).status).toBe('triage');
+    });
   });
 
   it('a task on a quote project is refused (the old rule holds for every kind)', async () => {

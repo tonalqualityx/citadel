@@ -12,6 +12,9 @@
  *   notDone       "Not done": takes the looks-done mark off and leaves the card in Triage, with an internal comment.
  *   undoTriage    puts back exactly the tasks still as the tap left them (compare-and-set), for 72 hours.
  *
+ * No card is released without a why (triage-why.ts; Mike, 2026-11-28): a card whose description has no labelled why is refused 409 needs_why,
+ * on every release path (the card's Release, the older group tap, Release plan, the chat and the front session all come through run()).
+ *
  * Open questions (lib/tasks/questions.ts) never block a release. Each open question follows its if_nobody_action: `go_with_recommendation`
  * becomes `defaulted` (released without an answer, never his words); `wait` puts `held-for-questions` and `needs-mike` on the card.
  * The tap records which questions and which tags it changed, so Undo restores exactly those.
@@ -40,6 +43,7 @@ import { readWorkCloseRecord, undoWorkClose, type WorkCloseRecord } from '@/lib/
 import { stageALines } from '@/lib/work/finished-store';
 import { ensureProjectBrief } from '@/lib/engagement/ensure-brief';
 import { RELEASE_REFUSALS, planRelease, type ReleasePlan, type TriageKindName } from './triage-kind';
+import { hasWhy } from './triage-why';
 import { HELD_NEEDS_MIKE_MARK, HELD_TAG, NEEDS_MIKE_TAG, openQuestionCounts } from './questions';
 
 export const TRIAGE_PASS_PREFIX = 'triage-pass:';
@@ -66,6 +70,8 @@ const ROW_SELECT = {
   project_id: true,
   triage_kind: true,
   triage_rev: true,
+  // Release is refused on a card with no why (triage-why.ts).
+  description: true,
   assignee_id: true,
   assignee: { select: { name: true } },
   site_id: true,
@@ -294,6 +300,7 @@ function releasePlanOf(row: Row, requireKind: boolean, open: { if_nobody_action:
     assignee_name: row.assignee?.name ?? null,
     project: row.project ? { id: row.project.id, name: row.project.name, status: row.project.status } : null,
     bast_id: BAST_USER_ID,
+    has_why: hasWhy(row.description),
   });
 }
 
@@ -343,6 +350,11 @@ async function run(
     if (mode === 'release') {
       if (rp && !rp.ready) {
         blocks.push(rp.block);
+        continue;
+      }
+      // The older group tap on an unsorted card has no plan, but the why still holds: no card leaves Triage by Release without one.
+      if (!rp && !hasWhy(row.description)) {
+        blocks.push('no_why');
         continue;
       }
       // A task on a quote project is never released: nothing in the worker checks project status, so a release would start it.
@@ -475,7 +487,7 @@ export async function releaseBastCards(
     if (rp) {
       // A sorted release hands the card to Dox (or leaves it with a person): none ends assigned to Bast.
       continue;
-    } else if (row.assignee_id === BAST_USER_ID && row.project?.status !== 'quote') ending.push(row);
+    } else if (row.assignee_id === BAST_USER_ID && row.project?.status !== 'quote' && hasWhy(row.description)) ending.push(row);
   }
   const clientText = await clientTextTaskIds(db, ending.map((r) => r.id));
   return ending.map((r) => ({ task_id: r.id, client_text: clientText.has(r.id) }));

@@ -11,6 +11,7 @@ import { render, screen, fireEvent, within, waitFor } from '@testing-library/rea
 import { TriageBoard } from '../TriageBoard';
 import { CARD_CHANGED_MESSAGE } from '@/lib/tasks/triage-copy';
 import type { HomeTriage, HomeTriageCard } from '@/lib/home/types';
+import { NEEDS_WHY_LINE } from '@/lib/tasks/triage-kind';
 
 const U = '7aa4a01a-1111-4222-8333-9444455';
 const card = (n: number, over: Partial<HomeTriageCard> = {}): HomeTriageCard => ({
@@ -127,6 +128,19 @@ describe('TriageBoard', () => {
     render(<TriageBoard triage={triage([card(1, { kind: 'project_addition', release_ready: false, release_block: 'still_quote', release_line: 'Grok is still a quote, so release is refused.' })])} onAct={vi.fn()} onTalk={vi.fn()} />);
     expect(screen.getByTestId('release-line').textContent).toContain('Grok is still a quote');
     expect((screen.getByRole('button', { name: 'Release' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('a card with no why shows Needs a why in place of the release sentence and disables Release', () => {
+    const onAct = vi.fn();
+    render(<TriageBoard triage={triage([card(1, { kind: 'task', release_ready: false, release_block: 'no_why', release_line: NEEDS_WHY_LINE })])} onAct={onAct} onTalk={vi.fn()} />);
+    const line = screen.getByTestId('release-line');
+    expect(line.getAttribute('data-blocked')).toBe('no_why');
+    expect(line.textContent).toContain('Needs a why');
+    expect(line.textContent).not.toContain('Hands this to');
+    const rel = screen.getByRole('button', { name: 'Release' }) as HTMLButtonElement;
+    expect(rel.disabled).toBe(true);
+    fireEvent.click(rel);
+    expect(onAct).not.toHaveBeenCalled();
   });
 
   it('a project card shows contract state with a deal link, phases with Yours marked, and the page count with first names', () => {

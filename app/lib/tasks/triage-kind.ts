@@ -11,6 +11,7 @@
  *                                                     a linked project still in queue goes to ready (Mike's release of the card starts its work)
  *   question_only                                     card closed as done; its questions and answers stay on it
  *   null (not sorted yet)                             nothing: release is refused
+ *   no why (any kind)                                 nothing: release is refused until the card says what the work is for (triage-why.ts)
  */
 
 export const TRIAGE_KINDS = ['project_setup', 'task', 'project_addition', 'reusable_tool', 'rule_proposal', 'question_only'] as const;
@@ -22,7 +23,7 @@ export const KICKOFF_TAG = 'kickoff';
 export const PM_RELEASE_TAG = 'needs-pm-release';
 
 /** `no_project` is no longer produced (a project card with no project now goes to Dox to create it); kept so older payloads still type-check. */
-export type ReleaseBlock = 'unsorted' | 'no_project' | 'still_quote' | 'project_closed';
+export type ReleaseBlock = 'unsorted' | 'no_why' | 'no_project' | 'still_quote' | 'project_closed';
 
 export interface ReleaseInput {
   kind: TriageKindName | null;
@@ -30,6 +31,11 @@ export interface ReleaseInput {
   assignee_name: string | null;
   project: { id: string; name: string; status: string } | null;
   bast_id: string;
+  /**
+   * The card has a why: what the work is for and what it lets us do (hasWhy in triage-why.ts, read from the description). False refuses
+   * Release. Mike, 2026-11-28: "a triage card cannot be released without a clear why." Required, so no caller can leave it out.
+   */
+  has_why: boolean;
   /** The client site the card carries (null = none: internal work). Undefined is read as none. */
   site?: { id: string; name: string } | null;
   /** Open questions that follow go_with_recommendation (they go ahead) and the rest (they wait for him). Default 0. */
@@ -90,12 +96,15 @@ export interface ReleasePlan {
 /** Why a blocked release is refused: HTTP status, code and sentence (the quote sentence is the one the old Release plan used). */
 export const RELEASE_REFUSALS: Record<ReleaseBlock, { status: number; code: string; message: string }> = {
   unsorted: { status: 409, code: 'not_sorted', message: 'Not sorted yet. Nothing was released.' },
+  no_why: { status: 409, code: 'needs_why', message: 'This card needs a why first: what the work is for and what it lets us do. Nothing was released.' },
   no_project: { status: 409, code: 'no_project', message: 'This card needs its project linked first. Nothing was released.' },
   still_quote: { status: 409, code: 'still_a_quote', message: 'That project is still a quote. Nothing was released.' },
   project_closed: { status: 409, code: 'project_closed', message: 'That project is closed. Nothing was released.' },
 };
 
 export const NOT_SORTED_LINE = 'Not sorted yet';
+/** The Release line on a card with no why, in place of the release sentence. */
+export const NEEDS_WHY_LINE = 'Needs a why: say what this work is for and what it lets us do. Talk about it and Bast will write one from the card and your words.';
 
 const words = (status: string) => status.replace(/_/g, ' ');
 
@@ -160,6 +169,7 @@ export function planRelease(input: ReleaseInput): ReleasePlan {
   const wait = input.open_wait ?? 0;
   const blocked = (block: ReleaseBlock, line: string): ReleasePlan => ({ ready: false, block, line, details: [], effects: null });
   if (kind === null) return blocked('unsorted', NOT_SORTED_LINE);
+  if (!input.has_why) return blocked('no_why', NEEDS_WHY_LINE);
   const noted = input.noted_items ?? 0;
   const finish = (effects: ReleaseEffects): ReleasePlan => ({
     ready: true,

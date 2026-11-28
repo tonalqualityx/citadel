@@ -23,6 +23,7 @@ import { POST as mintQ } from '@/app/api/tasks/[id]/questions/[qid]/links/route'
 import { POST as answerQ } from '@/app/api/tasks/[id]/questions/[qid]/answer/route';
 import { GET as openLink, POST as redeemLink } from '@/app/api/question-links/[token]/route';
 import { defaultDueQuestions, HELD_TAG } from '../questions';
+import { WHY_DESCRIPTION } from '@/lib/tasks/__tests__/fixtures/why';
 
 const authMock = requireAuth as Mock;
 const taskParams = (id: string) => ({ params: Promise.resolve({ id }) });
@@ -288,7 +289,7 @@ describe.skipIf(!SCRATCH)('answer links (real database)', () => {
   });
 
   it('a held question on a Triage card waits on release instead of going ahead', async () => {
-    const t = await mkTask('triage hold', { status: 'triage' });
+    const t = await mkTask('triage hold', { status: 'triage', description: WHY_DESCRIPTION });
     const row = await ask(t, withOptions('Release with cards or table?', 'go_with_recommendation'));
     // The worker key never reads a Triage card's questions, so it cannot mint there; Mike can.
     expect((await mint(t, row.id, worker())).status).toBe(404);

@@ -31,6 +31,7 @@ import { laneAllows } from '@/lib/auth/lane-scopes';
 import { dox, mikeSession, idParams, makeFixture, BOT_ID, type Fx } from './fixture';
 import { DOX_USER_ID } from '../identity';
 import { MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
+import { WHY_DESCRIPTION } from '@/lib/tasks/__tests__/fixtures/why';
 
 const authMock = requireAuth as Mock;
 const as = (a: AuthPayload) => authMock.mockResolvedValue(a);
@@ -79,7 +80,7 @@ describe.skipIf(!SCRATCH)('Dox slice 3 (real database)', () => {
 
     it('releasing a card linked to a project creates the brief (live, auto); an existing brief is never changed; Undo does not delete it', async () => {
       const p1 = await fx.mkProject('Release makes a brief', { status: 'ready' });
-      const c1 = await fx.mkTask('Addition', { status: 'triage', triage_kind: 'project_addition', project_id: p1, client_id: fx.clientId });
+      const c1 = await fx.mkTask('Addition', { status: 'triage', triage_kind: 'project_addition', project_id: p1, client_id: fx.clientId, description: WHY_DESCRIPTION });
       expect(await briefOf(p1)).toBeNull();
       const res = await release(c1);
       expect((await row(c1)).status).toBe('not_started');
@@ -87,7 +88,7 @@ describe.skipIf(!SCRATCH)('Dox slice 3 (real database)', () => {
 
       const p2 = await fx.mkProject('Release keeps the brief', { status: 'ready' });
       const mine = await prisma.engagementBrief.create({ data: { project_id: p2, label: 'mine', cadence: 'weekly', owner_mode: 'live', allowed_actions: [] } });
-      const c2 = await fx.mkTask('Addition 2', { status: 'triage', triage_kind: 'project_addition', project_id: p2, client_id: fx.clientId });
+      const c2 = await fx.mkTask('Addition 2', { status: 'triage', triage_kind: 'project_addition', project_id: p2, client_id: fx.clientId, description: WHY_DESCRIPTION });
       await release(c2);
       expect(await briefOf(p2)).toMatchObject({ id: mine.id, owner_mode: 'live', cadence: 'weekly', label: 'mine', version: mine.version });
 
@@ -99,7 +100,7 @@ describe.skipIf(!SCRATCH)('Dox slice 3 (real database)', () => {
 
     it('a project card: the queued project goes ready and has its brief', async () => {
       const p = await fx.mkProject('Queued setup', { status: 'queue' });
-      const c = await fx.mkTask('Setup', { status: 'triage', triage_kind: 'project_setup', project_id: p, client_id: fx.clientId });
+      const c = await fx.mkTask('Setup', { status: 'triage', triage_kind: 'project_setup', project_id: p, client_id: fx.clientId, description: WHY_DESCRIPTION });
       await release(c);
       expect((await prisma.project.findUniqueOrThrow({ where: { id: p } })).status).toBe('ready');
       expect(await briefOf(p)).toMatchObject({ owner_mode: 'live', cadence: 'auto' });
@@ -107,7 +108,7 @@ describe.skipIf(!SCRATCH)('Dox slice 3 (real database)', () => {
 
     it('a released card with no project makes no brief', async () => {
       const before = await prisma.engagementBrief.count();
-      const c = await fx.mkTask('Ad hoc', { status: 'triage', triage_kind: 'task', client_id: fx.clientId });
+      const c = await fx.mkTask('Ad hoc', { status: 'triage', triage_kind: 'task', client_id: fx.clientId, description: WHY_DESCRIPTION });
       await release(c);
       expect(await prisma.engagementBrief.count()).toBe(before);
     });

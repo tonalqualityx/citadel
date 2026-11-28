@@ -27,6 +27,7 @@ import { POST as phasePost, PATCH as phasePatch } from '@/app/api/projects/[id]/
 import { GET as commentsGet } from '@/app/api/tasks/[id]/comments/route';
 import { homeOp } from '@/lib/bast-chat/ops/home';
 import { TRIAGE_KINDS } from '@/lib/tasks/triage-kind';
+import { WHY_DESCRIPTION } from '@/lib/tasks/__tests__/fixtures/why';
 
 const authMock = requireAuth as Mock;
 const NOW = new Date();
@@ -63,7 +64,7 @@ describe.skipIf(!SCRATCH)('triage review fixes (real database)', () => {
     return p.id;
   };
   const mk = async (title: string, data: Record<string, unknown> = {}) => {
-    const t = await prisma.task.create({ data: { title: `${tag} ${title}`, status: 'triage', tags: ['keep-me'], ...data } as never });
+    const t = await prisma.task.create({ data: { title: `${tag} ${title}`, status: 'triage', tags: ['keep-me'], description: WHY_DESCRIPTION, ...data } as never });
     ids.push(t.id);
     return t.id;
   };

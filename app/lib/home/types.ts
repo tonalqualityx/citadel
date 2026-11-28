@@ -831,7 +831,7 @@ export interface HomeTriageCard {
   /** Everything Release depends on, hashed. triage_release_card must send the one the owner read; a mismatch answers 409 card_changed. */
   release_version: string;
   release_ready: boolean;
-  release_block: 'unsorted' | 'no_project' | 'still_quote' | 'project_closed' | null;
+  release_block: 'unsorted' | 'no_why' | 'no_project' | 'still_quote' | 'project_closed' | null;
   open_questions: number;
   /** Goes up on every change the owner should see before releasing (kind, project, shape, sitemap, dates, questions, plan). Part of release_version. */
   triage_rev: number;

@@ -106,7 +106,7 @@ describe.skipIf(!SCRATCH)('triage card payload (real database)', () => {
   });
 
   it('cards: summary, age, open question count, release line; looks done first with evidence links, then oldest first', async () => {
-    const old = await mk('oldest', { triage_kind: 'task', created_at: new Date(Date.now() - 10 * 86_400_000), description: JSON.stringify([{ type: 'paragraph', content: [{ type: 'text', text: "What's wanted: Fix the footer" }], children: [] }]) });
+    const old = await mk('oldest', { triage_kind: 'task', created_at: new Date(Date.now() - 10 * 86_400_000), description: JSON.stringify([{ type: 'paragraph', content: [{ type: 'text', text: "What's wanted: Fix the footer" }], children: [] }, { type: 'paragraph', content: [{ type: 'text', text: 'Why it matters: Visitors cannot reach the contact page.' }], children: [] }]) });
     const newer = await mk('newer', { created_at: new Date(Date.now() - 2 * 86_400_000) });
     const done = await mk('marked', { tags: [LOOKS_DONE_TAG], created_at: new Date(Date.now() - 1 * 86_400_000) });
     await prisma.comment.create({ data: { task_id: done, user_id: MIKE_USER_ID, content: 'Looks done: shipped, see https://example.test/page.', is_internal: true, client_visible: false } });
@@ -117,6 +117,11 @@ describe.skipIf(!SCRATCH)('triage card payload (real database)', () => {
     const byId = Object.fromEntries(cards.map((c) => [c.task_id, c]));
     expect(byId[done].looks_done).toEqual({ evidence: 'shipped, see https://example.test/page.', links: [{ text: 'https://example.test/page', href: 'https://example.test/page' }] });
     expect(byId[old]).toMatchObject({ kind: 'task', summary: 'Fix the footer', age_days: 10, open_questions: 1, looks_done: null, release_ready: true });
+    // The same card filed with one sentence and no why: the line says Needs a why and Release is off (Mike, 2026-11-28).
+    const bare = await mk('no why', { triage_kind: 'task', description: JSON.stringify([{ type: 'paragraph', content: [{ type: 'text', text: "What's wanted: Fix the header" }], children: [] }]) });
+    const bareCard = (await mine()).cards.find((c) => c.task_id === bare)!;
+    expect(bareCard).toMatchObject({ release_ready: false, release_block: 'no_why' });
+    expect(bareCard.release_line.startsWith('Needs a why')).toBe(true);
     expect(byId[newer]).toMatchObject({ kind: null, release_ready: false, release_line: 'Not sorted yet', age_days: 2, summary: '' });
     expect(byId[old].href).toBe(`/tasks/${old}`);
   });

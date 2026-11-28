@@ -18,6 +18,7 @@ import { MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import { runHomeAct, runHomeUndo } from '@/lib/home/act';
 import { loadTriage, release, releasePlan, drop, TRIAGE_PASS_PREFIX } from '@/lib/tasks/triage';
 import { GET as getHome } from '@/app/api/home/route';
+import { WHY_DESCRIPTION } from '@/lib/tasks/__tests__/fixtures/why';
 
 const authMock = requireAuth as Mock;
 const NOW = new Date();
@@ -36,7 +37,7 @@ describe.skipIf(!SCRATCH)('triage section (real database)', () => {
 
   const status = async (id: string) => (await prisma.task.findUniqueOrThrow({ where: { id } })).status;
   const mk = async (title: string, project: string | null, extra: Record<string, unknown> = {}) => {
-    const t = await prisma.task.create({ data: { title: `${tag} ${title}`, status: 'triage', project_id: project, ...extra } as never });
+    const t = await prisma.task.create({ data: { title: `${tag} ${title}`, status: 'triage', project_id: project, description: WHY_DESCRIPTION, ...extra } as never });
     ids.push(t.id);
     return t.id;
   };

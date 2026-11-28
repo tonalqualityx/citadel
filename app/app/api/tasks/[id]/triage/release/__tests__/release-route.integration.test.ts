@@ -23,6 +23,7 @@ import { patchTask } from '@/lib/services/task-patch';
 import { recordWords, releaseOnMikesWords } from '@/lib/front-session/release';
 import { POST } from '../route';
 import { PATCH as patchTriage } from '../../route';
+import { WHY_DESCRIPTION } from '@/lib/tasks/__tests__/fixtures/why';
 
 const authMock = requireAuth as Mock;
 const params = (id: string) => ({ params: Promise.resolve({ id }) });
@@ -43,7 +44,7 @@ describe.skipIf(!SCRATCH)('front session release on Mike\'s words (real database
   const WORDS = { mike_words: 'This is great. Let\'s release it', said_where: 'Claude app, front session', said_at: new Date(Date.now() - 60_000).toISOString() };
   const row = (id: string) => prisma.task.findUniqueOrThrow({ where: { id } });
   const mk = async (title: string, data: Record<string, unknown> = {}) => {
-    const t = await prisma.task.create({ data: { title: `${tag} ${title}`, status: 'triage', triage_kind: 'task', tags: ['keep-me'], ...data } as never });
+    const t = await prisma.task.create({ data: { title: `${tag} ${title}`, status: 'triage', triage_kind: 'task', tags: ['keep-me'], description: WHY_DESCRIPTION, ...data } as never });
     ids.push(t.id);
     return t.id;
   };
@@ -87,6 +88,20 @@ describe.skipIf(!SCRATCH)('front session release on Mike\'s words (real database
     // Mike's 72 hour Undo covers it, like any release from his home screen.
     await runHomeUndo(prisma, MIKE_USER_ID, body.release.action_id, new Date(Date.now() + 60_000));
     expect((await row(id)).status).toBe('triage');
+  });
+
+  it('a card with no why: the front session gets 409 needs_why with a plain reason, nothing moves and his words come back off the card', async () => {
+    const id = await mk('no why', { description: JSON.stringify([{ type: 'paragraph', content: [{ type: 'text', text: 'One sentence idea.' }], children: [] }]) });
+    authMock.mockResolvedValue(front());
+    const refused = await post(id, WORDS);
+    expect(refused.status).toBe(409);
+    const body = await refused.json();
+    expect(body.code).toBe('needs_why');
+    expect(body.error ?? body.message).toContain('needs a why');
+    const after = await row(id);
+    expect(after.status).toBe('triage');
+    expect(after.assignee_id).toBeNull();
+    expect(await comments(id)).toHaveLength(0);
   });
 
   it('an unsorted card the front session filed: refused as not sorted, then the front session sorts it and it releases on Mike\'s words', async () => {

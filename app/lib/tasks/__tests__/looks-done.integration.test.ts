@@ -23,6 +23,7 @@ import { LOOKS_DONE_TAG } from '@/lib/tasks/looks-done';
 import { GET as listTasks } from '@/app/api/tasks/route';
 import { GET as getComments, POST as postComment } from '@/app/api/tasks/[id]/comments/route';
 import { PATCH as patchRoute } from '@/app/api/tasks/[id]/route';
+import { WHY_DESCRIPTION } from '@/lib/tasks/__tests__/fixtures/why';
 
 const authMock = requireAuth as Mock;
 const params = (id: string) => ({ params: Promise.resolve({ id }) });
@@ -48,7 +49,7 @@ describe.skipIf(!SCRATCH)('triage looks-done (real database)', () => {
   const tech = (): AuthPayload => ({ userId: techId, role: 'tech', email: 't@test', via: 'session' });
   const row = (id: string) => prisma.task.findUniqueOrThrow({ where: { id } });
   const mk = async (title: string, data: Record<string, unknown> = {}) => {
-    const t = await prisma.task.create({ data: { title: `${tag} ${title}`, status: 'triage', ...data } as never });
+    const t = await prisma.task.create({ data: { title: `${tag} ${title}`, status: 'triage', description: WHY_DESCRIPTION, ...data } as never });
     ids.push(t.id);
     return t.id;
   };

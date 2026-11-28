@@ -12,6 +12,7 @@ import { BAST_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import type { HomeAskedAfterRelease, HomeTriageCard, HomeTriageProject } from '@/lib/home/types';
 import { LOOKS_DONE_PREFIX, LOOKS_DONE_TAG, evidenceOf, evidenceParts } from './looks-done';
 import { FROM_TRIAGE_TAG, planRelease, type TriageKindName } from './triage-kind';
+import { hasWhy } from './triage-why';
 import { releaseVersion } from './triage-version';
 import { openQuestionCounts } from './questions';
 import { recentChanges } from './triage-rev';
@@ -154,6 +155,8 @@ export async function loadCards(db: Db, taskIds: string[], now: Date = new Date(
       assignee_id: true,
       site_id: true,
       client_id: true,
+      // Release reads the card's why (triage-why.ts). Triage holds dozens of cards, not hundreds, so the whole body is read here.
+      description: true,
       site: { select: { id: true, name: true } },
       assignee: { select: { name: true } },
       project: { select: { id: true, name: true, status: true, start_date: true, target_date: true } },
@@ -174,6 +177,7 @@ export async function loadCards(db: Db, taskIds: string[], now: Date = new Date(
       assignee_name: t.assignee?.name ?? null,
       project: t.project ? { id: t.project.id, name: t.project.name, status: t.project.status } : null,
       bast_id: BAST_USER_ID,
+      has_why: hasWhy(t.description),
       site: t.site ? { id: t.site.id, name: t.site.name } : null,
       noted_items: planRows.filter((r) => r.task_id === t.id && r.section === 'planned_tasks' && countsAsNoted(r)).length,
       open_go: questionSplit(openQs.get(t.id)).go,

@@ -26,6 +26,7 @@ import { PATCH as patchQ } from '@/app/api/tasks/[id]/questions/[qid]/route';
 import { POST as answerQ } from '@/app/api/tasks/[id]/questions/[qid]/answer/route';
 import { HELD_TAG, NEEDS_MIKE_TAG, HELD_NEEDS_MIKE_MARK, HELD_ANSWER_PREFIX } from '../questions';
 import { QUESTION_CHANGED_MESSAGE } from '../question-context';
+import { WHY_DESCRIPTION } from '@/lib/tasks/__tests__/fixtures/why';
 
 const authMock = requireAuth as Mock;
 const NOW = new Date();
@@ -76,7 +77,7 @@ describe.skipIf(!SCRATCH)('card questions (real database)', () => {
   const as = (a: AuthPayload) => authMock.mockResolvedValue(a);
 
   const mkTask = async (title: string, extra: Record<string, unknown> = {}) => {
-    const t = await prisma.task.create({ data: { title: `${tag} ${title}`, status: 'triage', ...extra } as never });
+    const t = await prisma.task.create({ data: { title: `${tag} ${title}`, status: 'triage', description: WHY_DESCRIPTION, ...extra } as never });
     taskIds.push(t.id);
     return t.id;
   };
